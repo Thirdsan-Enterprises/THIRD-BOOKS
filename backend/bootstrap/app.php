@@ -25,6 +25,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/*',
         ]);
     })
+    ->withProviders([
+        \App\Providers\AppServiceProvider::class,
+    ])
     ->withExceptions(function (Exceptions $exceptions) {
         //
     })->create();

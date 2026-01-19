@@ -10,6 +10,7 @@ use App\Http\Controllers\API\Sales\CustomerController;
 use App\Http\Controllers\API\Purchases\BillController;
 use App\Http\Controllers\API\Purchases\VendorController;
 use App\Http\Controllers\API\Reporting\ReportController;
+use App\Http\Controllers\SyncController;
 
 /*
 |--------------------------------------------------------------------------
@@ -89,6 +90,16 @@ Route::middleware('auth:sanctum')->group(function () {
         // Companies
         Route::get('/companies', function() {
             return response()->json(\App\Models\Company::all());
+        });
+
+        // Sync (Event Sourcing & Offline Support)
+        Route::prefix('sync')->group(function () {
+            Route::post('/', [SyncController::class, 'sync']); // Full bi-directional sync
+            Route::post('/push', [SyncController::class, 'push']); // Upload events
+            Route::get('/pull', [SyncController::class, 'pull']); // Download events
+            Route::get('/status', [SyncController::class, 'status']); // Get sync status
+            Route::post('/device', [SyncController::class, 'updateDevice']); // Update device state
+            Route::get('/replay/{aggregateType}/{aggregateId}', [SyncController::class, 'replay']); // Replay events
         });
     });
 });
