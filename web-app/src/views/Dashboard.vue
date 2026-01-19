@@ -1,37 +1,5 @@
 <template>
-  <div class="min-h-screen bg-gray-50">
-    <!-- Navigation -->
-    <nav class="bg-white shadow-sm">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between h-16">
-          <div class="flex">
-            <div class="flex-shrink-0 flex items-center">
-              <h1 class="text-2xl font-bold text-primary-600">ThirdBooks</h1>
-            </div>
-            <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
-              <a href="#" class="border-primary-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
-                Dashboard
-              </a>
-              <a href="#" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
-                Invoices
-              </a>
-              <a href="#" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
-                Bills
-              </a>
-              <a href="#" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
-                Reports
-              </a>
-            </div>
-          </div>
-          <div class="flex items-center">
-            <span class="text-sm text-gray-700">{{ user?.name }}</span>
-          </div>
-        </div>
-      </div>
-    </nav>
-
-    <!-- Page Content -->
-    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+  <AppLayout>
       <!-- Stats -->
       <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
         <div class="card">
@@ -143,12 +111,13 @@
           </div>
         </div>
       </div>
-    </main>
-  </div>
+  </AppLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import AppLayout from '@/components/AppLayout.vue'
+import api from '@/utils/api'
 
 interface DashboardStats {
   revenue: number
@@ -157,30 +126,32 @@ interface DashboardStats {
   cash_position: number
 }
 
-interface User {
-  name: string
-  email: string
+interface Invoice {
+  id: number
+  invoice_number: string
+  customer_name: string
+  total: number
+  status: string
 }
 
-const user = ref<User>({ name: 'Demo User', email: 'demo@example.com' })
+interface Bill {
+  id: number
+  bill_number: string
+  vendor_name: string
+  total: number
+  status: string
+}
+
+const isLoading = ref(true)
 const stats = ref<DashboardStats>({
-  revenue: 1000000,
-  expenses: 600000,
-  profit: 400000,
-  cash_position: 500000,
+  revenue: 0,
+  expenses: 0,
+  profit: 0,
+  cash_position: 0,
 })
 
-const recentInvoices = ref([
-  { id: 1, invoice_number: 'INV-2024-00001', customer_name: 'John Doe', total: 118000, status: 'paid' },
-  { id: 2, invoice_number: 'INV-2024-00002', customer_name: 'Jane Smith', total: 250000, status: 'sent' },
-  { id: 3, invoice_number: 'INV-2024-00003', customer_name: 'Acme Corp', total: 500000, status: 'draft' },
-])
-
-const recentBills = ref([
-  { id: 1, bill_number: 'BILL-2024-00001', vendor_name: 'Office Supplies Ltd', total: 50000, status: 'paid' },
-  { id: 2, bill_number: 'BILL-2024-00002', vendor_name: 'Tech Solutions', total: 150000, status: 'approved' },
-  { id: 3, bill_number: 'BILL-2024-00003', vendor_name: 'Utilities Co', total: 75000, status: 'draft' },
-])
+const recentInvoices = ref<Invoice[]>([])
+const recentBills = ref<Bill[]>([])
 
 const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('en-UG', {
@@ -190,8 +161,48 @@ const formatCurrency = (amount: number): string => {
   }).format(amount)
 }
 
+async function fetchDashboardData() {
+  try {
+    isLoading.value = true
+
+    // Fetch dashboard overview
+    const overviewResponse = await api.getDashboardOverview()
+    const data = overviewResponse.data.data
+
+    stats.value = {
+      revenue: data.revenue || 0,
+      expenses: data.expenses || 0,
+      profit: data.profit || 0,
+      cash_position: data.cash_position || 0,
+    }
+
+    // Fetch recent invoices
+    const invoicesResponse = await api.getInvoices({ limit: 5, sort: '-created_at' })
+    recentInvoices.value = invoicesResponse.data.data.map((inv: any) => ({
+      id: inv.id,
+      invoice_number: inv.invoice_number,
+      customer_name: inv.customer?.name || 'N/A',
+      total: inv.total,
+      status: inv.status,
+    }))
+
+    // Fetch recent bills
+    const billsResponse = await api.getBills({ limit: 5, sort: '-created_at' })
+    recentBills.value = billsResponse.data.data.map((bill: any) => ({
+      id: bill.id,
+      bill_number: bill.bill_number,
+      vendor_name: bill.vendor?.name || 'N/A',
+      total: bill.total,
+      status: bill.status,
+    }))
+  } catch (error) {
+    console.error('Failed to fetch dashboard data:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
 onMounted(() => {
-  // Fetch real data from API
-  // This is placeholder data for now
+  fetchDashboardData()
 })
 </script>
