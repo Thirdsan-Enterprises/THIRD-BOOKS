@@ -40,6 +40,13 @@
                 Bills
               </router-link>
               <router-link
+                to="/vendors"
+                class="border-transparent hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
+                active-class="!border-primary-500 !text-gray-900"
+              >
+                Vendors
+              </router-link>
+              <router-link
                 to="/accounts"
                 class="border-transparent hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
                 active-class="!border-primary-500 !text-gray-900"
