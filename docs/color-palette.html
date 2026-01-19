@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ThirdBooks - Color Palette</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 40px 20px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header {
+      text-align: center;
+      color: white;
+      margin-bottom: 60px;
+    }
+
+    .header h1 {
+      font-size: 48px;
+      font-weight: 800;
+      margin-bottom: 16px;
+      text-shadow: 0 2px 20px rgba(0,0,0,0.3);
+    }
+
+    .header p {
+      font-size: 20px;
+      opacity: 0.9;
+    }
+
+    .palette-section {
+      background: white;
+      border-radius: 24px;
+      padding: 40px;
+      margin-bottom: 32px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+    }
+
+    .palette-section h2 {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #111827;
+    }
+
+    .palette-section p {
+      font-size: 16px;
+      color: #6b7280;
+      margin-bottom: 32px;
+    }
+
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 16px;
+    }
+
+    .color-swatch {
+      aspect-ratio: 1;
+      border-radius: 12px;
+      position: relative;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      transition: transform 0.2s, box-shadow 0.2s;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .color-swatch:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    }
+
+    .color-label {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(10px);
+    }
+
+    .color-hex {
+      font-size: 9px;
+      font-weight: 400;
+      color: #6b7280;
+      display: block;
+      margin-top: 2px;
+    }
+
+    .examples {
+      background: #f9fafb;
+      border-radius: 16px;
+      padding: 32px;
+      margin-top: 32px;
+    }
+
+    .examples h3 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 24px;
+      color: #111827;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 32px;
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    .btn-primary {
+      background: #4f46e5;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #4338ca;
+    }
+
+    .btn-secondary {
+      background: #059669;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #047857;
+    }
+
+    .btn-accent {
+      background: #f59e0b;
+      color: white;
+    }
+
+    .btn-accent:hover {
+      background: #d97706;
+    }
+
+    .badges {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      padding: 6px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .badge-primary { background: #e0e7ff; color: #4338ca; }
+    .badge-success { background: #d1fae5; color: #047857; }
+    .badge-warning { background: #fef3c7; color: #b45309; }
+    .badge-danger { background: #fee2e2; color: #991b1b; }
+    .badge-info { background: #dbeafe; color: #1e40af; }
+    .badge-gray { background: #f3f4f6; color: #374151; }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      border: 1px solid #e5e7eb;
+      margin-bottom: 16px;
+    }
+
+    .card h4 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 8px;
+    }
+
+    .card p {
+      font-size: 14px;
+      color: #6b7280;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>ThirdBooks Color Palette</h1>
+      <p>Professional, Industry-Standard Design System</p>
+    </div>
+
+    <!-- Primary Colors -->
+    <div class="palette-section">
+      <h2>Primary - Indigo</h2>
+      <p>Trust, Stability, Professionalism · Used for buttons, links, focus states</p>
+      <div class="color-grid">
+        <div class="color-swatch" style="background: #eef2ff;">
+          <div class="color-label">50<span class="color-hex">#eef2ff</span></div>
+        </div>
+        <div class="color-swatch" style="background: #e0e7ff;">
+          <div class="color-label">100<span class="color-hex">#e0e7ff</span></div>
+        </div>
+        <div class="color-swatch" style="background: #c7d2fe;">
+          <div class="color-label">200<span class="color-hex">#c7d2fe</span></div>
+        </div>
+        <div class="color-swatch" style="background: #a5b4fc;">
+          <div class="color-label">300<span class="color-hex">#a5b4fc</span></div>
+        </div>
+        <div class="color-swatch" style="background: #818cf8;">
+          <div class="color-label">400<span class="color-hex">#818cf8</span></div>
+        </div>
+        <div class="color-swatch" style="background: #6366f1;">
+          <div class="color-label">500<span class="color-hex">#6366f1</span></div>
+        </div>
+        <div class="color-swatch" style="background: #4f46e5;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">600 ★<span class="color-hex" style="color: rgba(255,255,255,0.8);">#4f46e5</span></div>
+        </div>
+        <div class="color-swatch" style="background: #4338ca;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">700<span class="color-hex" style="color: rgba(255,255,255,0.8);">#4338ca</span></div>
+        </div>
+        <div class="color-swatch" style="background: #3730a3;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">800<span class="color-hex" style="color: rgba(255,255,255,0.8);">#3730a3</span></div>
+        </div>
+        <div class="color-swatch" style="background: #312e81;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">900<span class="color-hex" style="color: rgba(255,255,255,0.8);">#312e81</span></div>
+        </div>
+        <div class="color-swatch" style="background: #1e1b4b;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">950<span class="color-hex" style="color: rgba(255,255,255,0.8);">#1e1b4b</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Secondary Colors -->
+    <div class="palette-section">
+      <h2>Secondary - Emerald Green</h2>
+      <p>Success, Growth, Money · Used for positive metrics, paid status, success states</p>
+      <div class="color-grid">
+        <div class="color-swatch" style="background: #ecfdf5;">
+          <div class="color-label">50<span class="color-hex">#ecfdf5</span></div>
+        </div>
+        <div class="color-swatch" style="background: #d1fae5;">
+          <div class="color-label">100<span class="color-hex">#d1fae5</span></div>
+        </div>
+        <div class="color-swatch" style="background: #a7f3d0;">
+          <div class="color-label">200<span class="color-hex">#a7f3d0</span></div>
+        </div>
+        <div class="color-swatch" style="background: #6ee7b7;">
+          <div class="color-label">300<span class="color-hex">#6ee7b7</span></div>
+        </div>
+        <div class="color-swatch" style="background: #34d399;">
+          <div class="color-label">400<span class="color-hex">#34d399</span></div>
+        </div>
+        <div class="color-swatch" style="background: #10b981;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">500<span class="color-hex" style="color: rgba(255,255,255,0.8);">#10b981</span></div>
+        </div>
+        <div class="color-swatch" style="background: #059669;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">600 ★<span class="color-hex" style="color: rgba(255,255,255,0.8);">#059669</span></div>
+        </div>
+        <div class="color-swatch" style="background: #047857;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">700<span class="color-hex" style="color: rgba(255,255,255,0.8);">#047857</span></div>
+        </div>
+        <div class="color-swatch" style="background: #065f46;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">800<span class="color-hex" style="color: rgba(255,255,255,0.8);">#065f46</span></div>
+        </div>
+        <div class="color-swatch" style="background: #064e3b;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">900<span class="color-hex" style="color: rgba(255,255,255,0.8);">#064e3b</span></div>
+        </div>
+        <div class="color-swatch" style="background: #022c22;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">950<span class="color-hex" style="color: rgba(255,255,255,0.8);">#022c22</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Accent Colors -->
+    <div class="palette-section">
+      <h2>Accent - Amber</h2>
+      <p>Warnings, Attention, Pending States · Used for warnings, draft status, needs attention</p>
+      <div class="color-grid">
+        <div class="color-swatch" style="background: #fffbeb;">
+          <div class="color-label">50<span class="color-hex">#fffbeb</span></div>
+        </div>
+        <div class="color-swatch" style="background: #fef3c7;">
+          <div class="color-label">100<span class="color-hex">#fef3c7</span></div>
+        </div>
+        <div class="color-swatch" style="background: #fde68a;">
+          <div class="color-label">200<span class="color-hex">#fde68a</span></div>
+        </div>
+        <div class="color-swatch" style="background: #fcd34d;">
+          <div class="color-label">300<span class="color-hex">#fcd34d</span></div>
+        </div>
+        <div class="color-swatch" style="background: #fbbf24;">
+          <div class="color-label">400<span class="color-hex">#fbbf24</span></div>
+        </div>
+        <div class="color-swatch" style="background: #f59e0b;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">500 ★<span class="color-hex" style="color: rgba(255,255,255,0.8);">#f59e0b</span></div>
+        </div>
+        <div class="color-swatch" style="background: #d97706;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">600<span class="color-hex" style="color: rgba(255,255,255,0.8);">#d97706</span></div>
+        </div>
+        <div class="color-swatch" style="background: #b45309;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">700<span class="color-hex" style="color: rgba(255,255,255,0.8);">#b45309</span></div>
+        </div>
+        <div class="color-swatch" style="background: #92400e;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">800<span class="color-hex" style="color: rgba(255,255,255,0.8);">#92400e</span></div>
+        </div>
+        <div class="color-swatch" style="background: #78350f;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">900<span class="color-hex" style="color: rgba(255,255,255,0.8);">#78350f</span></div>
+        </div>
+        <div class="color-swatch" style="background: #451a03;">
+          <div class="color-label" style="color: white; background: rgba(0,0,0,0.7);">950<span class="color-hex" style="color: rgba(255,255,255,0.8);">#451a03</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Examples -->
+    <div class="palette-section">
+      <h2>Component Examples</h2>
+      <p>See how the colors work together in real components</p>
+
+      <div class="examples">
+        <h3>Buttons</h3>
+        <div class="button-group">
+          <button class="btn btn-primary">Primary Action</button>
+          <button class="btn btn-secondary">Success Action</button>
+          <button class="btn btn-accent">Warning Action</button>
+        </div>
+
+        <h3>Status Badges</h3>
+        <div class="badges">
+          <span class="badge badge-success">Paid</span>
+          <span class="badge badge-info">Sent</span>
+          <span class="badge badge-warning">Partial</span>
+          <span class="badge badge-danger">Overdue</span>
+          <span class="badge badge-gray">Draft</span>
+          <span class="badge badge-primary">Active</span>
+        </div>
+
+        <h3 style="margin-top: 32px;">Cards</h3>
+        <div class="card">
+          <h4>Financial Metrics Card</h4>
+          <p>Cards use subtle borders and shadows to create depth without overwhelming the interface. Perfect for displaying financial data and key metrics.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="palette-section">
+      <h2>Usage Guidelines</h2>
+      <div class="card">
+        <h4>✅ Do's</h4>
+        <p>• Use primary (indigo) for main actions and interactive elements<br>
+        • Use secondary (green) for positive financial metrics and success states<br>
+        • Use accent (amber) sparingly for warnings and attention items<br>
+        • Maintain consistent spacing using multiples of 4px<br>
+        • Ensure proper color contrast for accessibility (WCAG AA)</p>
+      </div>
+      <div class="card">
+        <h4>❌ Don'ts</h4>
+        <p>• Don't mix too many colors in a single view<br>
+        • Don't use pure black (#000) - use gray-900 instead<br>
+        • Don't rely on color alone to convey meaning<br>
+        • Don't forget focus states for accessibility<br>
+        • Don't create new spacing values outside the system</p>
+      </div>
+    </div>
+
+    <div style="background: white; border-radius: 24px; padding: 40px; text-align: center; margin-top: 32px;">
+      <p style="color: #6b7280; font-size: 14px; margin: 0;">
+        ThirdBooks Design System v1.0 · Inspired by leading financial applications<br>
+        <strong style="color: #111827;">Professional. Modern. Accessible.</strong>
+      </p>
+    </div>
+  </div>
+</body>
+</html>
