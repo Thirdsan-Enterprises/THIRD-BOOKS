@@ -81,11 +81,14 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/export/{type}', [ReportController::class, 'export']);
         });
 
-        // Sync endpoints (for offline sync)
-        Route::prefix('sync')->group(function () {
-            Route::post('/push', [SyncController::class, 'push']);
-            Route::post('/pull', [SyncController::class, 'pull']);
-            Route::get('/status', [SyncController::class, 'status']);
+        // Currencies
+        Route::get('/currencies', function() {
+            return response()->json(\App\Models\Currency::active()->get());
+        });
+
+        // Companies
+        Route::get('/companies', function() {
+            return response()->json(\App\Models\Company::all());
         });
     });
 });
