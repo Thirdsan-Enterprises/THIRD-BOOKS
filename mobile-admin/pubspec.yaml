@@ -14,6 +14,9 @@ dependencies:
   flutter_riverpod: ^2.5.0
   riverpod_annotation: ^2.3.0
 
+  # Routing
+  go_router: ^13.0.0
+
   # HTTP Client
   dio: ^5.4.0
   retrofit: ^4.0.0
@@ -43,6 +46,7 @@ dependencies:
   json_annotation: ^4.8.1
   freezed_annotation: ^2.4.1
   logger: ^2.0.2+1
+  uuid: ^4.3.3
 
   # Authentication
   jwt_decoder: ^2.0.1
