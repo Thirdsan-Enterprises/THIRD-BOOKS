@@ -4,9 +4,11 @@ namespace App\Services\Sync;
 
 use App\Models\Sync\Event;
 use App\Models\Sync\DeviceSyncState;
+use App\Models\Sync\Conflict;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class EventSourceService
 {
@@ -88,7 +90,7 @@ class EventSourceService
     /**
      * Upload events from device
      */
-    public function uploadEvents(array $events, string $deviceId): array
+    public function uploadEvents(array $events, string $deviceId, string $resolutionStrategy = 'server_wins'): array
     {
         $tenantId = tenant('id');
         $uploadedEvents = [];
@@ -98,49 +100,53 @@ class EventSourceService
             $events,
             $deviceId,
             $tenantId,
+            $resolutionStrategy,
             &$uploadedEvents,
             &$conflicts
         ) {
             foreach ($events as $eventData) {
                 try {
-                    // Check for conflicts
-                    $existingEvent = Event::where('tenant_id', $tenantId)
-                        ->where('aggregate_id', $eventData['aggregate_id'])
-                        ->where('event_type', $eventData['event_type'])
-                        ->where('occurred_at', $eventData['occurred_at'])
-                        ->first();
+                    // Detect concurrent modifications
+                    $conflict = $this->detectConflict($tenantId, $eventData, $deviceId);
 
-                    if ($existingEvent) {
+                    if ($conflict) {
+                        // Create conflict record for resolution
+                        $conflictRecord = $this->createConflictRecord(
+                            $conflict['server_event'],
+                            $eventData,
+                            $deviceId,
+                            $conflict['type']
+                        );
+
+                        // Auto-resolve based on strategy
+                        if ($resolutionStrategy !== 'manual') {
+                            $conflictRecord->autoResolve($resolutionStrategy);
+                        }
+
                         $conflicts[] = [
+                            'conflict_id' => $conflictRecord->id,
+                            'type' => $conflict['type'],
+                            'aggregate_id' => $eventData['aggregate_id'],
                             'local_event' => $eventData,
-                            'server_event' => $existingEvent,
-                            'resolution' => 'server_wins', // Default strategy
+                            'server_event' => $conflict['server_event'],
+                            'resolution' => $resolutionStrategy,
                         ];
+
+                        // If client wins or manual, create the event
+                        if ($resolutionStrategy === 'client_wins' || $resolutionStrategy === 'manual') {
+                            $event = $this->createEventFromData($tenantId, $eventData, $deviceId);
+                            $uploadedEvents[] = $event;
+                        }
+
                         continue;
                     }
 
-                    // Create event with new sequence number
-                    $sequenceNumber = Event::getNextSequenceNumber($tenantId);
-
-                    $event = Event::create([
-                        'id' => $eventData['id'] ?? Str::uuid(),
-                        'tenant_id' => $tenantId,
-                        'aggregate_type' => $eventData['aggregate_type'],
-                        'aggregate_id' => $eventData['aggregate_id'],
-                        'event_type' => $eventData['event_type'],
-                        'event_data' => $eventData['event_data'],
-                        'metadata' => array_merge($eventData['metadata'] ?? [], [
-                            'uploaded_from_device' => $deviceId,
-                        ]),
-                        'sequence_number' => $sequenceNumber,
-                        'device_id' => $deviceId,
-                        'user_id' => $eventData['user_id'] ?? Auth::id(),
-                        'occurred_at' => $eventData['occurred_at'],
-                    ]);
-
+                    // No conflict, create event normally
+                    $event = $this->createEventFromData($tenantId, $eventData, $deviceId);
                     $uploadedEvents[] = $event;
+
                 } catch (\Exception $e) {
-                    \Log::error('Failed to upload event', [
+                    Log::error('Failed to upload event', [
                         'event' => $eventData,
                         'error' => $e->getMessage(),
                     ]);
@@ -153,6 +159,156 @@ class EventSourceService
             'conflicts_count' => count($conflicts),
             'conflicts' => $conflicts,
         ];
+    }
+
+    /**
+     * Detect conflicts between client and server events
+     */
+    protected function detectConflict(string $tenantId, array $clientEventData, string $deviceId): ?array
+    {
+        $aggregateId = $clientEventData['aggregate_id'];
+        $eventType = $clientEventData['event_type'];
+
+        // Get recent events for this aggregate from other devices
+        $recentServerEvents = Event::where('tenant_id', $tenantId)
+            ->where('aggregate_id', $aggregateId)
+            ->where('device_id', '!=', $deviceId)
+            ->where('occurred_at', '>=', now()->subHours(24)) // Check last 24 hours
+            ->orderBy('occurred_at', 'desc')
+            ->get();
+
+        foreach ($recentServerEvents as $serverEvent) {
+            // Check for concurrent updates (same aggregate, overlapping time)
+            if ($this->isConcurrentUpdate($serverEvent, $clientEventData)) {
+                return [
+                    'type' => 'concurrent_update',
+                    'server_event' => $serverEvent,
+                ];
+            }
+
+            // Check for delete-modify conflict
+            if ($this->isDeleteModifyConflict($serverEvent, $clientEventData)) {
+                return [
+                    'type' => 'delete_modified',
+                    'server_event' => $serverEvent,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if events represent concurrent updates
+     */
+    protected function isConcurrentUpdate(Event $serverEvent, array $clientEventData): bool
+    {
+        // Same entity, both are update events, within 5 minutes
+        if (str_contains($serverEvent->event_type, '.updated') &&
+            str_contains($clientEventData['event_type'], '.updated')) {
+
+            $timeDiff = abs(
+                strtotime($serverEvent->occurred_at) -
+                strtotime($clientEventData['occurred_at'])
+            );
+
+            return $timeDiff < 300; // 5 minutes
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if delete-modify conflict exists
+     */
+    protected function isDeleteModifyConflict(Event $serverEvent, array $clientEventData): bool
+    {
+        // Server deleted, client modified
+        return str_contains($serverEvent->event_type, '.deleted') &&
+               str_contains($clientEventData['event_type'], '.updated');
+    }
+
+    /**
+     * Create a conflict record
+     */
+    protected function createConflictRecord(
+        Event $serverEvent,
+        array $clientEventData,
+        string $clientDeviceId,
+        string $conflictType
+    ): Conflict {
+        // Create the client event temporarily to get its ID
+        $clientEvent = $this->createEventFromData(
+            $serverEvent->tenant_id,
+            $clientEventData,
+            $clientDeviceId
+        );
+
+        $conflict = Conflict::create([
+            'tenant_id' => $serverEvent->tenant_id,
+            'server_event_id' => $serverEvent->id,
+            'client_event_id' => $clientEvent->id,
+            'aggregate_type' => $serverEvent->aggregate_type,
+            'aggregate_id' => $serverEvent->aggregate_id,
+            'conflict_type' => $conflictType,
+            'server_data' => $serverEvent->event_data,
+            'client_data' => $clientEventData['event_data'],
+            'conflict_fields' => $this->identifyConflictFields(
+                $serverEvent->event_data,
+                $clientEventData['event_data']
+            ),
+            'server_device_id' => $serverEvent->device_id,
+            'client_device_id' => $clientDeviceId,
+            'status' => 'pending',
+        ]);
+
+        return $conflict;
+    }
+
+    /**
+     * Identify fields that differ between server and client
+     */
+    protected function identifyConflictFields(array $serverData, array $clientData): array
+    {
+        $conflicts = [];
+
+        foreach ($serverData as $key => $serverValue) {
+            if (isset($clientData[$key]) && $serverValue !== $clientData[$key]) {
+                $conflicts[] = $key;
+            }
+        }
+
+        foreach ($clientData as $key => $clientValue) {
+            if (!isset($serverData[$key]) && !in_array($key, $conflicts)) {
+                $conflicts[] = $key;
+            }
+        }
+
+        return $conflicts;
+    }
+
+    /**
+     * Create event from event data array
+     */
+    protected function createEventFromData(string $tenantId, array $eventData, string $deviceId): Event
+    {
+        $sequenceNumber = Event::getNextSequenceNumber($tenantId);
+
+        return Event::create([
+            'id' => $eventData['id'] ?? Str::uuid(),
+            'tenant_id' => $tenantId,
+            'aggregate_type' => $eventData['aggregate_type'],
+            'aggregate_id' => $eventData['aggregate_id'],
+            'event_type' => $eventData['event_type'],
+            'event_data' => $eventData['event_data'],
+            'metadata' => array_merge($eventData['metadata'] ?? [], [
+                'uploaded_from_device' => $deviceId,
+            ]),
+            'sequence_number' => $sequenceNumber,
+            'device_id' => $deviceId,
+            'user_id' => $eventData['user_id'] ?? Auth::id(),
+            'occurred_at' => $eventData['occurred_at'],
+        ]);
     }
 
     /**

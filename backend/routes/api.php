@@ -11,6 +11,7 @@ use App\Http\Controllers\API\Purchases\BillController;
 use App\Http\Controllers\API\Purchases\VendorController;
 use App\Http\Controllers\API\Reporting\ReportController;
 use App\Http\Controllers\SyncController;
+use App\Http\Controllers\ConflictController;
 
 /*
 |--------------------------------------------------------------------------
@@ -100,6 +101,18 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/status', [SyncController::class, 'status']); // Get sync status
             Route::post('/device', [SyncController::class, 'updateDevice']); // Update device state
             Route::get('/replay/{aggregateType}/{aggregateId}', [SyncController::class, 'replay']); // Replay events
+        });
+
+        // Conflict Resolution
+        Route::prefix('conflicts')->group(function () {
+            Route::get('/', [ConflictController::class, 'index']); // List all conflicts
+            Route::get('/statistics', [ConflictController::class, 'statistics']); // Get conflict stats
+            Route::get('/{id}', [ConflictController::class, 'show']); // Get conflict details
+            Route::post('/{id}/resolve/server', [ConflictController::class, 'resolveWithServer']); // Resolve with server data
+            Route::post('/{id}/resolve/client', [ConflictController::class, 'resolveWithClient']); // Resolve with client data
+            Route::post('/{id}/resolve/merge', [ConflictController::class, 'resolveWithMerge']); // Resolve with merged data
+            Route::post('/{id}/ignore', [ConflictController::class, 'ignore']); // Ignore conflict
+            Route::post('/bulk-resolve', [ConflictController::class, 'bulkResolve']); // Bulk resolve conflicts
         });
     });
 });

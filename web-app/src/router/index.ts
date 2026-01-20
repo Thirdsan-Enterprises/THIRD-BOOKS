@@ -86,6 +86,12 @@ const router = createRouter({
       component: () => import('@/views/Reports/Index.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/conflicts',
+      name: 'ConflictList',
+      component: () => import('@/views/Conflicts/List.vue'),
+      meta: { requiresAuth: true },
+    },
   ],
 })
 

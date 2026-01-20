@@ -49,11 +49,13 @@ class SyncController extends Controller
             'events.*.occurred_at' => 'required|date',
             'events.*.user_id' => 'nullable|string',
             'events.*.metadata' => 'nullable|array',
+            'resolution_strategy' => 'nullable|string|in:server_wins,client_wins,last_write_wins,manual',
         ]);
 
         $result = $this->eventSourceService->uploadEvents(
             $validated['events'],
-            $validated['device_id']
+            $validated['device_id'],
+            $validated['resolution_strategy'] ?? 'server_wins'
         );
 
         if ($result['conflicts_count'] > 0) {
@@ -83,6 +85,7 @@ class SyncController extends Controller
             'events.*.occurred_at' => 'required_with:events|date',
             'events.*.user_id' => 'nullable|string',
             'events.*.metadata' => 'nullable|array',
+            'resolution_strategy' => 'nullable|string|in:server_wins,client_wins,last_write_wins,manual',
         ]);
 
         $result = [
@@ -94,7 +97,8 @@ class SyncController extends Controller
         if (!empty($validated['events'])) {
             $result['pushed'] = $this->eventSourceService->uploadEvents(
                 $validated['events'],
-                $validated['device_id']
+                $validated['device_id'],
+                $validated['resolution_strategy'] ?? 'server_wins'
             );
         }
 

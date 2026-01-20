@@ -60,6 +60,18 @@
               >
                 Reports
               </router-link>
+              <router-link
+                to="/conflicts"
+                class="border-transparent hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
+                active-class="!border-primary-500 !text-gray-900"
+              >
+                <span class="flex items-center gap-1">
+                  Conflicts
+                  <span v-if="conflictCount > 0" class="bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
+                    {{ conflictCount }}
+                  </span>
+                </span>
+              </router-link>
             </div>
           </div>
           <div class="flex items-center space-x-4">
@@ -86,14 +98,33 @@
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { apiClient } from '@/lib/api-client'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const conflictCount = ref(0)
 
 async function handleLogout() {
   await authStore.logout()
   router.push('/login')
 }
+
+async function fetchConflictCount() {
+  try {
+    const response = await apiClient.get('/conflicts/statistics')
+    conflictCount.value = response.data.pending || 0
+  } catch (error) {
+    // Silently fail if conflicts endpoint not available
+    console.debug('Could not fetch conflict count:', error)
+  }
+}
+
+onMounted(() => {
+  fetchConflictCount()
+  // Poll for updates every 30 seconds
+  setInterval(fetchConflictCount, 30000)
+})
 </script>
