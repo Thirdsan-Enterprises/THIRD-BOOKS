@@ -92,6 +92,31 @@ const router = createRouter({
       component: () => import('@/views/Conflicts/List.vue'),
       meta: { requiresAuth: true },
     },
+    // Admin Routes
+    {
+      path: '/admin',
+      name: 'AdminDashboard',
+      component: () => import('@/views/Admin/Dashboard.vue'),
+      meta: { requiresAuth: true, requiresSuperAdmin: true },
+    },
+    {
+      path: '/admin/tenants',
+      name: 'AdminTenants',
+      component: () => import('@/views/Admin/Tenants/List.vue'),
+      meta: { requiresAuth: true, requiresSuperAdmin: true },
+    },
+    {
+      path: '/admin/users',
+      name: 'AdminUsers',
+      component: () => import('@/views/Admin/Users/List.vue'),
+      meta: { requiresAuth: true, requiresSuperAdmin: true },
+    },
+    {
+      path: '/admin/audit-logs',
+      name: 'AdminAuditLogs',
+      component: () => import('@/views/Admin/AuditLogs/List.vue'),
+      meta: { requiresAuth: true, requiresSuperAdmin: true },
+    },
   ],
 })
 
@@ -103,6 +128,14 @@ router.beforeEach((to, from, next) => {
     next('/login')
   } else if (to.meta.requiresGuest && authStore.isAuthenticated) {
     next('/dashboard')
+  } else if (to.meta.requiresSuperAdmin) {
+    // Check if user is super admin
+    if (authStore.user?.role !== 'super_admin') {
+      // Redirect to dashboard if not super admin
+      next('/dashboard')
+    } else {
+      next()
+    }
   } else {
     next()
   }
