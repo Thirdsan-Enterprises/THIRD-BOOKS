@@ -44,6 +44,7 @@ class User extends Authenticatable
     /**
      * Roles
      */
+    const ROLE_SUPER_ADMIN = 'super_admin';
     const ROLE_ADMIN = 'admin';
     const ROLE_ACCOUNTANT = 'accountant';
     const ROLE_MANAGER = 'manager';
@@ -64,6 +65,14 @@ class User extends Authenticatable
     public function hasRole(string $role): bool
     {
         return $this->role === $role;
+    }
+
+    /**
+     * Check if user is super admin
+     */
+    public function isSuperAdmin(): bool
+    {
+        return $this->role === self::ROLE_SUPER_ADMIN;
     }
 
     /**
