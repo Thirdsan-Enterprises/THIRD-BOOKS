@@ -2,7 +2,7 @@ name: Deploy Frontend to DirectAdmin
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, claude/thirdbooks-accounting-system-5jAZu ]
     paths:
       - 'web-app/**'
       - '.github/workflows/deploy-frontend.yml'
