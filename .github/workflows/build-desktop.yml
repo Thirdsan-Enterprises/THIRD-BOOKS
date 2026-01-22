@@ -59,7 +59,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: web-app
-        run: npm ci
+        run: npm install
 
       - name: Create production .env
         working-directory: web-app
