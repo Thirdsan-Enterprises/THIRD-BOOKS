@@ -7,10 +7,17 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "type-check": "vue-tsc --noEmit"
+    "type-check": "vue-tsc --noEmit",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:build:windows": "tauri build --target x86_64-pc-windows-msvc",
+    "tauri:build:macos": "tauri build --target aarch64-apple-darwin",
+    "tauri:build:linux": "tauri build --target x86_64-unknown-linux-gnu"
   },
   "dependencies": {
     "@inertiajs/vue3": "^1.0.14",
+    "@tauri-apps/api": "^1.5.3",
     "@vueuse/core": "^10.7.2",
     "axios": "^1.6.5",
     "vue": "^3.4.15",
@@ -22,6 +29,7 @@
   },
   "devDependencies": {
     "@tailwindcss/forms": "^0.5.7",
+    "@tauri-apps/cli": "^1.5.9",
     "@types/node": "^20.11.5",
     "@vitejs/plugin-vue": "^5.0.3",
     "@vue/tsconfig": "^0.5.1",
