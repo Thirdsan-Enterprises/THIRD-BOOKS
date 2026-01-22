@@ -101,7 +101,10 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { apiClient } from '@/lib/api-client'
+import api from '@/utils/api'
+
+// Use api as apiClient for compatibility
+const apiClient = api
 
 const router = useRouter()
 const authStore = useAuthStore()
