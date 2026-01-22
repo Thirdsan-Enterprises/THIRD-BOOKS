@@ -282,8 +282,17 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { apiClient } from '@/lib/api-client'
-import { toast } from '@/lib/toast'
+import api from '@/utils/api'
+
+// Simple toast replacement (console logging for now)
+const toast = {
+  success: (message: string) => console.log('✅', message),
+  error: (message: string) => console.error('❌', message),
+  info: (message: string) => console.info('ℹ️', message)
+}
+
+// Use api as apiClient for compatibility
+const apiClient = api
 
 const conflicts = ref([])
 const statistics = ref(null)
