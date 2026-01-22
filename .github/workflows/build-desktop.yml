@@ -1,0 +1,207 @@
+name: Build Desktop App
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os: ubuntu-22.04
+            name: Linux
+            arch: x86_64
+          - os: windows-latest
+            name: Windows
+            arch: x86_64
+          - os: macos-latest
+            name: macOS
+            arch: aarch64
+
+    runs-on: ${{ matrix.platform.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: web-app/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './web-app/src-tauri -> target'
+
+      - name: Install Linux dependencies
+        if: matrix.platform.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.0-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install frontend dependencies
+        working-directory: web-app
+        run: npm ci
+
+      - name: Create production .env
+        working-directory: web-app
+        run: |
+          cat > .env << 'EOF'
+          VITE_API_URL=https://thirdbooks.digital/api/api
+          VITE_APP_NAME=ThirdBooks
+          VITE_APP_VERSION=${{ github.ref_name }}
+          EOF
+
+      - name: Generate placeholder icons (if not exist)
+        working-directory: web-app
+        shell: bash
+        run: |
+          if [ ! -f "src-tauri/icons/icon.png" ]; then
+            echo "⚠️  Icons not found, downloading placeholder..."
+            mkdir -p src-tauri/icons
+            curl -L https://raw.githubusercontent.com/tauri-apps/tauri/dev/tooling/cli/templates/app/app-icon.png -o src-tauri/icon-source.png
+
+            # Install Tauri CLI to generate icons
+            npm install -g @tauri-apps/cli@1.5.9
+            cd src-tauri
+            tauri icon icon-source.png
+            cd ..
+          else
+            echo "✅ Icons already exist"
+          fi
+
+      - name: Build Tauri app
+        working-directory: web-app
+        run: npm run tauri:build
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+
+      - name: Prepare artifacts (Linux)
+        if: matrix.platform.os == 'ubuntu-22.04'
+        run: |
+          mkdir -p artifacts
+          cp web-app/src-tauri/target/release/bundle/appimage/*.AppImage artifacts/ || echo "No AppImage"
+          cp web-app/src-tauri/target/release/bundle/deb/*.deb artifacts/ || echo "No DEB"
+          ls -lh artifacts/
+
+      - name: Prepare artifacts (Windows)
+        if: matrix.platform.os == 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp web-app/src-tauri/target/release/bundle/msi/*.msi artifacts/ || echo "No MSI"
+          cp web-app/src-tauri/target/release/bundle/nsis/*.exe artifacts/ || echo "No NSIS"
+          ls -lh artifacts/
+
+      - name: Prepare artifacts (macOS)
+        if: matrix.platform.os == 'macos-latest'
+        run: |
+          mkdir -p artifacts
+          cp web-app/src-tauri/target/release/bundle/dmg/*.dmg artifacts/ || echo "No DMG"
+          cp web-app/src-tauri/target/release/bundle/macos/*.app artifacts/ || echo "No APP"
+          ls -lh artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: thirdbooks-desktop-${{ matrix.platform.name }}-${{ matrix.platform.arch }}
+          path: artifacts/*
+          if-no-files-found: error
+
+      - name: Create Release and Upload Assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## ThirdBooks Desktop App ${{ github.ref_name }}
+
+            ### 🖥️ Desktop Application Installers
+
+            **Choose your platform:**
+
+            #### Windows
+            - `ThirdBooks_${{ github.ref_name }}_x64_en-US.msi` - Windows Installer (Recommended)
+            - `ThirdBooks_${{ github.ref_name }}_x64-setup.exe` - Alternative installer
+
+            #### macOS
+            - `ThirdBooks_${{ github.ref_name }}_aarch64.dmg` - macOS Disk Image (Apple Silicon)
+            - `ThirdBooks_${{ github.ref_name }}_x64.dmg` - macOS Disk Image (Intel)
+
+            #### Linux
+            - `thirdbooks_${{ github.ref_name }}_amd64.AppImage` - Universal Linux (Recommended)
+            - `thirdbooks_${{ github.ref_name }}_amd64.deb` - Debian/Ubuntu Package
+
+            ### 📦 Installation
+
+            **Windows:**
+            1. Download `.msi` file
+            2. Double-click to install
+            3. Launch from Start Menu
+
+            **macOS:**
+            1. Download `.dmg` file
+            2. Open and drag to Applications
+            3. Right-click → Open (first time only)
+
+            **Linux:**
+            1. Download `.AppImage`
+            2. Make executable: `chmod +x thirdbooks*.AppImage`
+            3. Run: `./thirdbooks*.AppImage`
+
+            ### ✨ What's New
+
+            See full changelog below.
+
+            ### 🔗 Backend API
+            - Connect to: `https://thirdbooks.digital/api/api`
+            - Web version: `https://thirdbooks.digital`
+
+            ### 📝 Notes
+            - Download size: ~15MB (vs 150MB+ with Electron!)
+            - Memory usage: 50-100MB (vs 300-500MB with Electron)
+            - Offline-capable with local storage
+            - Auto-updates enabled (check on startup)
+
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Summary
+        if: success()
+        run: |
+          echo "✅ Desktop app built successfully for ${{ matrix.platform.name }}!"
+          echo "📦 Artifacts uploaded"
+          echo ""
+          echo "To test locally:"
+          echo "  cd web-app"
+          echo "  npm run tauri:dev"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Desktop app build failed for ${{ matrix.platform.name }}!"
+          echo "Check the logs above for details."

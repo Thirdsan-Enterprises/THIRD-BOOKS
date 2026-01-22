@@ -1,0 +1,139 @@
+name: Deploy Frontend to DirectAdmin
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'web-app/**'
+      - '.github/workflows/deploy-frontend.yml'
+      - '!web-app/src-tauri/**'  # Don't trigger on desktop app changes
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: web-app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web-app
+        run: npm ci
+
+      - name: Create production .env
+        working-directory: web-app
+        run: |
+          cat > .env << 'EOF'
+          VITE_API_URL=https://thirdbooks.digital/api/api
+          VITE_APP_NAME=ThirdBooks
+          VITE_APP_VERSION=1.0.0
+          EOF
+
+      - name: Build frontend
+        working-directory: web-app
+        run: npm run build
+
+      - name: Create .htaccess for SPA routing
+        working-directory: web-app/dist
+        run: |
+          cat > .htaccess << 'EOF'
+          <IfModule mod_rewrite.c>
+            RewriteEngine On
+            RewriteBase /
+
+            # Don't rewrite if file/directory exists
+            RewriteCond %{REQUEST_FILENAME} !-f
+            RewriteCond %{REQUEST_FILENAME} !-d
+
+            # Don't rewrite API calls
+            RewriteCond %{REQUEST_URI} !^/api/
+
+            # Rewrite everything else to index.html (SPA)
+            RewriteRule ^ /index.html [L]
+          </IfModule>
+
+          # Force HTTPS
+          RewriteCond %{HTTPS} off
+          RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+          # Cache static assets
+          <IfModule mod_expires.c>
+            ExpiresActive On
+            ExpiresByType image/jpg "access plus 1 year"
+            ExpiresByType image/jpeg "access plus 1 year"
+            ExpiresByType image/gif "access plus 1 year"
+            ExpiresByType image/png "access plus 1 year"
+            ExpiresByType image/svg+xml "access plus 1 year"
+            ExpiresByType image/webp "access plus 1 year"
+            ExpiresByType text/css "access plus 1 month"
+            ExpiresByType application/javascript "access plus 1 month"
+            ExpiresByType application/json "access plus 0 seconds"
+            ExpiresByType text/html "access plus 0 seconds"
+          </IfModule>
+
+          # Compression
+          <IfModule mod_deflate.c>
+            AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/json image/svg+xml
+          </IfModule>
+
+          # Security headers
+          <IfModule mod_headers.c>
+            Header set X-Content-Type-Options "nosniff"
+            Header set X-Frame-Options "SAMEORIGIN"
+            Header set X-XSS-Protection "1; mode=block"
+            Header set Referrer-Policy "strict-origin-when-cross-origin"
+          </IfModule>
+          EOF
+
+      - name: Create robots.txt
+        working-directory: web-app/dist
+        run: |
+          cat > robots.txt << 'EOF'
+          User-agent: *
+          Allow: /
+
+          Sitemap: https://thirdbooks.digital/sitemap.xml
+          EOF
+
+      - name: Deploy to DirectAdmin via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DIRECTADMIN_HOST }}
+          username: ${{ secrets.DIRECTADMIN_USERNAME }}
+          password: ${{ secrets.DIRECTADMIN_PASSWORD }}
+          local-dir: ./web-app/dist/
+          server-dir: ${{ secrets.DIRECTADMIN_PATH_WEB }}/
+          dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/*.map
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "✅ Frontend deployed successfully!"
+          echo "📍 Location: ${{ secrets.DIRECTADMIN_PATH_WEB }}"
+          echo "🔗 URL: https://thirdbooks.digital"
+          echo ""
+          echo "🧪 Test the deployment:"
+          echo "1. Visit https://thirdbooks.digital"
+          echo "2. Check login page loads"
+          echo "3. Test login with super admin credentials"
+          echo "4. Navigate to /admin to verify admin portal"
+          echo "5. Check browser console for errors (F12)"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Frontend deployment failed!"
+          echo "Check the logs above for details."
