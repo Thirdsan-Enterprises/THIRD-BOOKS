@@ -51,24 +51,6 @@ jobs:
         working-directory: mobile-admin
         run: flutter build appbundle --release
 
-      - name: Sign APK (if keystore available)
-        if: secrets.ANDROID_KEYSTORE_BASE64 != ''
-        working-directory: mobile-admin
-        run: |
-          # Decode keystore
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/keystore.jks
-
-          # Sign APK
-          jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
-            -keystore android/app/keystore.jks \
-            -storepass "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
-            -keypass "${{ secrets.ANDROID_KEY_PASSWORD }}" \
-            build/app/outputs/flutter-apk/app-release.apk \
-            "${{ secrets.ANDROID_KEY_ALIAS }}"
-
-          # Verify signature
-          jarsigner -verify -verbose -certs build/app/outputs/flutter-apk/app-release.apk
-
       - name: Prepare Android artifacts
         run: |
           mkdir -p artifacts/android
@@ -182,36 +164,6 @@ jobs:
         run: |
           flutter build ios --release --no-codesign
 
-      - name: Build iOS IPA (if certificates available)
-        if: secrets.IOS_CERTIFICATE_BASE64 != ''
-        working-directory: mobile-admin
-        run: |
-          # Setup code signing (requires Apple Developer account)
-          echo "${{ secrets.IOS_CERTIFICATE_BASE64 }}" | base64 -d > ios_certificate.p12
-          echo "${{ secrets.IOS_PROVISION_BASE64 }}" | base64 -d > ios_provision.mobileprovision
-
-          # Import certificate to keychain
-          security create-keychain -p "${{ secrets.IOS_KEYCHAIN_PASSWORD }}" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "${{ secrets.IOS_KEYCHAIN_PASSWORD }}" build.keychain
-          security import ios_certificate.p12 -k build.keychain -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${{ secrets.IOS_KEYCHAIN_PASSWORD }}" build.keychain
-
-          # Install provisioning profile
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp ios_provision.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
-
-          # Build with code signing
-          flutter build ios --release
-
-          # Create IPA
-          mkdir -p artifacts/ios
-          cd build/ios/iphoneos
-          mkdir Payload
-          cp -r Runner.app Payload/
-          zip -r ../../../artifacts/ios/ThirdBooks.ipa Payload
-          cd ../../..
-
       - name: Prepare iOS artifacts
         run: |
           mkdir -p artifacts/ios
@@ -226,7 +178,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Create Release (iOS)
-        if: startsWith(github.ref, 'refs/tags/') && secrets.IOS_CERTIFICATE_BASE64 != ''
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
           files: artifacts/ios/*
@@ -279,17 +231,5 @@ jobs:
         if: success()
         run: |
           echo "✅ iOS build completed!"
-          echo "⚠️  Note: Code signing requires Apple Developer account"
-          echo "📝 For App Store distribution, sign and submit via Xcode"
-
-      - name: Build Summary (No Code Signing)
-        if: success() && secrets.IOS_CERTIFICATE_BASE64 == ''
-        run: |
-          echo "⚠️  iOS built without code signing"
-          echo "To create signed IPA:"
-          echo "1. Add iOS certificates to GitHub Secrets:"
-          echo "   - IOS_CERTIFICATE_BASE64"
-          echo "   - IOS_CERTIFICATE_PASSWORD"
-          echo "   - IOS_PROVISION_BASE64"
-          echo "   - IOS_KEYCHAIN_PASSWORD"
-          echo "2. Re-run workflow"
+          echo "⚠️  Note: iOS built without code signing"
+          echo "📝 For App Store distribution, add signing certificates and rebuild"
