@@ -112,33 +112,6 @@ jobs:
             storage/framework/sessions/**
             storage/framework/views/**
 
-      - name: Run post-deployment commands (SSH)
-        if: secrets.SSH_ENABLED == 'true'
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DIRECTADMIN_HOST }}
-          username: ${{ secrets.DIRECTADMIN_USERNAME }}
-          password: ${{ secrets.DIRECTADMIN_PASSWORD }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          script: |
-            cd ${{ secrets.DIRECTADMIN_PATH_API }}
-
-            # Set permissions
-            chmod -R 775 storage bootstrap/cache 2>/dev/null || chmod -R 777 storage bootstrap/cache
-
-            # Run migrations
-            php artisan migrate --force
-
-            # Clear and cache config
-            php artisan config:clear
-            php artisan config:cache
-            php artisan route:cache
-            php artisan view:cache
-
-            # Seed currencies if needed (won't duplicate)
-            php artisan db:seed --class=CurrencySeeder --force || true
-
-            echo "✅ Backend deployment complete!"
 
       - name: Deployment Summary
         if: success()
