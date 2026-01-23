@@ -26,7 +26,14 @@ jobs:
       - name: Install Composer Dependencies
         working-directory: backend
         run: |
-          composer update --no-dev --optimize-autoloader --no-interaction --prefer-dist --ignore-platform-reqs
+          # Fix stancl/tenancy version (4.0 doesn't exist, use 3.x)
+          sed -i 's/"stancl\/tenancy": "\^4.0"/"stancl\/tenancy": "^3.0"/g' composer.json
+
+          # Remove require-dev section to avoid dependency conflicts
+          php -r '$json = json_decode(file_get_contents("composer.json"), true); unset($json["require-dev"]); file_put_contents("composer.json", json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));'
+
+          # Install production dependencies
+          composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
           composer dump-autoload --optimize
 
       - name: Create production .env file
