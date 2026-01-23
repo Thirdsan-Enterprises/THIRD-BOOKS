@@ -26,7 +26,7 @@ jobs:
       - name: Install Composer Dependencies
         working-directory: backend
         run: |
-          composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --ignore-platform-reqs
+          composer update --no-dev --optimize-autoloader --no-interaction --prefer-dist --ignore-platform-reqs
           composer dump-autoload --optimize
 
       - name: Create production .env file
