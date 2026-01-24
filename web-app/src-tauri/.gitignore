@@ -15,8 +15,8 @@
 *.swo
 *~
 
-# Generated icons (if using icon generation script)
-icons/*.png
-icons/*.ico
-icons/*.icns
+# Keep generated icons in repository for reliable builds
+# icons/*.png
+# icons/*.ico
+# icons/*.icns
 !icons/README.md
