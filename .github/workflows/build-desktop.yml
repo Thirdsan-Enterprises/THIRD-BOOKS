@@ -2,8 +2,14 @@ name: Build Desktop App
 
 on:
   push:
+    branches:
+      - claude/add-status-endpoint-4MvUI  # Enable builds on feature branch
     tags:
       - 'v*.*.*'
+    paths:
+      - 'web-app/**'
+      - '.github/workflows/build-desktop.yml'
+      - '!web-app/dist/**'  # Don't trigger on dist changes
   workflow_dispatch:  # Allow manual trigger
     inputs:
       version:
