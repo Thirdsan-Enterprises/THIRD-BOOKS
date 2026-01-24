@@ -28,15 +28,17 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - os: ubuntu-22.04
-            name: Linux
-            arch: x86_64
+          # Focus on Windows only for now
           - os: windows-latest
             name: Windows
             arch: x86_64
-          - os: macos-latest
-            name: macOS
-            arch: aarch64
+          # Uncomment these when Windows works:
+          # - os: ubuntu-22.04
+          #   name: Linux
+          #   arch: x86_64
+          # - os: macos-latest
+          #   name: macOS
+          #   arch: aarch64
 
     runs-on: ${{ matrix.platform.os }}
     environment: production
@@ -112,25 +114,43 @@ jobs:
         working-directory: web-app
         shell: bash
         run: |
-          if [ ! -f "src-tauri/icons/icon.png" ]; then
+          echo "Checking for icons..."
+
+          # Check if icon files exist
+          if [ ! -f "src-tauri/icons/icon.ico" ]; then
             echo "⚠️  Icons not found, generating placeholders..."
             mkdir -p src-tauri/icons
 
-            # Download a professional placeholder icon
-            curl -L "https://raw.githubusercontent.com/tauri-apps/tauri/dev/tooling/cli/templates/app/app-icon.png" -o src-tauri/icons/source-icon.png
+            # Download a professional placeholder icon (1024x1024)
+            echo "Downloading placeholder icon..."
+            curl -L "https://raw.githubusercontent.com/tauri-apps/tauri/dev/tooling/cli/templates/app/app-icon.png" -o src-tauri/icons/app-icon.png
 
-            # Install Tauri CLI for icon generation
-            npm install --no-save @tauri-apps/cli@1.5.9
+            # Verify download
+            if [ ! -f "src-tauri/icons/app-icon.png" ]; then
+              echo "❌ Failed to download icon"
+              exit 1
+            fi
+
+            echo "Icon downloaded successfully ($(du -h src-tauri/icons/app-icon.png | cut -f1))"
+
+            # Install Tauri CLI globally for icon generation
+            echo "Installing Tauri CLI..."
+            npm install --global @tauri-apps/cli@1.5.9
 
             # Generate all required icon sizes
+            echo "Generating icons from source..."
             cd src-tauri
-            npx tauri icon icons/source-icon.png
+            tauri icon icons/app-icon.png || {
+              echo "❌ Icon generation failed"
+              exit 1
+            }
 
-            echo "✅ Placeholder icons generated"
-            ls -lah icons/
+            echo "✅ Icons generated successfully"
+            echo "Generated files:"
+            ls -lh icons/
           else
-            echo "✅ Icons already exist, skipping generation"
-            ls -lah src-tauri/icons/
+            echo "✅ Icons already exist"
+            ls -lh src-tauri/icons/
           fi
 
       - name: 🔨 Build Tauri app
