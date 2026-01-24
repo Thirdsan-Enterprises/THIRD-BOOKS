@@ -2,7 +2,7 @@ name: Deploy Frontend to DirectAdmin
 
 on:
   push:
-    branches: [ main, claude/analyze-repo-1S9n8 ]
+    branches: [ main, claude/analyze-repo-1S9n8, claude/add-status-endpoint-4MvUI ]
     paths:
       - 'web-app/**'
       - '.github/workflows/deploy-frontend.yml'
