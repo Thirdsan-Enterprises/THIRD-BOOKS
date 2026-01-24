@@ -19,6 +19,15 @@ use App\Http\Controllers\ConflictController;
 |--------------------------------------------------------------------------
 */
 
+// Health check endpoint
+Route::get('/health', function () {
+    return response()->json([
+        'status' => 'ok',
+        'timestamp' => now()->toIso8601String(),
+        'version' => '1.0.0',
+    ]);
+});
+
 // Public routes
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
