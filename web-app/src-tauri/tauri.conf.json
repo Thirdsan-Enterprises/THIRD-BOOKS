@@ -50,8 +50,8 @@
         "all": true,
         "request": true,
         "scope": [
-          "https://api.thirdbooks.digital/*",
           "https://thirdbooks.digital/*",
+          "https://api.exchangerate-api.com/*",
           "http://localhost:8000/*",
           "http://127.0.0.1:8000/*"
         ]
@@ -140,7 +140,7 @@
       }
     },
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.thirdbooks.digital https://thirdbooks.digital http://localhost:8000 http://127.0.0.1:8000"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://thirdbooks.digital https://api.exchangerate-api.com http://localhost:8000 http://127.0.0.1:8000"
     },
     "systemTray": {
       "iconPath": "icons/icon.png",
