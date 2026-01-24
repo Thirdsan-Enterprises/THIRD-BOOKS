@@ -121,17 +121,30 @@ jobs:
             echo "⚠️  Icons not found, generating placeholders..."
             mkdir -p src-tauri/icons
 
-            # Download a professional placeholder icon (1024x1024)
-            echo "Downloading placeholder icon..."
-            curl -L "https://raw.githubusercontent.com/tauri-apps/tauri/dev/tooling/cli/templates/app/app-icon.png" -o src-tauri/icons/app-icon.png
+            # Use placeholder.com to generate a simple blue icon with "TB" text
+            echo "Downloading placeholder icon from placeholder.com..."
+            curl -L "https://via.placeholder.com/1024x1024/3B82F6/FFFFFF.png?text=TB" -o src-tauri/icons/app-icon.png
 
-            # Verify download
+            # Verify download and check file type
             if [ ! -f "src-tauri/icons/app-icon.png" ]; then
               echo "❌ Failed to download icon"
               exit 1
             fi
 
-            echo "Icon downloaded successfully ($(du -h src-tauri/icons/app-icon.png | cut -f1))"
+            # Check if it's actually a PNG file (first 4 bytes should be PNG signature)
+            file src-tauri/icons/app-icon.png || echo "File type check unavailable"
+
+            # Verify file size is reasonable (should be > 1KB for a valid image)
+            FILESIZE=$(wc -c < src-tauri/icons/app-icon.png)
+            echo "Downloaded file size: $FILESIZE bytes"
+
+            if [ $FILESIZE -lt 1000 ]; then
+              echo "❌ Downloaded file is too small, probably not a valid image"
+              cat src-tauri/icons/app-icon.png
+              exit 1
+            fi
+
+            echo "Icon downloaded successfully"
 
             # Install Tauri CLI globally for icon generation
             echo "Installing Tauri CLI..."
@@ -142,6 +155,10 @@ jobs:
             cd src-tauri
             tauri icon icons/app-icon.png || {
               echo "❌ Icon generation failed"
+              echo "Tauri CLI output above ^^^"
+              echo "Checking downloaded file:"
+              file icons/app-icon.png || echo "file command not available"
+              ls -lh icons/
               exit 1
             }
 
