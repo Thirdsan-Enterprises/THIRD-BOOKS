@@ -210,22 +210,6 @@ jobs:
           echo "📊 Package contents:"
           ls -lah deploy_temp/ | head -20
 
-      - name: 📍 Calculate deployment path
-        id: deploy-path
-        run: |
-          # Auto-append /public_html/api to the deployment path for DirectAdmin
-          BASE_PATH="${{ secrets.DIRECTADMIN_PATH_API }}"
-
-          # Remove trailing slash if present
-          BASE_PATH="${BASE_PATH%/}"
-
-          # Append /public_html/api
-          FULL_PATH="${BASE_PATH}/public_html/api"
-
-          echo "deployment-path=${FULL_PATH}" >> $GITHUB_OUTPUT
-          echo "📍 Base path: ${BASE_PATH}"
-          echo "📍 Full deployment path: ${FULL_PATH}"
-
       - name: 🚀 Deploy to DirectAdmin via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -233,7 +217,7 @@ jobs:
           username: ${{ secrets.DIRECTADMIN_USERNAME }}
           password: ${{ secrets.DIRECTADMIN_PASSWORD }}
           local-dir: ./backend/deploy_temp/
-          server-dir: ${{ steps.deploy-path.outputs.deployment-path }}/
+          server-dir: ${{ secrets.DIRECTADMIN_PATH_API }}/
           dangerous-clean-slate: false
           exclude: |
             **/.git*
@@ -256,7 +240,7 @@ jobs:
           echo "║  ✅ BACKEND DEPLOYED SUCCESSFULLY!                     ║"
           echo "╚════════════════════════════════════════════════════════╝"
           echo ""
-          echo "📍 Deployment Location: ${{ steps.deploy-path.outputs.deployment-path }}"
+          echo "📍 Deployment Location: ${{ secrets.DIRECTADMIN_PATH_API }}"
           echo "🔗 API URL: https://thirdbooks.digital/api/api"
           echo "📅 Deployed: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
           echo "📦 Branch: ${{ github.ref_name }}"
