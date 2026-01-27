@@ -106,10 +106,12 @@ class Tenant extends BaseTenant implements TenantWithDatabase
 
     /**
      * Get the internal database connection name
+     *
+     * Uses the tenant connection from config (supports MySQL and PostgreSQL)
      */
-    public function getInternal DatabaseConnectionName(): string
+    public function getInternalDatabaseConnectionName(): string
     {
-        return 'tenant_pgsql';
+        return config('tenancy.database.tenant_connection', 'tenant_mysql');
     }
 
     /**
@@ -117,6 +119,6 @@ class Tenant extends BaseTenant implements TenantWithDatabase
      */
     public function getInternalDatabaseName(): string
     {
-        return config('tenancy.database.prefix') . $this->id;
+        return config('tenancy.database.prefix') . $this->id . config('tenancy.database.suffix');
     }
 }

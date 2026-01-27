@@ -155,6 +155,23 @@ class Account extends Model
     }
 
     /**
+     * Recalculate and update the current balance from general ledger
+     *
+     * @return void
+     */
+    public function recalculateBalance(): void
+    {
+        $latestEntry = $this->generalLedger()
+            ->orderBy('date', 'desc')
+            ->orderBy('id', 'desc')
+            ->first();
+
+        $newBalance = $latestEntry ? $latestEntry->balance : $this->opening_balance;
+
+        $this->update(['current_balance' => $newBalance]);
+    }
+
+    /**
      * Scopes
      */
     public function scopeActive($query)
