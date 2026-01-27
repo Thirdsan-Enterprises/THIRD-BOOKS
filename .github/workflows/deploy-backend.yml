@@ -42,7 +42,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: pgsql, pdo_pgsql, mbstring, xml, curl, zip, bcmath, redis
+          extensions: mysql, pdo_mysql, mbstring, xml, curl, zip, bcmath
           coverage: none
           tools: composer:v2
 
@@ -109,12 +109,20 @@ jobs:
           LOG_LEVEL=error
           LOG_DEPRECATIONS_CHANNEL=null
 
-          DB_CONNECTION=pgsql
+          DB_CONNECTION=mysql
           DB_HOST=${{ secrets.DB_HOST }}
-          DB_PORT=5432
+          DB_PORT=3306
           DB_DATABASE=${{ secrets.DB_DATABASE }}
           DB_USERNAME=${{ secrets.DB_USERNAME }}
           DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_CHARSET=utf8mb4
+          DB_COLLATION=utf8mb4_unicode_ci
+
+          TENANT_DB_CONNECTION=tenant_mysql
+          TENANT_DB_HOST=${{ secrets.DB_HOST }}
+          TENANT_DB_PORT=3306
+          TENANT_DB_USERNAME=${{ secrets.DB_USERNAME }}
+          TENANT_DB_PASSWORD=${{ secrets.DB_PASSWORD }}
 
           # Multi-tenancy
           TENANCY_ENABLED=true
