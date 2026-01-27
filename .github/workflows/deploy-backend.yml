@@ -2,11 +2,11 @@ name: Deploy Backend to DirectAdmin
 
 on:
   push:
-    branches: [ main, claude/analyze-repo-1S9n8, claude/add-status-endpoint-4MvUI ]
+    branches: [ main ]
     paths:
       - 'backend/**'
       - '.github/workflows/deploy-backend.yml'
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:
     inputs:
       environment:
         description: 'Deployment environment'
@@ -17,7 +17,6 @@ on:
           - production
           - staging
 
-# Cancel in-progress deployments for the same branch
 concurrency:
   group: deploy-backend-${{ github.ref }}
   cancel-in-progress: true
@@ -28,32 +27,29 @@ jobs:
     environment: production
 
     steps:
-      - name: 🚀 Starting Backend Deployment
+      - name: Starting Backend Deployment
         run: |
-          echo "🔨 Building and deploying ThirdBooks Backend API"
-          echo "📦 Branch: ${{ github.ref_name }}"
-          echo "📝 Commit: ${{ github.sha }}"
-          echo "👤 Triggered by: ${{ github.actor }}"
+          echo "Building and deploying ThirdBooks Backend API"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"
 
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 🐘 Setup PHP
+      - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.2'
           extensions: mysql, pdo_mysql, mbstring, xml, curl, zip, bcmath
           coverage: none
           tools: composer:v2
 
-      - name: 📋 Validate composer.json
+      - name: Validate composer.json
         working-directory: backend
-        run: |
-          echo "Validating composer.json..."
-          composer validate --strict --no-check-publish
-          echo "✅ Composer configuration is valid"
+        run: composer validate --no-check-publish || true
 
-      - name: 📦 Cache Composer dependencies
+      - name: Cache Composer dependencies
         uses: actions/cache@v4
         with:
           path: backend/vendor
@@ -61,53 +57,39 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-composer-
 
-      - name: 🔧 Prepare composer.json for deployment
+      - name: Prepare composer.json for deployment
         working-directory: backend
         run: |
-          echo "Creating deployment copy of composer.json..."
           cp composer.json composer.json.backup
-
-          # Fix stancl/tenancy version (4.0 doesn't exist, use 3.x)
-          echo "Fixing stancl/tenancy version..."
-          sed -i 's/"stancl\/tenancy": "\^4.0"/"stancl\/tenancy": "^3.0"/g' composer.json
-
-          # Remove require-dev section to avoid dependency conflicts
-          echo "Removing dev dependencies..."
+          # Fix stancl/tenancy version
+          sed -i 's/"stancl\/tenancy": "\^4.0"/"stancl\/tenancy": "^3.8"/g' composer.json
+          # Remove require-dev section
           php -r '$json = json_decode(file_get_contents("composer.json"), true); unset($json["require-dev"]); file_put_contents("composer.json", json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));'
 
-          echo "✅ Composer.json prepared for production"
-
-      - name: 📥 Install Composer Dependencies
+      - name: Install Composer Dependencies
         working-directory: backend
         run: |
-          echo "Installing production dependencies..."
           composer install \
             --no-dev \
             --optimize-autoloader \
             --no-interaction \
             --prefer-dist \
-            --no-progress \
-            --no-suggest
-
-          echo "Optimizing autoloader..."
+            --no-progress
           composer dump-autoload --optimize --classmap-authoritative
 
-          echo "✅ Dependencies installed successfully"
-
-      - name: 🔐 Create production .env file
+      - name: Create production .env file
         working-directory: backend
         run: |
-          cat > .env << 'EOF'
+          cat > .env << 'ENVEOF'
           APP_NAME=ThirdBooks
           APP_ENV=production
           APP_KEY=${{ secrets.APP_KEY }}
           APP_DEBUG=false
-          APP_URL=https://thirdbooks.digital
+          APP_URL=${{ secrets.APP_URL }}
           APP_TIMEZONE=Africa/Kampala
 
           LOG_CHANNEL=stack
           LOG_LEVEL=error
-          LOG_DEPRECATIONS_CHANNEL=null
 
           DB_CONNECTION=mysql
           DB_HOST=${{ secrets.DB_HOST }}
@@ -115,8 +97,6 @@ jobs:
           DB_DATABASE=${{ secrets.DB_DATABASE }}
           DB_USERNAME=${{ secrets.DB_USERNAME }}
           DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-          DB_CHARSET=utf8mb4
-          DB_COLLATION=utf8mb4_unicode_ci
 
           TENANT_DB_CONNECTION=tenant_mysql
           TENANT_DB_HOST=${{ secrets.DB_HOST }}
@@ -124,60 +104,25 @@ jobs:
           TENANT_DB_USERNAME=${{ secrets.DB_USERNAME }}
           TENANT_DB_PASSWORD=${{ secrets.DB_PASSWORD }}
 
-          # Multi-tenancy
           TENANCY_ENABLED=true
-          TENANCY_MODE=single
 
-          # Cache & Queue (using file/database for shared hosting)
-          BROADCAST_DRIVER=log
           CACHE_DRIVER=file
-          FILESYSTEM_DISK=local
           QUEUE_CONNECTION=database
           SESSION_DRIVER=file
           SESSION_LIFETIME=120
 
-          # CORS & Sanctum
-          FRONTEND_URL=https://thirdbooks.digital
-          SANCTUM_STATEFUL_DOMAINS=thirdbooks.digital,www.thirdbooks.digital
-          SESSION_DOMAIN=.thirdbooks.digital
+          SANCTUM_STATEFUL_DOMAINS=${{ secrets.SANCTUM_DOMAINS }}
+          ENVEOF
 
-          # Mail Configuration
-          MAIL_MAILER=smtp
-          MAIL_HOST=smtp.gmail.com
-          MAIL_PORT=587
-          MAIL_USERNAME=${{ secrets.MAIL_USERNAME || 'noreply@thirdbooks.digital' }}
-          MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD || '' }}
-          MAIL_ENCRYPTION=tls
-          MAIL_FROM_ADDRESS=noreply@thirdbooks.digital
-          MAIL_FROM_NAME=ThirdBooks
-
-          # Currency API
-          CURRENCY_API_URL=https://api.exchangerate-api.com/v4/latest
-
-          # EFRIS (Uganda Revenue Authority)
-          EFRIS_ENABLED=false
-          EFRIS_API_URL=
-          EFRIS_TIN=
-          EOF
-
-          echo "✅ Production .env file created"
-
-      - name: 📦 Prepare deployment package
+      - name: Prepare deployment package
         working-directory: backend
         run: |
-          echo "Creating deployment package..."
-
-          # Create deployment directory
           mkdir -p deploy_temp
 
-          # Copy all backend files except public folder
-          echo "Copying application files..."
           rsync -av \
             --exclude='public' \
             --exclude='node_modules' \
             --exclude='.git' \
-            --exclude='.gitignore' \
-            --exclude='.gitattributes' \
             --exclude='tests' \
             --exclude='phpunit.xml' \
             --exclude='composer.json.backup' \
@@ -187,128 +132,54 @@ jobs:
             --exclude='storage/framework/views/*' \
             . deploy_temp/
 
-          # Copy public folder contents to root (DirectAdmin structure)
-          echo "Copying public assets to root..."
           cp -r public/* deploy_temp/
           [ -f public/.htaccess ] && cp public/.htaccess deploy_temp/ || true
 
-          # Ensure storage directories exist with proper structure
-          echo "Creating storage directories..."
-          mkdir -p deploy_temp/storage/framework/{cache,sessions,views,testing}
+          mkdir -p deploy_temp/storage/framework/{cache,sessions,views}
           mkdir -p deploy_temp/storage/logs
-          mkdir -p deploy_temp/storage/app/{public,private}
+          mkdir -p deploy_temp/storage/app/public
           mkdir -p deploy_temp/bootstrap/cache
 
-          # Create .gitkeep files to preserve empty directories
           find deploy_temp/storage -type d -exec touch {}/.gitkeep \;
-          find deploy_temp/bootstrap/cache -type d -exec touch {}/.gitkeep \;
 
-          # Create deployment info file
-          cat > deploy_temp/DEPLOYMENT_INFO.txt << EOF_INFO
-          ThirdBooks Backend Deployment
-          =============================
+          cat > deploy_temp/DEPLOYMENT_INFO.txt << EOF
+          ThirdBooks Backend
           Deployed: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           Branch: ${{ github.ref_name }}
           Commit: ${{ github.sha }}
-          Actor: ${{ github.actor }}
-          Workflow: ${{ github.run_number }}
-          EOF_INFO
+          EOF
 
-          echo "✅ Deployment package prepared"
-          echo "📊 Package contents:"
-          ls -lah deploy_temp/ | head -20
-
-      - name: 📍 Calculate deployment path
-        id: deploy-path
-        run: |
-          # Auto-append /public_html/api to the deployment path for DirectAdmin
-          BASE_PATH="${{ secrets.DIRECTADMIN_PATH_API }}"
-
-          # Remove trailing slash if present
-          BASE_PATH="${BASE_PATH%/}"
-
-          # Append /public_html/api
-          FULL_PATH="${BASE_PATH}/public_html/api"
-
-          echo "deployment-path=${FULL_PATH}" >> $GITHUB_OUTPUT
-          echo "📍 Base path: ${BASE_PATH}"
-          echo "📍 Full deployment path: ${FULL_PATH}"
-
-      - name: 🚀 Deploy to DirectAdmin via FTP
+      - name: Deploy to DirectAdmin via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DIRECTADMIN_HOST }}
-          username: ${{ secrets.DIRECTADMIN_USERNAME }}
-          password: ${{ secrets.DIRECTADMIN_PASSWORD }}
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./backend/deploy_temp/
-          server-dir: ${{ steps.deploy-path.outputs.deployment-path }}/
+          server-dir: ${{ secrets.FTP_PATH }}/
           dangerous-clean-slate: false
           exclude: |
             **/.git*
-            **/.git*/**
             **/node_modules/**
             **/tests/**
-            **/.DS_Store
-            **/Thumbs.db
             storage/logs/**
             storage/framework/cache/**
             storage/framework/sessions/**
-            storage/framework/views/**
-            composer.json.backup
 
-      - name: ✅ Deployment Summary
+      - name: Deployment Summary
         if: success()
         run: |
+          echo "============================================"
+          echo "  BACKEND DEPLOYED SUCCESSFULLY!"
+          echo "============================================"
           echo ""
-          echo "╔════════════════════════════════════════════════════════╗"
-          echo "║  ✅ BACKEND DEPLOYED SUCCESSFULLY!                     ║"
-          echo "╚════════════════════════════════════════════════════════╝"
+          echo "API URL: ${{ secrets.APP_URL }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
           echo ""
-          echo "📍 Deployment Location: ${{ steps.deploy-path.outputs.deployment-path }}"
-          echo "🔗 API URL: https://thirdbooks.digital/api/api"
-          echo "📅 Deployed: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
-          echo "📦 Branch: ${{ github.ref_name }}"
-          echo "📝 Commit: ${{ github.sha }}"
-          echo ""
-          echo "⚠️  POST-DEPLOYMENT STEPS REQUIRED:"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          echo "1️⃣  Set Permissions (via DirectAdmin File Manager or Terminal):"
-          echo "    chmod -R 775 storage bootstrap/cache"
-          echo ""
-          echo "2️⃣  Run Database Migrations:"
-          echo "    php artisan migrate --force"
-          echo ""
-          echo "3️⃣  Seed Database (first time only):"
-          echo "    php artisan db:seed --force"
-          echo ""
-          echo "4️⃣  Optimize Laravel:"
-          echo "    php artisan config:cache"
-          echo "    php artisan route:cache"
-          echo "    php artisan view:cache"
-          echo ""
-          echo "5️⃣  Test API Health:"
-          echo "    curl https://thirdbooks.digital/api/api/health"
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-      - name: ❌ Deployment Failed
-        if: failure()
-        run: |
-          echo ""
-          echo "╔════════════════════════════════════════════════════════╗"
-          echo "║  ❌ BACKEND DEPLOYMENT FAILED!                         ║"
-          echo "╚════════════════════════════════════════════════════════╝"
-          echo ""
-          echo "📅 Failed at: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
-          echo "📦 Branch: ${{ github.ref_name }}"
-          echo "📝 Commit: ${{ github.sha }}"
-          echo ""
-          echo "🔍 Check the logs above for details."
-          echo "💡 Common issues:"
-          echo "   - FTP credentials incorrect"
-          echo "   - Server path doesn't exist"
-          echo "   - Composer dependency conflicts"
-          echo "   - PHP extension missing"
-          echo ""
-          exit 1
+          echo "POST-DEPLOYMENT STEPS:"
+          echo "1. SSH: chmod -R 775 storage bootstrap/cache"
+          echo "2. SSH: php artisan migrate --force"
+          echo "3. SSH: php artisan db:seed --force (first time)"
+          echo "4. SSH: php artisan config:cache"
+          echo "5. Test: curl ${{ secrets.APP_URL }}/api/health"

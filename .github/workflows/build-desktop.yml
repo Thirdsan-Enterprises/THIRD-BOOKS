@@ -1,38 +1,100 @@
-name: Build Desktop App (Flutter)
+name: Build Desktop Apps (Linux, Windows, macOS)
 
 on:
   push:
+    branches: [ main ]
+    paths:
+      - 'mobile-admin/**'
+      - '.github/workflows/build-desktop.yml'
     tags:
       - 'v*.*.*'
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version tag (e.g., v1.0.0)'
+      api_url:
+        description: 'API Base URL'
         required: false
-        default: 'v1.0.0-dev'
+        default: 'https://api.thirdbooks.com'
 
 concurrency:
   group: build-desktop-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  build-desktop:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            platform: linux
-            name: Linux
-          - os: windows-latest
-            platform: windows
-            name: Windows
-          - os: macos-latest
-            platform: macos
-            name: macOS
+env:
+  FLUTTER_VERSION: '3.19.0'
+  API_BASE_URL: ${{ github.event.inputs.api_url || secrets.API_URL || 'https://api.thirdbooks.com' }}
 
-    runs-on: ${{ matrix.os }}
-    environment: production
+jobs:
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libsqlite3-dev \
+            libsecret-1-dev libjsoncpp-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Initialize Flutter project
+        working-directory: mobile-admin
+        run: |
+          if [ ! -d "linux" ]; then
+            flutter create --platforms=linux .
+          fi
+
+      - name: Configure API endpoint
+        working-directory: mobile-admin
+        run: |
+          if [ -f "lib/core/api/api_client.dart" ]; then
+            sed -i "s|http://localhost:8000/api|${{ env.API_BASE_URL }}|g" lib/core/api/api_client.dart
+            sed -i "s|http://localhost:8000|${{ env.API_BASE_URL }}|g" lib/core/api/api_client.dart
+          fi
+
+      - name: Get dependencies
+        working-directory: mobile-admin
+        run: flutter pub get
+
+      - name: Generate code
+        working-directory: mobile-admin
+        run: dart run build_runner build --delete-conflicting-outputs || true
+
+      - name: Build Linux
+        working-directory: mobile-admin
+        run: |
+          flutter build linux --release \
+            --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
+
+      - name: Package Linux build
+        run: |
+          mkdir -p artifacts
+          cd mobile-admin/build/linux/x64/release/bundle
+          tar -czvf $GITHUB_WORKSPACE/artifacts/thirdbooks-linux-x64.tar.gz .
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: thirdbooks-linux
+          path: artifacts/thirdbooks-linux-x64.tar.gz
+          retention-days: 30
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
 
     steps:
       - name: Checkout code
@@ -41,85 +103,139 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
 
-      - name: Install Linux dependencies
-        if: matrix.platform == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            clang \
-            cmake \
-            ninja-build \
-            pkg-config \
-            libgtk-3-dev \
-            liblzma-dev \
-            libsqlite3-dev
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
 
-      - name: Enable desktop support
+      - name: Initialize Flutter project
+        working-directory: mobile-admin
         run: |
-          flutter config --enable-linux-desktop
-          flutter config --enable-windows-desktop
-          flutter config --enable-macos-desktop
+          if (!(Test-Path "windows")) {
+            flutter create --platforms=windows .
+          }
+
+      - name: Configure API endpoint
+        working-directory: mobile-admin
+        shell: bash
+        run: |
+          if [ -f "lib/core/api/api_client.dart" ]; then
+            sed -i "s|http://localhost:8000/api|${{ env.API_BASE_URL }}|g" lib/core/api/api_client.dart
+            sed -i "s|http://localhost:8000|${{ env.API_BASE_URL }}|g" lib/core/api/api_client.dart
+          fi
 
       - name: Get dependencies
         working-directory: mobile-admin
         run: flutter pub get
 
-      - name: Generate code (if using build_runner)
+      - name: Generate code
         working-directory: mobile-admin
-        run: |
-          flutter pub run build_runner build --delete-conflicting-outputs || true
-
-      - name: Build Linux
-        if: matrix.platform == 'linux'
-        working-directory: mobile-admin
-        run: flutter build linux --release
+        run: dart run build_runner build --delete-conflicting-outputs
+        continue-on-error: true
 
       - name: Build Windows
-        if: matrix.platform == 'windows'
         working-directory: mobile-admin
-        run: flutter build windows --release
-
-      - name: Build macOS
-        if: matrix.platform == 'macos'
-        working-directory: mobile-admin
-        run: flutter build macos --release
-
-      - name: Prepare Linux artifact
-        if: matrix.platform == 'linux'
         run: |
-          mkdir -p artifacts
-          cd mobile-admin/build/linux/x64/release/bundle
-          tar -czvf ../../../../../artifacts/thirdbooks-linux-x64.tar.gz .
+          flutter build windows --release `
+            --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
 
-      - name: Prepare Windows artifact
-        if: matrix.platform == 'windows'
+      - name: Package Windows build
         shell: bash
         run: |
           mkdir -p artifacts
           cd mobile-admin/build/windows/x64/runner/Release
-          7z a -tzip ../../../../../artifacts/thirdbooks-windows-x64.zip .
+          7z a -tzip $GITHUB_WORKSPACE/artifacts/thirdbooks-windows-x64.zip .
 
-      - name: Prepare macOS artifact
-        if: matrix.platform == 'macos'
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: thirdbooks-windows
+          path: artifacts/thirdbooks-windows-x64.zip
+          retention-days: 30
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Enable macOS desktop
+        run: flutter config --enable-macos-desktop
+
+      - name: Initialize Flutter project
+        working-directory: mobile-admin
+        run: |
+          if [ ! -d "macos" ]; then
+            flutter create --platforms=macos .
+          fi
+
+      - name: Configure API endpoint
+        working-directory: mobile-admin
+        run: |
+          if [ -f "lib/core/api/api_client.dart" ]; then
+            sed -i '' "s|http://localhost:8000/api|${{ env.API_BASE_URL }}|g" lib/core/api/api_client.dart
+            sed -i '' "s|http://localhost:8000|${{ env.API_BASE_URL }}|g" lib/core/api/api_client.dart
+          fi
+
+      - name: Get dependencies
+        working-directory: mobile-admin
+        run: flutter pub get
+
+      - name: Generate code
+        working-directory: mobile-admin
+        run: dart run build_runner build --delete-conflicting-outputs || true
+
+      - name: Install CocoaPods
+        working-directory: mobile-admin/macos
+        run: pod install || pod install --repo-update
+
+      - name: Build macOS
+        working-directory: mobile-admin
+        run: |
+          flutter build macos --release \
+            --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
+
+      - name: Package macOS build
         run: |
           mkdir -p artifacts
           cd mobile-admin/build/macos/Build/Products/Release
-          zip -r ../../../../../artifacts/thirdbooks-macos.zip *.app
+          zip -r $GITHUB_WORKSPACE/artifacts/thirdbooks-macos.zip *.app
 
-      - name: Upload artifact
+      - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: thirdbooks-desktop-${{ matrix.name }}
-          path: artifacts/*
-          if-no-files-found: warn
+          name: thirdbooks-macos
+          path: artifacts/thirdbooks-macos.zip
           retention-days: 30
 
+  release:
+    name: Create Release
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lhR artifacts/
+
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
           files: artifacts/*
@@ -129,35 +245,61 @@ jobs:
           body: |
             # ThirdBooks Desktop App ${{ github.ref_name }}
 
-            Professional accounting management system for Uganda and East Africa.
+            Professional accounting software for Uganda and East Africa.
 
             ## Downloads
 
-            - **Linux**: `thirdbooks-linux-x64.tar.gz`
-            - **Windows**: `thirdbooks-windows-x64.zip`
-            - **macOS**: `thirdbooks-macos.zip`
+            | Platform | File | Size |
+            |----------|------|------|
+            | Linux x64 | `thirdbooks-linux-x64.tar.gz` | ~25MB |
+            | Windows x64 | `thirdbooks-windows-x64.zip` | ~30MB |
+            | macOS | `thirdbooks-macos.zip` | ~35MB |
 
             ## Features
 
-            - Offline-first architecture
-            - Multi-currency support (UGX base)
-            - Double-entry bookkeeping
-            - Financial reports
-            - Cloud sync when online
+            - Complete double-entry bookkeeping
+            - Multi-currency support (UGX, USD, EUR, KES)
+            - Offline-first with cloud sync
+            - Financial reports (Trial Balance, P&L, Balance Sheet)
+            - Customer & Vendor management
+            - Invoice & Bill tracking
 
             ## Installation
 
             ### Linux
             ```bash
             tar -xzvf thirdbooks-linux-x64.tar.gz
-            ./thirdbooks
+            ./thirdbooks_admin
             ```
 
             ### Windows
-            Extract zip and run `thirdbooks.exe`
+            1. Extract ZIP file
+            2. Run `thirdbooks_admin.exe`
 
             ### macOS
-            Extract zip and move app to Applications folder
+            1. Extract ZIP file
+            2. Move `ThirdBooks.app` to Applications
+            3. Right-click > Open (first time only)
 
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  summary:
+    name: Build Summary
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Summary
+        run: |
+          echo "========================================"
+          echo "  DESKTOP BUILD SUMMARY"
+          echo "========================================"
+          echo ""
+          echo "Linux:   ${{ needs.build-linux.result }}"
+          echo "Windows: ${{ needs.build-windows.result }}"
+          echo "macOS:   ${{ needs.build-macos.result }}"
+          echo ""
+          echo "API URL: ${{ env.API_BASE_URL }}"
+          echo "Flutter: ${{ env.FLUTTER_VERSION }}"
