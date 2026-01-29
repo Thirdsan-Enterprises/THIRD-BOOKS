@@ -52,11 +52,8 @@ jobs:
           # Create Flutter project structure if it doesn't exist
           if [ ! -d "android" ]; then
             echo "Creating Android platform..."
-            flutter create --platforms=android .
+            flutter create --platforms=android --org=com.thirdbooks --project-name=thirdbooks_admin .
           fi
-
-          # Ensure pubspec.yaml has correct name
-          sed -i 's/^name:.*/name: thirdbooks_admin/' pubspec.yaml || true
 
       - name: Configure API endpoint
         working-directory: mobile-admin
@@ -151,7 +148,7 @@ jobs:
         run: |
           if [ ! -d "ios" ]; then
             echo "Creating iOS platform..."
-            flutter create --platforms=ios .
+            flutter create --platforms=ios --org=com.thirdbooks --project-name=thirdbooks_admin .
           fi
 
       - name: Configure API endpoint
