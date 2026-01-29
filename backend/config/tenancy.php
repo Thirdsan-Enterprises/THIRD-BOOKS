@@ -25,14 +25,24 @@ return [
     ],
 
     'database' => [
-        'central_connection' => env('DB_CONNECTION', 'pgsql'),
-        'tenant_connection' => env('TENANT_DB_CONNECTION', 'tenant_pgsql'),
+        /*
+        |--------------------------------------------------------------------------
+        | Database Connections for Multi-Tenancy
+        |--------------------------------------------------------------------------
+        |
+        | Default: MySQL (DirectAdmin compatible)
+        | Set DB_CONNECTION=pgsql and TENANT_DB_CONNECTION=tenant_pgsql for PostgreSQL
+        |
+        */
+        'central_connection' => env('DB_CONNECTION', 'mysql'),
+        'tenant_connection' => env('TENANT_DB_CONNECTION', 'tenant_mysql'),
 
-        'prefix' => 'tenant',
+        'prefix' => 'tenant_',
         'suffix' => '',
 
         'managers' => [
             'sqlite' => Stancl\Tenancy\Database\TenantDatabaseManagers\SQLiteDatabaseManager::class,
+            'mysql' => Stancl\Tenancy\Database\TenantDatabaseManagers\MySQLDatabaseManager::class,
             'pgsql' => Stancl\Tenancy\Database\TenantDatabaseManagers\PostgreSQLDatabaseManager::class,
         ],
     ],

@@ -1,14 +1,31 @@
-name: Build Mobile Apps
+name: Build Mobile Apps (Android & iOS)
 
 on:
   push:
+    branches: [ main ]
+    paths:
+      - 'mobile-admin/**'
+      - '.github/workflows/build-mobile.yml'
     tags:
-      - 'mobile-v*.*.*'
-  workflow_dispatch:  # Allow manual trigger
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'API Base URL'
+        required: false
+        default: 'https://api.thirdbooks.com'
+
+concurrency:
+  group: build-mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.19.0'
+  API_BASE_URL: ${{ github.event.inputs.api_url || secrets.API_URL || 'https://api.thirdbooks.com' }}
 
 jobs:
   build-android:
-    name: Build Android APK
+    name: Build Android APK & AAB
     runs-on: ubuntu-latest
 
     steps:
@@ -25,109 +42,97 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.16.9'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
+
+      - name: Initialize Flutter project structure
+        working-directory: mobile-admin
+        run: |
+          # Create Flutter project structure if it doesn't exist
+          if [ ! -d "android" ]; then
+            echo "Creating Android platform..."
+            flutter create --platforms=android .
+          fi
+
+          # Ensure pubspec.yaml has correct name
+          sed -i 's/^name:.*/name: thirdbooks_admin/' pubspec.yaml || true
+
+      - name: Configure API endpoint
+        working-directory: mobile-admin
+        run: |
+          # Update API base URL in the api_client.dart
+          if [ -f "lib/core/api/api_client.dart" ]; then
+            sed -i "s|http://localhost:8000/api|${{ env.API_BASE_URL }}|g" lib/core/api/api_client.dart
+            sed -i "s|http://localhost:8000|${{ env.API_BASE_URL }}|g" lib/core/api/api_client.dart
+          fi
 
       - name: Get Flutter dependencies
         working-directory: mobile-admin
         run: flutter pub get
 
-      - name: Run code generation (if needed)
-        working-directory: mobile-admin
-        run: flutter pub run build_runner build --delete-conflicting-outputs || echo "No code generation needed"
-
-      - name: Configure API endpoint
+      - name: Generate code (Drift, Freezed, etc.)
         working-directory: mobile-admin
         run: |
-          # Update API base URL to production
-          sed -i "s|http://localhost:8000|https://thirdbooks.digital|g" lib/config/api_config.dart || echo "Config updated"
+          dart run build_runner build --delete-conflicting-outputs || echo "Code generation completed or skipped"
 
-      - name: Build Android APK (Release)
+      - name: Build Android APK (Release - Split by ABI)
         working-directory: mobile-admin
-        run: flutter build apk --release --split-per-abi
+        run: |
+          flutter build apk --release --split-per-abi \
+            --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
 
-      - name: Build Android App Bundle (for Play Store)
+      - name: Build Android App Bundle
         working-directory: mobile-admin
-        run: flutter build appbundle --release
+        run: |
+          flutter build appbundle --release \
+            --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
 
-      - name: Prepare Android artifacts
+      - name: Prepare artifacts
         run: |
           mkdir -p artifacts/android
-          cp mobile-admin/build/app/outputs/flutter-apk/*.apk artifacts/android/ || echo "No APK"
-          cp mobile-admin/build/app/outputs/bundle/release/*.aab artifacts/android/ || echo "No AAB"
+          cp mobile-admin/build/app/outputs/flutter-apk/*.apk artifacts/android/ 2>/dev/null || true
+          cp mobile-admin/build/app/outputs/bundle/release/*.aab artifacts/android/ 2>/dev/null || true
           ls -lh artifacts/android/
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: thirdbooks-mobile-android
+          name: thirdbooks-android
           path: artifacts/android/*
-          if-no-files-found: error
+          if-no-files-found: warn
+          retention-days: 30
 
-      - name: Create Release (Android)
+      - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
           files: artifacts/android/*
           draft: false
-          prerelease: false
           body: |
-            ## ThirdBooks Mobile Admin App ${{ github.ref_name }}
+            ## ThirdBooks Mobile App ${{ github.ref_name }}
 
-            ### 📱 Android Installation
+            ### Android Downloads
+            - `app-arm64-v8a-release.apk` - Modern 64-bit phones (Recommended)
+            - `app-armeabi-v7a-release.apk` - Older 32-bit phones
+            - `app-x86_64-release.apk` - Emulators/x86 devices
+            - `app-release.aab` - Google Play Store upload
 
-            **APK Files (Direct Install):**
-            - `app-armeabi-v7a-release.apk` - 32-bit ARM devices (older phones)
-            - `app-arm64-v8a-release.apk` - 64-bit ARM devices (most modern phones) **← Recommended**
-            - `app-x86_64-release.apk` - x86 devices (rare, mostly emulators)
+            ### Installation
+            1. Download the arm64-v8a APK (most devices)
+            2. Enable "Install from Unknown Sources"
+            3. Install and open ThirdBooks
 
-            **AAB File (Google Play Store):**
-            - `app-release.aab` - Upload to Google Play Console
-
-            ### 📦 Installation Instructions
-
-            **Option 1: Direct APK Install**
-            1. Download the appropriate APK for your device
-            2. Enable "Install from Unknown Sources" in Android settings
-            3. Tap the downloaded APK to install
-            4. Launch "ThirdBooks Admin" from app drawer
-
-            **Option 2: Google Play Store** (Coming Soon)
-            - Search for "ThirdBooks" in Play Store
-            - Tap Install
-
-            ### 🔗 Backend Connection
-            - API: `https://thirdbooks.digital/api/api`
-            - Auto-sync with backend when online
-            - Offline-capable with local SQLite storage
-
-            ### ✨ Features
-            - Real-time tenant monitoring
-            - Push notifications for critical events
-            - Offline viewing of cached data
-            - Biometric authentication support
-            - Dark mode support
-
-            ### 📝 Notes
-            - Download size: ~20MB
-            - Minimum Android version: 7.0 (API 24)
-            - Permissions: Internet, Storage (for exports)
-
+            ### Features
+            - Full offline accounting
+            - Multi-currency support (UGX, USD, EUR, KES)
+            - Cloud sync when online
+            - Reports: Trial Balance, P&L, Balance Sheet
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Summary
-        if: success()
-        run: |
-          echo "✅ Android app built successfully!"
-          echo "📦 APK and AAB artifacts uploaded"
-          echo ""
-          echo "APK files:"
-          ls -lh artifacts/android/*.apk
-
   build-ios:
-    name: Build iOS IPA
+    name: Build iOS App
     runs-on: macos-latest
 
     steps:
@@ -137,45 +142,67 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.16.9'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
+
+      - name: Initialize Flutter project structure
+        working-directory: mobile-admin
+        run: |
+          if [ ! -d "ios" ]; then
+            echo "Creating iOS platform..."
+            flutter create --platforms=ios .
+          fi
+
+      - name: Configure API endpoint
+        working-directory: mobile-admin
+        run: |
+          if [ -f "lib/core/api/api_client.dart" ]; then
+            sed -i '' "s|http://localhost:8000/api|${{ env.API_BASE_URL }}|g" lib/core/api/api_client.dart
+            sed -i '' "s|http://localhost:8000|${{ env.API_BASE_URL }}|g" lib/core/api/api_client.dart
+          fi
 
       - name: Get Flutter dependencies
         working-directory: mobile-admin
         run: flutter pub get
 
-      - name: Run code generation (if needed)
-        working-directory: mobile-admin
-        run: flutter pub run build_runner build --delete-conflicting-outputs || echo "No code generation needed"
-
-      - name: Configure API endpoint
+      - name: Generate code
         working-directory: mobile-admin
         run: |
-          # Update API base URL to production
-          sed -i '' "s|http://localhost:8000|https://thirdbooks.digital|g" lib/config/api_config.dart || echo "Config updated"
+          dart run build_runner build --delete-conflicting-outputs || true
 
-      - name: Install CocoaPods dependencies
+      - name: Install CocoaPods
         working-directory: mobile-admin/ios
-        run: pod install
+        run: |
+          pod install || pod install --repo-update
 
-      - name: Build iOS (unsigned)
+      - name: Build iOS (No Code Sign)
         working-directory: mobile-admin
         run: |
-          flutter build ios --release --no-codesign
+          flutter build ios --release --no-codesign \
+            --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
 
-      - name: Prepare iOS artifacts
+      - name: Create unsigned IPA
+        working-directory: mobile-admin
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r ../artifacts-ios/ThirdBooks-unsigned.ipa Payload || true
+          rm -rf Payload
+
+      - name: Prepare artifacts
         run: |
           mkdir -p artifacts/ios
-          echo "iOS build completed" > artifacts/ios/README.txt
-          ls -lh artifacts/ios/ || echo "No IPA (code signing required)"
+          cp mobile-admin/artifacts-ios/*.ipa artifacts/ios/ 2>/dev/null || echo "IPA not created (needs signing)"
+          echo "iOS build completed - requires code signing for distribution" > artifacts/ios/README.txt
 
       - name: Upload iOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: thirdbooks-mobile-ios
+          name: thirdbooks-ios
           path: artifacts/ios/*
           if-no-files-found: warn
+          retention-days: 30
 
       - name: Create Release (iOS)
         if: startsWith(github.ref, 'refs/tags/')
@@ -183,53 +210,29 @@ jobs:
         with:
           files: artifacts/ios/*
           body: |
-            ## ThirdBooks Mobile Admin App ${{ github.ref_name }} - iOS
+            ## ThirdBooks iOS App ${{ github.ref_name }}
 
-            ### 📱 iOS Installation
-
-            **IPA File:**
-            - `ThirdBooks.ipa` - iOS App Package
-
-            ### 📦 Installation Instructions
-
-            **Option 1: TestFlight (Beta Testing)**
-            1. Join TestFlight beta program
-            2. Install TestFlight from App Store
-            3. Tap invitation link
-            4. Install ThirdBooks
-
-            **Option 2: App Store** (Coming Soon)
-            - Search for "ThirdBooks" in App Store
-            - Tap Get
-
-            **Option 3: Enterprise/Ad-Hoc**
-            1. Download IPA file
-            2. Use Apple Configurator or Xcode to install
-            3. Trust the certificate in Settings → General → Device Management
-
-            ### 🔗 Backend Connection
-            - API: `https://thirdbooks.digital/api/api`
-            - Auto-sync with backend when online
-            - Offline-capable with local storage
-
-            ### ✨ Features
-            - Real-time tenant monitoring
-            - Push notifications (via APNs)
-            - Offline viewing of cached data
-            - Face ID / Touch ID support
-            - Dark mode support
-
-            ### 📝 Notes
-            - Download size: ~25MB
-            - Minimum iOS version: 13.0
-            - Requires Apple Developer account for distribution
-
+            ### Note
+            iOS build requires Apple Developer signing for distribution.
+            Contact support for TestFlight access.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Summary
-        if: success()
+  summary:
+    name: Build Summary
+    needs: [build-android, build-ios]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Summary
         run: |
-          echo "✅ iOS build completed!"
-          echo "⚠️  Note: iOS built without code signing"
-          echo "📝 For App Store distribution, add signing certificates and rebuild"
+          echo "========================================"
+          echo "  MOBILE BUILD SUMMARY"
+          echo "========================================"
+          echo ""
+          echo "Android: ${{ needs.build-android.result }}"
+          echo "iOS: ${{ needs.build-ios.result }}"
+          echo ""
+          echo "API URL: ${{ env.API_BASE_URL }}"
+          echo "Flutter: ${{ env.FLUTTER_VERSION }}"

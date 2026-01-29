@@ -4,6 +4,7 @@ namespace App\Models\Accounting;
 
 use App\Models\Company;
 use App\Models\User;
+use App\Services\Accounting\GeneralLedgerService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -115,6 +116,8 @@ class JournalEntry extends Model
 
     /**
      * Post journal entry
+     *
+     * Updates status to posted and creates general ledger entries.
      */
     public function post(User $user): bool
     {
@@ -140,11 +143,17 @@ class JournalEntry extends Model
             'posted_at' => now(),
         ]);
 
+        // Create general ledger entries (replaces PostgreSQL trigger)
+        $glService = app(GeneralLedgerService::class);
+        $glService->postToLedger($this);
+
         return true;
     }
 
     /**
      * Unpost journal entry
+     *
+     * Reverts status to draft and removes general ledger entries.
      */
     public function unpost(): bool
     {
@@ -156,13 +165,9 @@ class JournalEntry extends Model
             throw new \Exception('Journal entry is locked - period is closed');
         }
 
-        // Delete general ledger entries
-        GeneralLedger::where('journal_entry_id', $this->id)->delete();
-
-        // Recalculate account balances
-        foreach ($this->lines as $line) {
-            $line->account->recalculateBalance();
-        }
+        // Remove general ledger entries and recalculate balances
+        $glService = app(GeneralLedgerService::class);
+        $glService->unpostFromLedger($this);
 
         $this->update([
             'status' => self::STATUS_DRAFT,
