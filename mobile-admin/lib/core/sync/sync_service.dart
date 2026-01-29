@@ -24,7 +24,7 @@ class SyncState {
   final int pendingEventsCount;
   final int conflictsCount;
 
-  SyncState({
+  const SyncState({
     required this.status,
     this.errorMessage,
     this.lastSyncAt,
@@ -43,7 +43,7 @@ class SyncState {
   }) {
     return SyncState(
       status: status ?? this.status,
-      errorMessage: errorMessage,
+      errorMessage: errorMessage ?? this.errorMessage,
       lastSyncAt: lastSyncAt ?? this.lastSyncAt,
       lastSyncedSequence: lastSyncedSequence ?? this.lastSyncedSequence,
       pendingEventsCount: pendingEventsCount ?? this.pendingEventsCount,
@@ -69,7 +69,7 @@ class SyncService extends StateNotifier<SyncState> {
   })  : _apiClient = apiClient,
         _database = database,
         _storage = storage,
-        super(SyncState(status: SyncStatus.idle)) {
+        super(const SyncState(status: SyncStatus.idle)) {
     _init();
   }
 
