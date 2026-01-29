@@ -46,7 +46,7 @@ jobs:
             Get-ChildItem windows
           } else {
             Write-Host "Windows folder does not exist, creating..."
-            flutter create --platforms=windows --org=com.thirdbooks .
+            flutter create --platforms=windows --org=com.thirdbooks --project-name=thirdbooks_admin .
           }
 
       - name: Show project structure
