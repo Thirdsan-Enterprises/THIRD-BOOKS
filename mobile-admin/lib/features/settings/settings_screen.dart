@@ -94,7 +94,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   title: const Text('Manual Sync'),
                   subtitle: const Text('Sync data with server'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => ref.read(syncServiceProvider.notifier).fullSync(),
+                  onTap: () => ref.read(syncServiceProvider.notifier).sync(),
                 ),
               ],
             ),
