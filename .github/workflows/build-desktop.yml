@@ -54,7 +54,7 @@ jobs:
         working-directory: mobile-admin
         run: |
           if [ ! -d "linux" ]; then
-            flutter create --platforms=linux .
+            flutter create --platforms=linux --org=com.thirdbooks --project-name=thirdbooks_admin .
           fi
 
       - name: Configure API endpoint
@@ -114,7 +114,7 @@ jobs:
         working-directory: mobile-admin
         run: |
           if (!(Test-Path "windows")) {
-            flutter create --platforms=windows .
+            flutter create --platforms=windows --org=com.thirdbooks --project-name=thirdbooks_admin .
           }
 
       - name: Configure API endpoint
@@ -177,7 +177,7 @@ jobs:
         working-directory: mobile-admin
         run: |
           if [ ! -d "macos" ]; then
-            flutter create --platforms=macos .
+            flutter create --platforms=macos --org=com.thirdbooks --project-name=thirdbooks_admin .
           fi
 
       - name: Configure API endpoint

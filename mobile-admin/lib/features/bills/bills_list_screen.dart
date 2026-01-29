@@ -78,7 +78,7 @@ class _BillsListScreenState extends ConsumerState<BillsListScreen> {
                 children: [
                   Text('Payable', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline)),
                   Text(
-                    _formatCurrency(state.totalPayable, 'UGX'),
+                    _formatCurrency(state.totalOutstanding, 'UGX'),
                     style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: theme.colorScheme.error),
                   ),
                 ],

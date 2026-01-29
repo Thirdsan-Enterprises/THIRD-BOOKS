@@ -326,7 +326,7 @@ class _JournalEntryDetailsSheet extends ConsumerWidget {
       },
       children: [
         TableRow(
-          decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerHighest),
+          decoration: BoxDecoration(color: theme.colorScheme.surfaceVariant),
           children: [
             Padding(padding: const EdgeInsets.all(8), child: Text('Account', style: theme.textTheme.labelMedium)),
             Padding(padding: const EdgeInsets.all(8), child: Text('Debit', style: theme.textTheme.labelMedium, textAlign: TextAlign.right)),
@@ -460,7 +460,7 @@ class _JournalEntryFormSheetState extends ConsumerState<_JournalEntryFormSheet> 
               ],
             ),
             const SizedBox(height: 8),
-            ..._lines.asMap().entries.map((entry) => _buildLineRow(entry.key, accountsState.activeAccounts)),
+            ..._lines.asMap().entries.map((entry) => _buildLineRow(entry.key, accountsState.accounts.where((a) => a.isActive).toList())),
             TextButton.icon(
               onPressed: () => setState(() => _lines.add({'account_id': null, 'debit': 0.0, 'credit': 0.0, 'description': ''})),
               icon: const Icon(Icons.add),

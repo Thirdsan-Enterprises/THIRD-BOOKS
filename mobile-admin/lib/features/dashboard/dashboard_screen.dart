@@ -297,7 +297,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       child: Text(
         label,
         style: TextStyle(
-          color: color.shade800,
+          color: color,
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),

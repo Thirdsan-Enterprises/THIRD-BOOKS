@@ -255,7 +255,7 @@ class ConflictsScreen extends ConsumerWidget {
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w600,
-          color: color.shade800,
+          color: color,
         ),
       ),
     );

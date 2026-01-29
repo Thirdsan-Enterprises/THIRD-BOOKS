@@ -177,7 +177,7 @@ class _TrialBalanceTabState extends ConsumerState<_TrialBalanceTab> {
                         ],
                       )),
                       TableRow(
-                        decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerHighest),
+                        decoration: BoxDecoration(color: theme.colorScheme.surfaceVariant),
                         children: [
                           _TableCell(''),
                           _TableCell('TOTALS', isBold: true),

@@ -2,17 +2,20 @@ name: Build Windows x64
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - 'claude/**'
     paths:
       - 'mobile-admin/**'
       - '.github/workflows/build-windows.yml'
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 concurrency:
   group: build-windows-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.19.0'
 
 jobs:
   build-windows:
@@ -26,7 +29,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
 
@@ -46,7 +49,7 @@ jobs:
             Get-ChildItem windows
           } else {
             Write-Host "Windows folder does not exist, creating..."
-            flutter create --platforms=windows --org=com.thirdbooks .
+            flutter create --platforms=windows --org=com.thirdbooks --project-name=thirdbooks_admin .
           }
 
       - name: Show project structure
@@ -79,7 +82,7 @@ jobs:
       - name: Build Windows Release
         working-directory: mobile-admin
         run: |
-          flutter build windows --release --verbose
+          flutter build windows --release
 
       - name: List build output
         working-directory: mobile-admin
@@ -110,5 +113,5 @@ jobs:
           Write-Host ""
           Write-Host "Artifact: ThirdBooks-Windows-x64.zip"
           Write-Host "Platform: Windows x64"
-          Write-Host "Flutter:  3.24.0"
+          Write-Host "Flutter:  ${{ env.FLUTTER_VERSION }}"
           Write-Host ""
