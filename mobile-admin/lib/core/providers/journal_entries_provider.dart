@@ -441,3 +441,15 @@ final journalEntriesStreamProvider = StreamProvider<List<JournalEntry>>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return db.watchAllJournalEntries();
 });
+
+/// Provider for journal entry lines by entry ID
+final journalEntryLinesProvider =
+    FutureProvider.family<List<JournalEntryLine>, String>((ref, entryId) async {
+  final db = ref.watch(appDatabaseProvider);
+  return db.getJournalEntryLines(entryId);
+});
+
+/// Alias for posting journal entry
+extension JournalEntriesNotifierX on JournalEntriesNotifier {
+  Future<void> postEntry(String id) => postJournalEntry(id, 'user');
+}
