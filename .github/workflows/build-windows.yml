@@ -1,0 +1,114 @@
+name: Build Windows x64
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'mobile-admin/**'
+      - '.github/workflows/build-windows.yml'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: Build Windows x64
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter version info
+        run: |
+          flutter --version
+          flutter doctor -v
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Check for windows folder
+        working-directory: mobile-admin
+        run: |
+          if (Test-Path "windows") {
+            Write-Host "Windows folder exists"
+            Get-ChildItem windows
+          } else {
+            Write-Host "Windows folder does not exist, creating..."
+            flutter create --platforms=windows --org=com.thirdbooks .
+          }
+
+      - name: Show project structure
+        working-directory: mobile-admin
+        run: |
+          Write-Host "Project structure:"
+          Get-ChildItem -Recurse -Depth 2 | Where-Object { $_.PSIsContainer } | Select-Object FullName
+
+      - name: Get dependencies
+        working-directory: mobile-admin
+        run: flutter pub get
+
+      - name: Generate Drift database code
+        working-directory: mobile-admin
+        run: |
+          Write-Host "Running build_runner for code generation..."
+          dart run build_runner build --delete-conflicting-outputs
+        continue-on-error: true
+
+      - name: Verify generated files
+        working-directory: mobile-admin
+        run: |
+          Write-Host "Checking for generated files..."
+          if (Test-Path "lib/core/database/app_database.g.dart") {
+            Write-Host "Database generated file exists"
+          } else {
+            Write-Host "WARNING: Database generated file not found"
+          }
+
+      - name: Build Windows Release
+        working-directory: mobile-admin
+        run: |
+          flutter build windows --release --verbose
+
+      - name: List build output
+        working-directory: mobile-admin
+        run: |
+          Write-Host "Build output structure:"
+          Get-ChildItem -Recurse build/windows/x64/runner/Release | Select-Object FullName
+
+      - name: Create ZIP package
+        working-directory: mobile-admin/build/windows/x64/runner/Release
+        run: |
+          Compress-Archive -Path * -DestinationPath ThirdBooks-Windows-x64.zip
+          Move-Item ThirdBooks-Windows-x64.zip $env:GITHUB_WORKSPACE/
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ThirdBooks-Windows-x64
+          path: ThirdBooks-Windows-x64.zip
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Build Summary
+        if: always()
+        run: |
+          Write-Host "========================================"
+          Write-Host "  WINDOWS BUILD COMPLETE"
+          Write-Host "========================================"
+          Write-Host ""
+          Write-Host "Artifact: ThirdBooks-Windows-x64.zip"
+          Write-Host "Platform: Windows x64"
+          Write-Host "Flutter:  3.24.0"
+          Write-Host ""

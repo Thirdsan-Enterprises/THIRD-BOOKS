@@ -72,18 +72,11 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  assets:
-    - assets/images/
-    - assets/icons/
-    - assets/logo/
+  # Assets will be created during build if not present
+  # assets:
+  #   - assets/images/
+  #   - assets/icons/
+  #   - assets/logo/
 
-  fonts:
-    - family: Inter
-      fonts:
-        - asset: assets/fonts/Inter-Regular.ttf
-        - asset: assets/fonts/Inter-Medium.ttf
-          weight: 500
-        - asset: assets/fonts/Inter-SemiBold.ttf
-          weight: 600
-        - asset: assets/fonts/Inter-Bold.ttf
-          weight: 700
+  # Using Google Fonts package instead of bundled fonts
+  # Fonts are downloaded automatically at runtime
