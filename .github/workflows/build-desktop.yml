@@ -2,7 +2,7 @@ name: Build Desktop Apps (Linux, Windows, macOS)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'claude/**' ]
     paths:
       - 'desktop/**'
       - '.github/workflows/build-desktop.yml'
