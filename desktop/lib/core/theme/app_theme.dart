@@ -79,7 +79,7 @@ class AppTheme {
         onError: Colors.white,
         surface: AppColors.surfaceLight,
         onSurface: AppColors.textPrimaryLight,
-        surfaceContainerHighest: AppColors.backgroundLight,
+        surfaceVariant: AppColors.backgroundLight,
         outline: AppColors.dividerLight,
         outlineVariant: AppColors.textTertiaryLight,
       ),
@@ -149,8 +149,8 @@ class AppTheme {
         hintStyle: const TextStyle(color: AppColors.textTertiaryLight),
       ),
       dataTableTheme: DataTableThemeData(
-        headingRowColor: WidgetStateProperty.all(AppColors.backgroundLight),
-        dataRowColor: WidgetStateProperty.all(AppColors.surfaceLight),
+        headingRowColor: MaterialStateProperty.all(AppColors.backgroundLight),
+        dataRowColor: MaterialStateProperty.all(AppColors.surfaceLight),
         dividerThickness: 1,
         headingTextStyle: GoogleFonts.inter(
           fontWeight: FontWeight.w600,
@@ -195,7 +195,7 @@ class AppTheme {
         onError: Colors.white,
         surface: AppColors.surfaceDark,
         onSurface: AppColors.textPrimaryDark,
-        surfaceContainerHighest: AppColors.backgroundDark,
+        surfaceVariant: AppColors.backgroundDark,
         outline: AppColors.dividerDark,
         outlineVariant: AppColors.textTertiaryDark,
       ),

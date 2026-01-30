@@ -243,7 +243,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
         columnSpacing: 24,
         horizontalMargin: 24,
         minWidth: 800,
-        headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
         columns: const [
           DataColumn2(label: Text('Code'), size: ColumnSize.S),
           DataColumn2(label: Text('Account Name'), size: ColumnSize.L),

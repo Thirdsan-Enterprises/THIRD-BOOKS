@@ -287,7 +287,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
         columnSpacing: 24,
         horizontalMargin: 24,
         minWidth: 1100,
-        headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
         columns: const [
           DataColumn2(label: Text('Invoice #'), size: ColumnSize.S),
           DataColumn2(label: Text('Customer'), size: ColumnSize.L),

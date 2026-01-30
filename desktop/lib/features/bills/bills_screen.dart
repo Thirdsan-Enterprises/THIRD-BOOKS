@@ -287,7 +287,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
         columnSpacing: 24,
         horizontalMargin: 24,
         minWidth: 1100,
-        headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
         columns: const [
           DataColumn2(label: Text('Bill #'), size: ColumnSize.S),
           DataColumn2(label: Text('Vendor'), size: ColumnSize.L),

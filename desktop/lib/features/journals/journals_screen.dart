@@ -293,7 +293,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
         columnSpacing: 24,
         horizontalMargin: 24,
         minWidth: 1000,
-        headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
         columns: const [
           DataColumn2(label: Text('Entry ID'), size: ColumnSize.S),
           DataColumn2(label: Text('Date'), size: ColumnSize.S),

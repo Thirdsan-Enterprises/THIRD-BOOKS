@@ -256,7 +256,7 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
         columnSpacing: 24,
         horizontalMargin: 24,
         minWidth: 1100,
-        headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
         columns: const [
           DataColumn2(label: Text('Vendor'), size: ColumnSize.L),
           DataColumn2(label: Text('Contact'), size: ColumnSize.L),
