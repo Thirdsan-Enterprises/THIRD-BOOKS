@@ -89,13 +89,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  fonts:
-    - family: Inter
-      fonts:
-        - asset: assets/fonts/Inter-Regular.ttf
-        - asset: assets/fonts/Inter-Medium.ttf
-          weight: 500
-        - asset: assets/fonts/Inter-SemiBold.ttf
-          weight: 600
-        - asset: assets/fonts/Inter-Bold.ttf
-          weight: 700
+  # Using google_fonts package instead of bundled fonts
+  # This avoids needing to bundle font files and reduces app size
