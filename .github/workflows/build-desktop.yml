@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'mobile-admin/**'
+      - 'desktop/**'
       - '.github/workflows/build-desktop.yml'
     tags:
       - 'v*.*.*'
@@ -51,14 +51,14 @@ jobs:
         run: flutter config --enable-linux-desktop
 
       - name: Initialize Flutter project
-        working-directory: mobile-admin
+        working-directory: desktop
         run: |
           if [ ! -d "linux" ]; then
-            flutter create --platforms=linux --org=com.thirdbooks --project-name=thirdbooks_admin .
+            flutter create --platforms=linux --org=com.thirdbooks --project-name=thirdbooks .
           fi
 
       - name: Configure API endpoint
-        working-directory: mobile-admin
+        working-directory: desktop
         run: |
           if [ -f "lib/core/api/api_client.dart" ]; then
             sed -i "s|http://localhost:8000/api|${{ env.API_BASE_URL }}|g" lib/core/api/api_client.dart
@@ -66,15 +66,15 @@ jobs:
           fi
 
       - name: Get dependencies
-        working-directory: mobile-admin
+        working-directory: desktop
         run: flutter pub get
 
       - name: Generate code
-        working-directory: mobile-admin
+        working-directory: desktop
         run: dart run build_runner build --delete-conflicting-outputs || true
 
       - name: Build Linux
-        working-directory: mobile-admin
+        working-directory: desktop
         run: |
           flutter build linux --release \
             --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
@@ -82,7 +82,7 @@ jobs:
       - name: Package Linux build
         run: |
           mkdir -p artifacts
-          cd mobile-admin/build/linux/x64/release/bundle
+          cd desktop/build/linux/x64/release/bundle
           tar -czvf $GITHUB_WORKSPACE/artifacts/thirdbooks-linux-x64.tar.gz .
 
       - name: Upload Linux artifact
@@ -111,14 +111,14 @@ jobs:
         run: flutter config --enable-windows-desktop
 
       - name: Initialize Flutter project
-        working-directory: mobile-admin
+        working-directory: desktop
         run: |
           if (!(Test-Path "windows")) {
-            flutter create --platforms=windows --org=com.thirdbooks --project-name=thirdbooks_admin .
+            flutter create --platforms=windows --org=com.thirdbooks --project-name=thirdbooks .
           }
 
       - name: Configure API endpoint
-        working-directory: mobile-admin
+        working-directory: desktop
         shell: bash
         run: |
           if [ -f "lib/core/api/api_client.dart" ]; then
@@ -127,16 +127,16 @@ jobs:
           fi
 
       - name: Get dependencies
-        working-directory: mobile-admin
+        working-directory: desktop
         run: flutter pub get
 
       - name: Generate code
-        working-directory: mobile-admin
+        working-directory: desktop
         run: dart run build_runner build --delete-conflicting-outputs
         continue-on-error: true
 
       - name: Build Windows
-        working-directory: mobile-admin
+        working-directory: desktop
         run: |
           flutter build windows --release `
             --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
@@ -145,7 +145,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          cd mobile-admin/build/windows/x64/runner/Release
+          cd desktop/build/windows/x64/runner/Release
           7z a -tzip $GITHUB_WORKSPACE/artifacts/thirdbooks-windows-x64.zip .
 
       - name: Upload Windows artifact
@@ -174,14 +174,14 @@ jobs:
         run: flutter config --enable-macos-desktop
 
       - name: Initialize Flutter project
-        working-directory: mobile-admin
+        working-directory: desktop
         run: |
           if [ ! -d "macos" ]; then
-            flutter create --platforms=macos --org=com.thirdbooks --project-name=thirdbooks_admin .
+            flutter create --platforms=macos --org=com.thirdbooks --project-name=thirdbooks .
           fi
 
       - name: Configure API endpoint
-        working-directory: mobile-admin
+        working-directory: desktop
         run: |
           if [ -f "lib/core/api/api_client.dart" ]; then
             sed -i '' "s|http://localhost:8000/api|${{ env.API_BASE_URL }}|g" lib/core/api/api_client.dart
@@ -189,19 +189,20 @@ jobs:
           fi
 
       - name: Get dependencies
-        working-directory: mobile-admin
+        working-directory: desktop
         run: flutter pub get
 
       - name: Generate code
-        working-directory: mobile-admin
+        working-directory: desktop
         run: dart run build_runner build --delete-conflicting-outputs || true
 
       - name: Install CocoaPods
-        working-directory: mobile-admin/macos
+        working-directory: desktop/macos
         run: pod install || pod install --repo-update
+        continue-on-error: true
 
       - name: Build macOS
-        working-directory: mobile-admin
+        working-directory: desktop
         run: |
           flutter build macos --release \
             --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
@@ -209,7 +210,7 @@ jobs:
       - name: Package macOS build
         run: |
           mkdir -p artifacts
-          cd mobile-admin/build/macos/Build/Products/Release
+          cd desktop/build/macos/Build/Products/Release
           zip -r $GITHUB_WORKSPACE/artifacts/thirdbooks-macos.zip *.app
 
       - name: Upload macOS artifact
@@ -243,7 +244,7 @@ jobs:
           prerelease: false
           generate_release_notes: true
           body: |
-            # ThirdBooks Desktop App ${{ github.ref_name }}
+            # ThirdBooks Desktop ${{ github.ref_name }}
 
             Professional accounting software for Uganda and East Africa.
 
@@ -263,18 +264,19 @@ jobs:
             - Financial reports (Trial Balance, P&L, Balance Sheet)
             - Customer & Vendor management
             - Invoice & Bill tracking
+            - Professional accounting UI
 
             ## Installation
 
             ### Linux
             ```bash
             tar -xzvf thirdbooks-linux-x64.tar.gz
-            ./thirdbooks_admin
+            ./thirdbooks
             ```
 
             ### Windows
             1. Extract ZIP file
-            2. Run `thirdbooks_admin.exe`
+            2. Run `thirdbooks.exe`
 
             ### macOS
             1. Extract ZIP file
