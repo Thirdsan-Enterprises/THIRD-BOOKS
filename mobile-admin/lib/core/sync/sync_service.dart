@@ -7,15 +7,8 @@ import 'package:uuid/uuid.dart';
 import '../api/api_client.dart';
 import '../database/app_database.dart';
 
-// Sync Status enum
-enum SyncStatus {
-  idle,
-  syncing,
-  success,
-  error,
-}
+enum SyncStatus { idle, syncing, success, error }
 
-// Sync State
 class SyncState {
   final SyncStatus status;
   final String? errorMessage;
@@ -40,19 +33,17 @@ class SyncState {
     int? lastSyncedSequence,
     int? pendingEventsCount,
     int? conflictsCount,
-  }) {
-    return SyncState(
-      status: status ?? this.status,
-      errorMessage: errorMessage ?? this.errorMessage,
-      lastSyncAt: lastSyncAt ?? this.lastSyncAt,
-      lastSyncedSequence: lastSyncedSequence ?? this.lastSyncedSequence,
-      pendingEventsCount: pendingEventsCount ?? this.pendingEventsCount,
-      conflictsCount: conflictsCount ?? this.conflictsCount,
-    });
-  }
+  }) =>
+      SyncState(
+        status: status ?? this.status,
+        errorMessage: errorMessage ?? this.errorMessage,
+        lastSyncAt: lastSyncAt ?? this.lastSyncAt,
+        lastSyncedSequence: lastSyncedSequence ?? this.lastSyncedSequence,
+        pendingEventsCount: pendingEventsCount ?? this.pendingEventsCount,
+        conflictsCount: conflictsCount ?? this.conflictsCount,
+      );
 }
 
-// Sync Service
 class SyncService extends StateNotifier<SyncState> {
   final ApiClient _apiClient;
   final AppDatabase _database;
@@ -74,14 +65,12 @@ class SyncService extends StateNotifier<SyncState> {
   }
 
   Future<void> _init() async {
-    // Get or create device ID
     _deviceId = await _storage.read(key: 'device_id');
     if (_deviceId == null) {
       _deviceId = const Uuid().v4();
       await _storage.write(key: 'device_id', value: _deviceId);
     }
 
-    // Get last sync info
     final lastSeq = await _storage.read(key: 'last_synced_sequence');
     final lastSyncTime = await _storage.read(key: 'last_sync_at');
 
@@ -90,10 +79,7 @@ class SyncService extends StateNotifier<SyncState> {
       lastSyncAt: lastSyncTime != null ? DateTime.tryParse(lastSyncTime) : null,
     );
 
-    // Load pending events and conflicts count
     await _updateCounts();
-
-    // Start periodic sync (every 30 seconds)
     _startPeriodicSync();
   }
 
@@ -124,19 +110,16 @@ class SyncService extends StateNotifier<SyncState> {
     _periodicSyncTimer?.cancel();
   }
 
-  /// Perform full bi-directional sync
   Future<void> sync() async {
     if (state.status == SyncStatus.syncing) {
-      return; // Already syncing
+      return;
     }
 
     try {
       state = state.copyWith(status: SyncStatus.syncing);
 
-      // Get pending local events
       final pendingEvents = await _database.getPendingEvents();
 
-      // Perform sync
       final result = await _apiClient.syncEvents(
         deviceId: _deviceId!,
         deviceName: 'Mobile Admin',
@@ -145,7 +128,6 @@ class SyncService extends StateNotifier<SyncState> {
         events: pendingEvents.map((e) => e.toJson()).toList(),
       );
 
-      // Process pushed events
       final pushed = result['pushed'] as Map<String, dynamic>?;
       if (pushed != null) {
         final uploadedCount = pushed['uploaded_count'] as int;
@@ -153,13 +135,11 @@ class SyncService extends StateNotifier<SyncState> {
 
         _logger.i('Uploaded $uploadedCount events, $conflictsCount conflicts');
 
-        // Mark uploaded events as synced
         for (final event in pendingEvents) {
           await _database.markEventAsSynced(event.id);
         }
       }
 
-      // Process pulled events
       final pulled = result['pulled'] as Map<String, dynamic>?;
       if (pulled != null) {
         final events = pulled['events'] as List<dynamic>;
@@ -167,12 +147,10 @@ class SyncService extends StateNotifier<SyncState> {
 
         _logger.i('Downloaded ${events.length} events');
 
-        // Save downloaded events to local database
         for (final eventJson in events) {
           await _database.insertDownloadedEvent(eventJson as Map<String, dynamic>);
         }
 
-        // Update last synced sequence
         await _storage.write(key: 'last_synced_sequence', value: lastSequence.toString());
         await _storage.write(key: 'last_sync_at', value: DateTime.now().toIso8601String());
 
@@ -184,7 +162,6 @@ class SyncService extends StateNotifier<SyncState> {
 
       state = state.copyWith(status: SyncStatus.success);
       await _updateCounts();
-
     } catch (e, stackTrace) {
       _logger.e('Sync failed', error: e, stackTrace: stackTrace);
       state = state.copyWith(
@@ -194,7 +171,6 @@ class SyncService extends StateNotifier<SyncState> {
     }
   }
 
-  /// Push only - upload local events to server
   Future<void> push() async {
     try {
       state = state.copyWith(status: SyncStatus.syncing);
@@ -220,7 +196,6 @@ class SyncService extends StateNotifier<SyncState> {
 
       state = state.copyWith(status: SyncStatus.success);
       await _updateCounts();
-
     } catch (e) {
       _logger.e('Push failed', error: e);
       state = state.copyWith(
@@ -230,7 +205,6 @@ class SyncService extends StateNotifier<SyncState> {
     }
   }
 
-  /// Pull only - download events from server
   Future<void> pull() async {
     try {
       state = state.copyWith(status: SyncStatus.syncing);
@@ -260,7 +234,6 @@ class SyncService extends StateNotifier<SyncState> {
 
       state = state.copyWith(status: SyncStatus.success);
       await _updateCounts();
-
     } catch (e) {
       _logger.e('Pull failed', error: e);
       state = state.copyWith(
@@ -270,7 +243,6 @@ class SyncService extends StateNotifier<SyncState> {
     }
   }
 
-  /// Get sync status from server
   Future<Map<String, dynamic>> getSyncStatus() async {
     return await _apiClient.getSyncStatus(_deviceId!);
   }
@@ -282,7 +254,6 @@ class SyncService extends StateNotifier<SyncState> {
   }
 }
 
-// Sync Service Provider
 final syncServiceProvider = StateNotifierProvider<SyncService, SyncState>((ref) {
   final apiClient = ref.watch(apiClientProvider);
   final database = ref.watch(appDatabaseProvider);
