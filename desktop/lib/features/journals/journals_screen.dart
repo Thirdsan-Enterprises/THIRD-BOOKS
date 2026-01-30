@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:data_table_2/data_table_2.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -289,81 +288,86 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
 
   Widget _buildJournalTable(BuildContext context) {
     return Card(
-      child: DataTable2(
-        columnSpacing: 24,
-        horizontalMargin: 24,
-        minWidth: 1000,
-        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
-        columns: const [
-          DataColumn2(label: Text('Entry ID'), size: ColumnSize.S),
-          DataColumn2(label: Text('Date'), size: ColumnSize.S),
-          DataColumn2(label: Text('Description'), size: ColumnSize.L),
-          DataColumn2(label: Text('Reference'), size: ColumnSize.S),
-          DataColumn2(label: Text('Debit'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Credit'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Status'), size: ColumnSize.S),
-          DataColumn2(label: Text('Actions'), size: ColumnSize.S),
-        ],
-        rows: _filteredEntries.map((entry) {
-          return DataRow2(
-            onTap: () => _showEntryDetails(context, entry),
-            cells: [
-              DataCell(
-                Text(
-                  entry['id'],
-                  style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
-                ),
-              ),
-              DataCell(Text(DateFormat('MMM d, yyyy').format(entry['date']))),
-              DataCell(
-                Text(
-                  entry['description'],
-                  style: const TextStyle(fontWeight: FontWeight.w500),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              DataCell(Text(entry['reference'])),
-              DataCell(
-                Text(
-                  'UGX ${_formatNumber(entry['debitTotal'])}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.debit,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ),
-              DataCell(
-                Text(
-                  'UGX ${_formatNumber(entry['creditTotal'])}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.credit,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ),
-              DataCell(_buildStatusBadge(entry['status'])),
-              DataCell(
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.visibility_outlined, size: 18),
-                      onPressed: () => _showEntryDetails(context, entry),
-                      tooltip: 'View',
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      onPressed: entry['status'] == 'Draft' ? () {} : null,
-                      tooltip: 'Edit',
-                    ),
-                  ],
-                ),
-              ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: DataTable(
+            columnSpacing: 24,
+            horizontalMargin: 24,
+            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+            columns: const [
+              DataColumn(label: Text('Entry ID')),
+              DataColumn(label: Text('Date')),
+              DataColumn(label: Text('Description')),
+              DataColumn(label: Text('Reference')),
+              DataColumn(label: Text('Debit'), numeric: true),
+              DataColumn(label: Text('Credit'), numeric: true),
+              DataColumn(label: Text('Status')),
+              DataColumn(label: Text('Actions')),
             ],
-          );
-        }).toList(),
+            rows: _filteredEntries.map((entry) {
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Text(
+                      entry['id'],
+                      style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
+                    ),
+                    onTap: () => _showEntryDetails(context, entry),
+                  ),
+                  DataCell(Text(DateFormat('MMM d, yyyy').format(entry['date']))),
+                  DataCell(
+                    Text(
+                      entry['description'],
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () => _showEntryDetails(context, entry),
+                  ),
+                  DataCell(Text(entry['reference'])),
+                  DataCell(
+                    Text(
+                      'UGX ${_formatNumber(entry['debitTotal'])}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.debit,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      'UGX ${_formatNumber(entry['creditTotal'])}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.credit,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                  DataCell(_buildStatusBadge(entry['status'])),
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.visibility_outlined, size: 18),
+                          onPressed: () => _showEntryDetails(context, entry),
+                          tooltip: 'View',
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          onPressed: entry['status'] == 'Draft' ? () {} : null,
+                          tooltip: 'Edit',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
       ),
     );
   }

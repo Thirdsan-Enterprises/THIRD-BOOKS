@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:data_table_2/data_table_2.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -252,120 +251,124 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
 
   Widget _buildCustomersTable(BuildContext context) {
     return Card(
-      child: DataTable2(
-        columnSpacing: 24,
-        horizontalMargin: 24,
-        minWidth: 1100,
-        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
-        columns: const [
-          DataColumn2(label: Text('Customer'), size: ColumnSize.L),
-          DataColumn2(label: Text('Contact'), size: ColumnSize.L),
-          DataColumn2(label: Text('Credit Limit'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Balance'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Invoices'), size: ColumnSize.S, numeric: true),
-          DataColumn2(label: Text('Status'), size: ColumnSize.S),
-          DataColumn2(label: Text('Actions'), size: ColumnSize.S),
-        ],
-        rows: _filteredCustomers.map((customer) {
-          final balance = customer['balance'] as double;
-          final creditLimit = customer['creditLimit'] as double;
-          final utilizationPercent = creditLimit > 0 ? (balance / creditLimit * 100) : 0;
-
-          return DataRow2(
-            onTap: () => _showCustomerDetails(context, customer),
-            cells: [
-              DataCell(
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      customer['name'],
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    Text(
-                      customer['id'],
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.outline,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              DataCell(
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(customer['email'], style: const TextStyle(fontSize: 13)),
-                    Text(
-                      customer['phone'],
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              DataCell(
-                Text(
-                  'UGX ${_formatNumber(creditLimit)}',
-                  style: const TextStyle(fontFamily: 'monospace'),
-                ),
-              ),
-              DataCell(
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'UGX ${_formatNumber(balance)}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w500,
-                        fontFamily: 'monospace',
-                        color: utilizationPercent > 80 ? AppColors.expense : null,
-                      ),
-                    ),
-                    Text(
-                      '${utilizationPercent.toStringAsFixed(0)}% used',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: utilizationPercent > 80 ? AppColors.expense : Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              DataCell(
-                Text(
-                  customer['invoiceCount'].toString(),
-                  style: const TextStyle(fontWeight: FontWeight.w500),
-                ),
-              ),
-              DataCell(_buildStatusBadge(customer['status'])),
-              DataCell(
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.receipt_long_outlined, size: 18),
-                      onPressed: () {},
-                      tooltip: 'View Invoices',
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      onPressed: () {},
-                      tooltip: 'Edit',
-                    ),
-                  ],
-                ),
-              ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: DataTable(
+            columnSpacing: 24,
+            horizontalMargin: 24,
+            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+            columns: const [
+              DataColumn(label: Text('Customer')),
+              DataColumn(label: Text('Contact')),
+              DataColumn(label: Text('Credit Limit'), numeric: true),
+              DataColumn(label: Text('Balance'), numeric: true),
+              DataColumn(label: Text('Invoices'), numeric: true),
+              DataColumn(label: Text('Status')),
+              DataColumn(label: Text('Actions')),
             ],
-          );
-        }).toList(),
+            rows: _filteredCustomers.map((customer) {
+              final balance = customer['balance'] as double;
+              final creditLimit = customer['creditLimit'] as double;
+              final utilizationPercent = creditLimit > 0 ? (balance / creditLimit * 100) : 0;
+
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          customer['name'],
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          customer['id'],
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.outline,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
+                    ),
+                    onTap: () => _showCustomerDetails(context, customer),
+                  ),
+                  DataCell(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(customer['email'], style: const TextStyle(fontSize: 13)),
+                        Text(
+                          customer['phone'],
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      'UGX ${_formatNumber(creditLimit)}',
+                      style: const TextStyle(fontFamily: 'monospace'),
+                    ),
+                  ),
+                  DataCell(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'UGX ${_formatNumber(balance)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            fontFamily: 'monospace',
+                            color: utilizationPercent > 80 ? AppColors.expense : null,
+                          ),
+                        ),
+                        Text(
+                          '${utilizationPercent.toStringAsFixed(0)}% used',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: utilizationPercent > 80 ? AppColors.expense : Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      customer['invoiceCount'].toString(),
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  DataCell(_buildStatusBadge(customer['status'])),
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                          onPressed: () {},
+                          tooltip: 'View Invoices',
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          onPressed: () {},
+                          tooltip: 'Edit',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
       ),
     );
   }

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:data_table_2/data_table_2.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -283,102 +282,107 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
 
   Widget _buildInvoicesTable(BuildContext context) {
     return Card(
-      child: DataTable2(
-        columnSpacing: 24,
-        horizontalMargin: 24,
-        minWidth: 1100,
-        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
-        columns: const [
-          DataColumn2(label: Text('Invoice #'), size: ColumnSize.S),
-          DataColumn2(label: Text('Customer'), size: ColumnSize.L),
-          DataColumn2(label: Text('Date'), size: ColumnSize.S),
-          DataColumn2(label: Text('Due Date'), size: ColumnSize.S),
-          DataColumn2(label: Text('Amount'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Balance'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Status'), size: ColumnSize.S),
-          DataColumn2(label: Text('Actions'), size: ColumnSize.S),
-        ],
-        rows: _filteredInvoices.map((invoice) {
-          final total = invoice['total'] as double;
-          final paid = invoice['amountPaid'] as double;
-          final balance = total - paid;
-          final isOverdue = invoice['status'] == 'Overdue';
-
-          return DataRow2(
-            onTap: () => _showInvoiceDetails(context, invoice),
-            cells: [
-              DataCell(
-                Text(
-                  invoice['id'],
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontFamily: 'monospace'),
-                ),
-              ),
-              DataCell(
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(invoice['customer'], style: const TextStyle(fontWeight: FontWeight.w500)),
-                    Text(
-                      invoice['customerId'],
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              DataCell(Text(DateFormat('MMM d, yyyy').format(invoice['date']))),
-              DataCell(
-                Text(
-                  DateFormat('MMM d, yyyy').format(invoice['dueDate']),
-                  style: TextStyle(color: isOverdue ? AppColors.expense : null),
-                ),
-              ),
-              DataCell(
-                Text(
-                  'UGX ${_formatNumber(total)}',
-                  style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
-                ),
-              ),
-              DataCell(
-                Text(
-                  balance > 0 ? 'UGX ${_formatNumber(balance)}' : '-',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w500,
-                    fontFamily: 'monospace',
-                    color: balance > 0 ? AppColors.expense : AppColors.income,
-                  ),
-                ),
-              ),
-              DataCell(_buildStatusBadge(invoice['status'])),
-              DataCell(
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.visibility_outlined, size: 18),
-                      onPressed: () => _showInvoiceDetails(context, invoice),
-                      tooltip: 'View',
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.print_outlined, size: 18),
-                      onPressed: () {},
-                      tooltip: 'Print',
-                    ),
-                    if (invoice['status'] != 'Paid' && invoice['status'] != 'Cancelled')
-                      IconButton(
-                        icon: const Icon(Icons.payment_outlined, size: 18),
-                        onPressed: () => _showRecordPaymentDialog(context, invoice),
-                        tooltip: 'Record Payment',
-                      ),
-                  ],
-                ),
-              ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: DataTable(
+            columnSpacing: 24,
+            horizontalMargin: 24,
+            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+            columns: const [
+              DataColumn(label: Text('Invoice #')),
+              DataColumn(label: Text('Customer')),
+              DataColumn(label: Text('Date')),
+              DataColumn(label: Text('Due Date')),
+              DataColumn(label: Text('Amount'), numeric: true),
+              DataColumn(label: Text('Balance'), numeric: true),
+              DataColumn(label: Text('Status')),
+              DataColumn(label: Text('Actions')),
             ],
-          );
-        }).toList(),
+            rows: _filteredInvoices.map((invoice) {
+              final total = invoice['total'] as double;
+              final paid = invoice['amountPaid'] as double;
+              final balance = total - paid;
+              final isOverdue = invoice['status'] == 'Overdue';
+
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Text(
+                      invoice['id'],
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontFamily: 'monospace'),
+                    ),
+                    onTap: () => _showInvoiceDetails(context, invoice),
+                  ),
+                  DataCell(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(invoice['customer'], style: const TextStyle(fontWeight: FontWeight.w500)),
+                        Text(
+                          invoice['customerId'],
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                    onTap: () => _showInvoiceDetails(context, invoice),
+                  ),
+                  DataCell(Text(DateFormat('MMM d, yyyy').format(invoice['date']))),
+                  DataCell(
+                    Text(
+                      DateFormat('MMM d, yyyy').format(invoice['dueDate']),
+                      style: TextStyle(color: isOverdue ? AppColors.expense : null),
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      'UGX ${_formatNumber(total)}',
+                      style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      balance > 0 ? 'UGX ${_formatNumber(balance)}' : '-',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontFamily: 'monospace',
+                        color: balance > 0 ? AppColors.expense : AppColors.income,
+                      ),
+                    ),
+                  ),
+                  DataCell(_buildStatusBadge(invoice['status'])),
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.visibility_outlined, size: 18),
+                          onPressed: () => _showInvoiceDetails(context, invoice),
+                          tooltip: 'View',
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.print_outlined, size: 18),
+                          onPressed: () {},
+                          tooltip: 'Print',
+                        ),
+                        if (invoice['status'] != 'Paid' && invoice['status'] != 'Cancelled')
+                          IconButton(
+                            icon: const Icon(Icons.payment_outlined, size: 18),
+                            onPressed: () => _showRecordPaymentDialog(context, invoice),
+                            tooltip: 'Record Payment',
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
       ),
     );
   }

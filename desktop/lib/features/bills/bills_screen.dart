@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:data_table_2/data_table_2.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -283,108 +282,113 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
 
   Widget _buildBillsTable(BuildContext context) {
     return Card(
-      child: DataTable2(
-        columnSpacing: 24,
-        horizontalMargin: 24,
-        minWidth: 1100,
-        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
-        columns: const [
-          DataColumn2(label: Text('Bill #'), size: ColumnSize.S),
-          DataColumn2(label: Text('Vendor'), size: ColumnSize.L),
-          DataColumn2(label: Text('Category'), size: ColumnSize.S),
-          DataColumn2(label: Text('Date'), size: ColumnSize.S),
-          DataColumn2(label: Text('Due Date'), size: ColumnSize.S),
-          DataColumn2(label: Text('Amount'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Balance'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Status'), size: ColumnSize.S),
-          DataColumn2(label: Text('Actions'), size: ColumnSize.S),
-        ],
-        rows: _filteredBills.map((bill) {
-          final total = bill['total'] as double;
-          final paid = bill['amountPaid'] as double;
-          final balance = total - paid;
-          final isOverdue = bill['status'] == 'Overdue';
-
-          return DataRow2(
-            onTap: () => _showBillDetails(context, bill),
-            cells: [
-              DataCell(
-                Text(
-                  bill['id'],
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontFamily: 'monospace'),
-                ),
-              ),
-              DataCell(
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(bill['vendor'], style: const TextStyle(fontWeight: FontWeight.w500)),
-                    Text(
-                      bill['vendorId'],
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              DataCell(
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceVariant,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(bill['category'], style: const TextStyle(fontSize: 12)),
-                ),
-              ),
-              DataCell(Text(DateFormat('MMM d, yyyy').format(bill['date']))),
-              DataCell(
-                Text(
-                  DateFormat('MMM d, yyyy').format(bill['dueDate']),
-                  style: TextStyle(color: isOverdue ? AppColors.expense : null),
-                ),
-              ),
-              DataCell(
-                Text(
-                  'UGX ${_formatNumber(total)}',
-                  style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
-                ),
-              ),
-              DataCell(
-                Text(
-                  balance > 0 ? 'UGX ${_formatNumber(balance)}' : '-',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w500,
-                    fontFamily: 'monospace',
-                    color: balance > 0 ? AppColors.expense : AppColors.income,
-                  ),
-                ),
-              ),
-              DataCell(_buildStatusBadge(bill['status'])),
-              DataCell(
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.visibility_outlined, size: 18),
-                      onPressed: () => _showBillDetails(context, bill),
-                      tooltip: 'View',
-                    ),
-                    if (bill['status'] != 'Paid' && bill['status'] != 'Cancelled')
-                      IconButton(
-                        icon: const Icon(Icons.payment_outlined, size: 18),
-                        onPressed: () => _showRecordPaymentDialog(context, bill),
-                        tooltip: 'Pay Bill',
-                      ),
-                  ],
-                ),
-              ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: DataTable(
+            columnSpacing: 24,
+            horizontalMargin: 24,
+            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+            columns: const [
+              DataColumn(label: Text('Bill #')),
+              DataColumn(label: Text('Vendor')),
+              DataColumn(label: Text('Category')),
+              DataColumn(label: Text('Date')),
+              DataColumn(label: Text('Due Date')),
+              DataColumn(label: Text('Amount'), numeric: true),
+              DataColumn(label: Text('Balance'), numeric: true),
+              DataColumn(label: Text('Status')),
+              DataColumn(label: Text('Actions')),
             ],
-          );
-        }).toList(),
+            rows: _filteredBills.map((bill) {
+              final total = bill['total'] as double;
+              final paid = bill['amountPaid'] as double;
+              final balance = total - paid;
+              final isOverdue = bill['status'] == 'Overdue';
+
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Text(
+                      bill['id'],
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontFamily: 'monospace'),
+                    ),
+                    onTap: () => _showBillDetails(context, bill),
+                  ),
+                  DataCell(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(bill['vendor'], style: const TextStyle(fontWeight: FontWeight.w500)),
+                        Text(
+                          bill['vendorId'],
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                    onTap: () => _showBillDetails(context, bill),
+                  ),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceVariant,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(bill['category'], style: const TextStyle(fontSize: 12)),
+                    ),
+                  ),
+                  DataCell(Text(DateFormat('MMM d, yyyy').format(bill['date']))),
+                  DataCell(
+                    Text(
+                      DateFormat('MMM d, yyyy').format(bill['dueDate']),
+                      style: TextStyle(color: isOverdue ? AppColors.expense : null),
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      'UGX ${_formatNumber(total)}',
+                      style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      balance > 0 ? 'UGX ${_formatNumber(balance)}' : '-',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontFamily: 'monospace',
+                        color: balance > 0 ? AppColors.expense : AppColors.income,
+                      ),
+                    ),
+                  ),
+                  DataCell(_buildStatusBadge(bill['status'])),
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.visibility_outlined, size: 18),
+                          onPressed: () => _showBillDetails(context, bill),
+                          tooltip: 'View',
+                        ),
+                        if (bill['status'] != 'Paid' && bill['status'] != 'Cancelled')
+                          IconButton(
+                            icon: const Icon(Icons.payment_outlined, size: 18),
+                            onPressed: () => _showRecordPaymentDialog(context, bill),
+                            tooltip: 'Pay Bill',
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
       ),
     );
   }

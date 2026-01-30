@@ -41,8 +41,8 @@ dependencies:
   fl_chart: ^0.66.0
   syncfusion_flutter_charts: ^24.1.41
 
-  # Data Tables (pinned to <2.5.0 for Flutter 3.19 compatibility)
-  data_table_2: ">=2.3.0 <2.5.0"
+  # Data Tables - using Flutter's built-in DataTable for compatibility
+  # data_table_2 removed due to Flutter 3.19 compatibility issues
   pluto_grid: ^7.0.0
 
   # PDF Generation & Printing

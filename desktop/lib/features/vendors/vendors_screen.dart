@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:data_table_2/data_table_2.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -252,100 +251,104 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
 
   Widget _buildVendorsTable(BuildContext context) {
     return Card(
-      child: DataTable2(
-        columnSpacing: 24,
-        horizontalMargin: 24,
-        minWidth: 1100,
-        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
-        columns: const [
-          DataColumn2(label: Text('Vendor'), size: ColumnSize.L),
-          DataColumn2(label: Text('Contact'), size: ColumnSize.L),
-          DataColumn2(label: Text('Payment Terms'), size: ColumnSize.M),
-          DataColumn2(label: Text('Balance'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Bills'), size: ColumnSize.S, numeric: true),
-          DataColumn2(label: Text('Status'), size: ColumnSize.S),
-          DataColumn2(label: Text('Actions'), size: ColumnSize.S),
-        ],
-        rows: _filteredVendors.map((vendor) {
-          final balance = vendor['balance'] as double;
-
-          return DataRow2(
-            onTap: () => _showVendorDetails(context, vendor),
-            cells: [
-              DataCell(
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      vendor['name'],
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    Text(
-                      vendor['id'],
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.outline,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              DataCell(
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(vendor['email'], style: const TextStyle(fontSize: 13)),
-                    Text(
-                      vendor['phone'],
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              DataCell(Text(vendor['paymentTerms'])),
-              DataCell(
-                Text(
-                  'UGX ${_formatNumber(balance)}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w500,
-                    fontFamily: 'monospace',
-                    color: balance > 10000000 ? AppColors.expense : null,
-                  ),
-                ),
-              ),
-              DataCell(
-                Text(
-                  vendor['billCount'].toString(),
-                  style: const TextStyle(fontWeight: FontWeight.w500),
-                ),
-              ),
-              DataCell(_buildStatusBadge(vendor['status'])),
-              DataCell(
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.receipt_outlined, size: 18),
-                      onPressed: () {},
-                      tooltip: 'View Bills',
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      onPressed: () {},
-                      tooltip: 'Edit',
-                    ),
-                  ],
-                ),
-              ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: DataTable(
+            columnSpacing: 24,
+            horizontalMargin: 24,
+            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+            columns: const [
+              DataColumn(label: Text('Vendor')),
+              DataColumn(label: Text('Contact')),
+              DataColumn(label: Text('Payment Terms')),
+              DataColumn(label: Text('Balance'), numeric: true),
+              DataColumn(label: Text('Bills'), numeric: true),
+              DataColumn(label: Text('Status')),
+              DataColumn(label: Text('Actions')),
             ],
-          );
-        }).toList(),
+            rows: _filteredVendors.map((vendor) {
+              final balance = vendor['balance'] as double;
+
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          vendor['name'],
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          vendor['id'],
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.outline,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
+                    ),
+                    onTap: () => _showVendorDetails(context, vendor),
+                  ),
+                  DataCell(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(vendor['email'], style: const TextStyle(fontSize: 13)),
+                        Text(
+                          vendor['phone'],
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  DataCell(Text(vendor['paymentTerms'])),
+                  DataCell(
+                    Text(
+                      'UGX ${_formatNumber(balance)}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontFamily: 'monospace',
+                        color: balance > 10000000 ? AppColors.expense : null,
+                      ),
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      vendor['billCount'].toString(),
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  DataCell(_buildStatusBadge(vendor['status'])),
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.receipt_outlined, size: 18),
+                          onPressed: () {},
+                          tooltip: 'View Bills',
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          onPressed: () {},
+                          tooltip: 'Edit',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
       ),
     );
   }

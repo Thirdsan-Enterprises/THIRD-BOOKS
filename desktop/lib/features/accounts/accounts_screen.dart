@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:data_table_2/data_table_2.dart';
 
 import '../../core/theme/app_theme.dart';
 
@@ -239,104 +238,108 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
 
   Widget _buildAccountsTable(BuildContext context) {
     return Card(
-      child: DataTable2(
-        columnSpacing: 24,
-        horizontalMargin: 24,
-        minWidth: 800,
-        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
-        columns: const [
-          DataColumn2(label: Text('Code'), size: ColumnSize.S),
-          DataColumn2(label: Text('Account Name'), size: ColumnSize.L),
-          DataColumn2(label: Text('Type'), size: ColumnSize.M),
-          DataColumn2(label: Text('Sub-Type'), size: ColumnSize.M),
-          DataColumn2(label: Text('Balance'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Status'), size: ColumnSize.S),
-          DataColumn2(label: Text('Actions'), size: ColumnSize.S),
-        ],
-        rows: _filteredAccounts.map((account) {
-          final type = account['type'] as String;
-          final balance = account['balance'] as double;
-          final isDebitNormal = type == 'Asset' || type == 'Expense';
-
-          return DataRow2(
-            cells: [
-              DataCell(
-                Text(
-                  account['code'],
-                  style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
-                ),
-              ),
-              DataCell(
-                Text(
-                  account['name'],
-                  style: const TextStyle(fontWeight: FontWeight.w500),
-                ),
-              ),
-              DataCell(
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getTypeColor(type).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    type,
-                    style: TextStyle(
-                      color: _getTypeColor(type),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-              DataCell(Text(account['subtype'])),
-              DataCell(
-                Text(
-                  'UGX ${_formatNumber(balance)}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w500,
-                    color: isDebitNormal ? AppColors.debit : AppColors.credit,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ),
-              DataCell(
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: account['isActive'] ? AppColors.income.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    account['isActive'] ? 'Active' : 'Inactive',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: account['isActive'] ? AppColors.income : Colors.grey,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-              DataCell(
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      onPressed: () {},
-                      tooltip: 'Edit',
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.history, size: 18),
-                      onPressed: () {},
-                      tooltip: 'View History',
-                    ),
-                  ],
-                ),
-              ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: DataTable(
+            columnSpacing: 24,
+            horizontalMargin: 24,
+            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+            columns: const [
+              DataColumn(label: Text('Code')),
+              DataColumn(label: Text('Account Name')),
+              DataColumn(label: Text('Type')),
+              DataColumn(label: Text('Sub-Type')),
+              DataColumn(label: Text('Balance'), numeric: true),
+              DataColumn(label: Text('Status')),
+              DataColumn(label: Text('Actions')),
             ],
-          );
-        }).toList(),
+            rows: _filteredAccounts.map((account) {
+              final type = account['type'] as String;
+              final balance = account['balance'] as double;
+              final isDebitNormal = type == 'Asset' || type == 'Expense';
+
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Text(
+                      account['code'],
+                      style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      account['name'],
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _getTypeColor(type).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        type,
+                        style: TextStyle(
+                          color: _getTypeColor(type),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  DataCell(Text(account['subtype'])),
+                  DataCell(
+                    Text(
+                      'UGX ${_formatNumber(balance)}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: isDebitNormal ? AppColors.debit : AppColors.credit,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: account['isActive'] ? AppColors.income.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        account['isActive'] ? 'Active' : 'Inactive',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: account['isActive'] ? AppColors.income : Colors.grey,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          onPressed: () {},
+                          tooltip: 'Edit',
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.history, size: 18),
+                          onPressed: () {},
+                          tooltip: 'View History',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
       ),
     );
   }
