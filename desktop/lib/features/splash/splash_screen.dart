@@ -94,6 +94,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   }
 
   Future<void> _startSplashSequence() async {
+    // Record start time to ensure minimum 3 second display
+    final startTime = DateTime.now();
+
     // Start logo animation
     _logoController.forward();
 
@@ -108,10 +111,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     _loadingController.forward();
 
     // Check authentication and API connectivity
-    await _checkSystemStatus();
+    await _checkSystemStatus(startTime);
   }
 
-  Future<void> _checkSystemStatus() async {
+  Future<void> _checkSystemStatus(DateTime startTime) async {
     setState(() {
       _statusMessage = 'Checking connection...';
       _isConnecting = true;
@@ -131,25 +134,42 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
         if (isValid && mounted) {
           setState(() => _statusMessage = 'Welcome back!');
-          await Future.delayed(const Duration(milliseconds: 500));
-          context.go('/');
+
+          // Ensure minimum 3 seconds total splash time
+          await _ensureMinimumDuration(startTime);
+
+          if (mounted) {
+            context.go('/');
+          }
           return;
         }
       }
 
       setState(() => _statusMessage = 'Ready');
-      await Future.delayed(const Duration(milliseconds: 800));
+
+      // Ensure minimum 3 seconds total splash time
+      await _ensureMinimumDuration(startTime);
 
       if (mounted) {
         context.go('/login');
       }
     } catch (e) {
       setState(() => _statusMessage = 'Offline mode available');
-      await Future.delayed(const Duration(milliseconds: 1000));
+
+      // Ensure minimum 3 seconds total splash time
+      await _ensureMinimumDuration(startTime);
 
       if (mounted) {
         context.go('/login');
       }
+    }
+  }
+
+  Future<void> _ensureMinimumDuration(DateTime startTime) async {
+    const minimumDuration = Duration(seconds: 3);
+    final elapsed = DateTime.now().difference(startTime);
+    if (elapsed < minimumDuration) {
+      await Future.delayed(minimumDuration - elapsed);
     }
   }
 

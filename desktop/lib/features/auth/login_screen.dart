@@ -44,7 +44,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       );
 
       if (success && mounted) {
-        context.go('/');
+        // Small delay to ensure state propagation
+        await Future.delayed(const Duration(milliseconds: 100));
+        if (mounted) {
+          context.go('/');
+        }
       } else if (mounted) {
         final authState = ref.read(authStateProvider);
         setState(() {
