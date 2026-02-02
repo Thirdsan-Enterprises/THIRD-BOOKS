@@ -5,3 +5,4 @@ export 'customer.dart';
 export 'vendor.dart';
 export 'invoice.dart';
 export 'bill.dart';
+export 'payment.dart';
