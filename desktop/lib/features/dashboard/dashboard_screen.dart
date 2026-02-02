@@ -4,52 +4,93 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/data_service.dart';
+import '../../core/services/auth_service.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
+  String _formatCurrency(double amount) {
+    if (amount >= 1000000) {
+      return 'UGX ${NumberFormat('#,###').format(amount.round())}';
+    }
+    return 'UGX ${NumberFormat('#,###').format(amount.round())}';
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final dashboardAsync = ref.watch(dashboardDataProvider);
+    final user = ref.watch(currentUserProvider);
+
     return Scaffold(
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildHeader(context),
-            const SizedBox(height: 24),
-            _buildKPICards(context),
-            const SizedBox(height: 24),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(flex: 2, child: _buildRevenueChart(context)),
-                const SizedBox(width: 24),
-                Expanded(child: _buildCashFlowSummary(context)),
-              ],
-            ),
-            const SizedBox(height: 24),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: _buildRecentTransactions(context)),
-                const SizedBox(width: 24),
-                Expanded(child: _buildAccountsReceivable(context)),
-              ],
-            ),
-          ],
+      body: dashboardAsync.when(
+        data: (data) => SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHeader(context, user?.name),
+              const SizedBox(height: 24),
+              _buildKPICards(context, data),
+              const SizedBox(height: 24),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 2, child: _buildRevenueChart(context, data)),
+                  const SizedBox(width: 24),
+                  Expanded(child: _buildCashFlowSummary(context, data)),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _buildRecentTransactions(context, data)),
+                  const SizedBox(width: 24),
+                  Expanded(child: _buildAccountsReceivable(context, data)),
+                ],
+              ),
+            ],
+          ),
+        ),
+        loading: () => const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Loading dashboard data...'),
+            ],
+          ),
+        ),
+        error: (error, stack) => Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: AppColors.error),
+              const SizedBox(height: 16),
+              Text('Error loading dashboard: $error'),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => ref.refresh(dashboardDataProvider),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, String? userName) {
     final now = DateTime.now();
     final greeting = now.hour < 12
         ? 'Good Morning'
         : now.hour < 17
             ? 'Good Afternoon'
             : 'Good Evening';
+
+    final displayName = userName ?? 'User';
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -58,7 +99,7 @@ class DashboardScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '$greeting!',
+              '$greeting, $displayName!',
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -91,15 +132,15 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildKPICards(BuildContext context) {
+  Widget _buildKPICards(BuildContext context, DashboardData data) {
     return Row(
       children: [
         Expanded(
           child: _KPICard(
             title: 'Total Revenue',
-            value: 'UGX 45,250,000',
-            change: '+12.5%',
-            isPositive: true,
+            value: _formatCurrency(data.totalRevenue),
+            change: '+${data.revenueChange.toStringAsFixed(1)}%',
+            isPositive: data.revenueChange >= 0,
             icon: Icons.trending_up,
             color: AppColors.income,
           ),
@@ -108,8 +149,8 @@ class DashboardScreen extends ConsumerWidget {
         Expanded(
           child: _KPICard(
             title: 'Total Expenses',
-            value: 'UGX 28,340,000',
-            change: '+5.2%',
+            value: _formatCurrency(data.totalExpenses),
+            change: '+${data.expenseChange.toStringAsFixed(1)}%',
             isPositive: false,
             icon: Icons.trending_down,
             color: AppColors.expense,
@@ -119,9 +160,9 @@ class DashboardScreen extends ConsumerWidget {
         Expanded(
           child: _KPICard(
             title: 'Net Income',
-            value: 'UGX 16,910,000',
-            change: '+18.3%',
-            isPositive: true,
+            value: _formatCurrency(data.netIncome),
+            change: '+${data.incomeChange.toStringAsFixed(1)}%',
+            isPositive: data.incomeChange >= 0,
             icon: Icons.account_balance_wallet,
             color: AppColors.secondary,
           ),
@@ -130,8 +171,8 @@ class DashboardScreen extends ConsumerWidget {
         Expanded(
           child: _KPICard(
             title: 'Outstanding Invoices',
-            value: 'UGX 8,450,000',
-            change: '12 invoices',
+            value: _formatCurrency(data.outstandingInvoices),
+            change: '${data.invoiceCount} invoices',
             isPositive: null,
             icon: Icons.receipt_long,
             color: AppColors.warning,
@@ -141,7 +182,14 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildRevenueChart(BuildContext context) {
+  Widget _buildRevenueChart(BuildContext context, DashboardData data) {
+    final revenueSpots = data.revenueData
+        .map((e) => FlSpot(e['month']!, e['value']!))
+        .toList();
+    final expenseSpots = data.expenseData
+        .map((e) => FlSpot(e['month']!, e['value']!))
+        .toList();
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -163,7 +211,7 @@ class DashboardScreen extends ConsumerWidget {
                   ],
                   selected: const {'month'},
                   onSelectionChanged: (value) {},
-                  style: ButtonStyle(
+                  style: const ButtonStyle(
                     visualDensity: VisualDensity.compact,
                   ),
                 ),
@@ -221,14 +269,9 @@ class DashboardScreen extends ConsumerWidget {
                   lineBarsData: [
                     // Revenue line
                     LineChartBarData(
-                      spots: const [
-                        FlSpot(0, 35000000),
-                        FlSpot(1, 42000000),
-                        FlSpot(2, 38000000),
-                        FlSpot(3, 45000000),
-                        FlSpot(4, 48000000),
-                        FlSpot(5, 52000000),
-                      ],
+                      spots: revenueSpots.isNotEmpty
+                          ? revenueSpots
+                          : const [FlSpot(0, 0)],
                       isCurved: true,
                       color: AppColors.income,
                       barWidth: 3,
@@ -240,14 +283,9 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                     // Expenses line
                     LineChartBarData(
-                      spots: const [
-                        FlSpot(0, 25000000),
-                        FlSpot(1, 28000000),
-                        FlSpot(2, 24000000),
-                        FlSpot(3, 30000000),
-                        FlSpot(4, 32000000),
-                        FlSpot(5, 35000000),
-                      ],
+                      spots: expenseSpots.isNotEmpty
+                          ? expenseSpots
+                          : const [FlSpot(0, 0)],
                       isCurved: true,
                       color: AppColors.expense,
                       barWidth: 3,
@@ -293,7 +331,11 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildCashFlowSummary(BuildContext context) {
+  Widget _buildCashFlowSummary(BuildContext context, DashboardData data) {
+    final total = data.cashIn + data.cashOut;
+    final cashInPercent = total > 0 ? (data.cashIn / total * 100).round() : 50;
+    final cashOutPercent = 100 - cashInPercent;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -305,11 +347,11 @@ class DashboardScreen extends ConsumerWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 20),
-            _buildCashFlowItem(context, 'Cash In', 'UGX 52,340,000', AppColors.income),
+            _buildCashFlowItem(context, 'Cash In', _formatCurrency(data.cashIn), AppColors.income),
             const SizedBox(height: 12),
-            _buildCashFlowItem(context, 'Cash Out', 'UGX 38,120,000', AppColors.expense),
+            _buildCashFlowItem(context, 'Cash Out', _formatCurrency(data.cashOut), AppColors.expense),
             const Divider(height: 32),
-            _buildCashFlowItem(context, 'Net Cash', 'UGX 14,220,000', AppColors.secondary, isBold: true),
+            _buildCashFlowItem(context, 'Net Cash', _formatCurrency(data.netCash), AppColors.secondary, isBold: true),
             const SizedBox(height: 24),
             SizedBox(
               height: 160,
@@ -319,15 +361,15 @@ class DashboardScreen extends ConsumerWidget {
                   centerSpaceRadius: 40,
                   sections: [
                     PieChartSectionData(
-                      value: 52340000,
-                      title: '58%',
+                      value: data.cashIn,
+                      title: '$cashInPercent%',
                       color: AppColors.income,
                       radius: 50,
                       titleStyle: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                     PieChartSectionData(
-                      value: 38120000,
-                      title: '42%',
+                      value: data.cashOut,
+                      title: '$cashOutPercent%',
                       color: AppColors.expense,
                       radius: 50,
                       titleStyle: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
@@ -376,7 +418,7 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildRecentTransactions(BuildContext context) {
+  Widget _buildRecentTransactions(BuildContext context, DashboardData data) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -397,41 +439,42 @@ class DashboardScreen extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 16),
-            _buildTransactionItem(
-              context,
-              'Invoice #INV-2024-0042',
-              'Customer: ABC Ltd',
-              'UGX 2,450,000',
-              true,
-              Icons.receipt_long,
-            ),
-            const Divider(height: 24),
-            _buildTransactionItem(
-              context,
-              'Bill #BILL-2024-0018',
-              'Vendor: XYZ Supplies',
-              'UGX 1,250,000',
-              false,
-              Icons.description,
-            ),
-            const Divider(height: 24),
-            _buildTransactionItem(
-              context,
-              'Payment Received',
-              'From: DEF Corp',
-              'UGX 3,800,000',
-              true,
-              Icons.payments,
-            ),
-            const Divider(height: 24),
-            _buildTransactionItem(
-              context,
-              'Expense: Office Supplies',
-              'Petty Cash',
-              'UGX 185,000',
-              false,
-              Icons.shopping_bag,
-            ),
+            ...data.recentTransactions.asMap().entries.map((entry) {
+              final tx = entry.value;
+              final isLast = entry.key == data.recentTransactions.length - 1;
+
+              IconData icon;
+              switch (tx['icon']) {
+                case 'receipt_long':
+                  icon = Icons.receipt_long;
+                  break;
+                case 'description':
+                  icon = Icons.description;
+                  break;
+                case 'payments':
+                  icon = Icons.payments;
+                  break;
+                case 'shopping_bag':
+                  icon = Icons.shopping_bag;
+                  break;
+                default:
+                  icon = Icons.payment;
+              }
+
+              return Column(
+                children: [
+                  _buildTransactionItem(
+                    context,
+                    tx['title'] as String,
+                    tx['subtitle'] as String,
+                    _formatCurrency((tx['amount'] as num).toDouble()),
+                    tx['isIncome'] as bool,
+                    icon,
+                  ),
+                  if (!isLast) const Divider(height: 24),
+                ],
+              );
+            }),
           ],
         ),
       ),
@@ -489,7 +532,12 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildAccountsReceivable(BuildContext context) {
+  Widget _buildAccountsReceivable(BuildContext context, DashboardData data) {
+    final total = data.receivableAging.fold<double>(
+      0,
+      (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
+    );
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -510,13 +558,22 @@ class DashboardScreen extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 16),
-            _buildAgingItem(context, 'Current', 'UGX 4,250,000', 0.50, AppColors.income),
-            const SizedBox(height: 12),
-            _buildAgingItem(context, '1-30 Days', 'UGX 2,100,000', 0.25, AppColors.warning),
-            const SizedBox(height: 12),
-            _buildAgingItem(context, '31-60 Days', 'UGX 1,350,000', 0.16, Colors.orange),
-            const SizedBox(height: 12),
-            _buildAgingItem(context, '60+ Days', 'UGX 750,000', 0.09, AppColors.expense),
+            ...data.receivableAging.asMap().entries.map((entry) {
+              final item = entry.value;
+              final index = entry.key;
+              final colors = [AppColors.income, AppColors.warning, Colors.orange, AppColors.expense];
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _buildAgingItem(
+                  context,
+                  item['label'] as String? ?? 'Unknown',
+                  _formatCurrency((item['amount'] as num?)?.toDouble() ?? 0),
+                  (item['percentage'] as num?)?.toDouble() ?? 0,
+                  colors[index % colors.length],
+                ),
+              );
+            }),
             const Divider(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -526,7 +583,7 @@ class DashboardScreen extends ConsumerWidget {
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 Text(
-                  'UGX 8,450,000',
+                  _formatCurrency(total),
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: AppColors.primary,
                       ),
