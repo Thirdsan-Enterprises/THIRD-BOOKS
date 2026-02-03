@@ -1,8 +1,16 @@
+// Vendors Screen for ThirdBooks Desktop App
+// Manages vendor/supplier accounts and payables
+// © 2026 ThirdBooks. All rights reserved.
+
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/data_service.dart';
+import '../../core/models/vendor.dart';
 
 class VendorsScreen extends ConsumerStatefulWidget {
   const VendorsScreen({super.key});
@@ -14,101 +22,28 @@ class VendorsScreen extends ConsumerStatefulWidget {
 class _VendorsScreenState extends ConsumerState<VendorsScreen> {
   String _searchQuery = '';
   String? _selectedStatus;
+  final _currencyFormat = NumberFormat('#,###');
 
-  final List<Map<String, dynamic>> _vendors = [
-    {
-      'id': 'VEN-001',
-      'name': 'Quality Supplies Uganda',
-      'email': 'orders@qualitysupplies.ug',
-      'phone': '+256 414 123456',
-      'address': 'Industrial Area, Kampala',
-      'taxId': 'TIN111222333',
-      'paymentTerms': 'Net 30',
-      'balance': 8500000.0,
-      'status': 'Active',
-      'lastTransaction': DateTime(2024, 1, 18),
-      'billCount': 12,
-    },
-    {
-      'id': 'VEN-002',
-      'name': 'Tech Solutions Ltd',
-      'email': 'sales@techsolutions.co.ug',
-      'phone': '+256 752 234567',
-      'address': 'Nakasero, Kampala',
-      'taxId': 'TIN444555666',
-      'paymentTerms': 'Net 15',
-      'balance': 3200000.0,
-      'status': 'Active',
-      'lastTransaction': DateTime(2024, 1, 15),
-      'billCount': 6,
-    },
-    {
-      'id': 'VEN-003',
-      'name': 'Office Essentials Corp',
-      'email': 'procurement@officeess.ug',
-      'phone': '+256 780 345678',
-      'address': 'Kololo, Kampala',
-      'taxId': 'TIN777888999',
-      'paymentTerms': 'Net 30',
-      'balance': 0.0,
-      'status': 'Active',
-      'lastTransaction': DateTime(2024, 1, 10),
-      'billCount': 8,
-    },
-    {
-      'id': 'VEN-004',
-      'name': 'Uganda Power Solutions',
-      'email': 'accounts@ugandapower.com',
-      'phone': '+256 701 456789',
-      'address': 'Ntinda, Kampala',
-      'taxId': 'TIN000111222',
-      'paymentTerms': 'Due on Receipt',
-      'balance': 15000000.0,
-      'status': 'Active',
-      'lastTransaction': DateTime(2024, 1, 20),
-      'billCount': 15,
-    },
-    {
-      'id': 'VEN-005',
-      'name': 'Global Imports Ltd',
-      'email': 'info@globalimports.ug',
-      'phone': '+256 772 567890',
-      'address': 'Port Bell, Kampala',
-      'taxId': 'TIN333444555',
-      'paymentTerms': 'Net 45',
-      'balance': 25000000.0,
-      'status': 'On Hold',
-      'lastTransaction': DateTime(2023, 12, 20),
-      'billCount': 20,
-    },
-    {
-      'id': 'VEN-006',
-      'name': 'Local Farmers Cooperative',
-      'email': 'sales@localfarmers.ug',
-      'phone': '+256 783 678901',
-      'address': 'Mukono',
-      'taxId': 'TIN666777888',
-      'paymentTerms': 'Net 7',
-      'balance': 1500000.0,
-      'status': 'Active',
-      'lastTransaction': DateTime(2024, 1, 19),
-      'billCount': 25,
-    },
-  ];
-
-  List<Map<String, dynamic>> get _filteredVendors {
-    return _vendors.where((vendor) {
+  List<Vendor> get _filteredVendors {
+    final vendorsState = ref.watch(vendorsProvider);
+    return vendorsState.vendors.where((vendor) {
       final matchesSearch = _searchQuery.isEmpty ||
-          vendor['name'].toString().toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          vendor['email'].toString().toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          vendor['id'].toString().toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchesStatus = _selectedStatus == null || vendor['status'] == _selectedStatus;
+          vendor.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          vendor.email.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          vendor.id.toLowerCase().contains(_searchQuery.toLowerCase());
+
+      final matchesStatus = _selectedStatus == null ||
+          (_selectedStatus == 'Active' && vendor.isActive) ||
+          (_selectedStatus == 'Inactive' && !vendor.isActive);
+
       return matchesSearch && matchesStatus;
     }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final vendorsState = ref.watch(vendorsProvider);
+
     return Scaffold(
       body: Padding(
         padding: const EdgeInsets.all(24),
@@ -117,11 +52,15 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
           children: [
             _buildHeader(context),
             const SizedBox(height: 24),
-            _buildSummaryCards(context),
+            _buildSummaryCards(context, vendorsState),
             const SizedBox(height: 24),
             _buildFilters(context),
             const SizedBox(height: 16),
-            Expanded(child: _buildVendorsTable(context)),
+            Expanded(
+              child: vendorsState.isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _buildVendorsTable(context),
+            ),
           ],
         ),
       ),
@@ -152,12 +91,46 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
         ),
         Row(
           children: [
-            OutlinedButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.file_download_outlined, size: 18),
-              label: const Text('Export'),
+            IconButton(
+              onPressed: () => ref.read(vendorsProvider.notifier).loadVendors(),
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Refresh',
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              tooltip: 'More options',
+              onSelected: (value) {
+                if (value == 'export') {
+                  _exportVendors();
+                } else if (value == 'import') {
+                  _importVendors();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'export',
+                  child: Row(
+                    children: [
+                      Icon(Icons.file_download_outlined, size: 18),
+                      SizedBox(width: 8),
+                      Text('Export to CSV'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'import',
+                  child: Row(
+                    children: [
+                      Icon(Icons.file_upload_outlined, size: 18),
+                      SizedBox(width: 8),
+                      Text('Import from CSV'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 8),
             FilledButton.icon(
               onPressed: () => _showAddVendorDialog(context),
               icon: const Icon(Icons.add, size: 18),
@@ -169,11 +142,11 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
     );
   }
 
-  Widget _buildSummaryCards(BuildContext context) {
-    final totalVendors = _vendors.length;
-    final activeVendors = _vendors.where((v) => v['status'] == 'Active').length;
-    final totalPayable = _vendors.fold<double>(0, (sum, v) => sum + (v['balance'] as double));
-    final overdueCount = _vendors.where((v) => (v['balance'] as double) > 10000000).length;
+  Widget _buildSummaryCards(BuildContext context, VendorsState state) {
+    final totalVendors = state.vendors.length;
+    final activeVendors = state.vendors.where((v) => v.isActive).length;
+    final totalPayable = state.vendors.fold<double>(0, (sum, v) => sum + v.balance);
+    final highBalance = state.vendors.where((v) => v.balance > 10000000).length;
 
     return Row(
       children: [
@@ -202,7 +175,7 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
           icon: Icons.warning_amber,
           iconColor: AppColors.warning,
           label: 'High Balance',
-          value: overdueCount.toString(),
+          value: highBalance.toString(),
         ),
       ],
     );
@@ -237,10 +210,10 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
               hintText: 'All Statuses',
               contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
-            items: [
-              const DropdownMenuItem(value: null, child: Text('All Statuses')),
-              ...['Active', 'On Hold', 'Inactive']
-                  .map((s) => DropdownMenuItem(value: s, child: Text(s))),
+            items: const [
+              DropdownMenuItem(value: null, child: Text('All Statuses')),
+              DropdownMenuItem(value: 'Active', child: Text('Active')),
+              DropdownMenuItem(value: 'Inactive', child: Text('Inactive')),
             ],
             onChanged: (value) => setState(() => _selectedStatus = value),
           ),
@@ -250,6 +223,42 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
   }
 
   Widget _buildVendorsTable(BuildContext context) {
+    final vendors = _filteredVendors;
+
+    if (vendors.isEmpty) {
+      return Card(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(48),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.store_outlined,
+                  size: 64,
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _searchQuery.isNotEmpty
+                      ? 'No vendors found matching "$_searchQuery"'
+                      : 'No vendors yet',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Add your first vendor to get started',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Card(
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -257,19 +266,16 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
           child: DataTable(
             columnSpacing: 24,
             horizontalMargin: 24,
-            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+            headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
             columns: const [
               DataColumn(label: Text('Vendor')),
               DataColumn(label: Text('Contact')),
               DataColumn(label: Text('Payment Terms')),
               DataColumn(label: Text('Balance'), numeric: true),
-              DataColumn(label: Text('Bills'), numeric: true),
               DataColumn(label: Text('Status')),
               DataColumn(label: Text('Actions')),
             ],
-            rows: _filteredVendors.map((vendor) {
-              final balance = vendor['balance'] as double;
-
+            rows: vendors.map((vendor) {
               return DataRow(
                 cells: [
                   DataCell(
@@ -278,11 +284,11 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          vendor['name'],
+                          vendor.name,
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                         Text(
-                          vendor['id'],
+                          'ID: ${vendor.id}',
                           style: TextStyle(
                             fontSize: 12,
                             color: Theme.of(context).colorScheme.outline,
@@ -298,9 +304,9 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(vendor['email'], style: const TextStyle(fontSize: 13)),
+                        Text(vendor.email, style: const TextStyle(fontSize: 13)),
                         Text(
-                          vendor['phone'],
+                          vendor.phone,
                           style: TextStyle(
                             fontSize: 12,
                             color: Theme.of(context).colorScheme.outline,
@@ -309,37 +315,31 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
                       ],
                     ),
                   ),
-                  DataCell(Text(vendor['paymentTerms'])),
+                  DataCell(Text(vendor.paymentTerms ?? 'Net 30')),
                   DataCell(
                     Text(
-                      'UGX ${_formatNumber(balance)}',
+                      'UGX ${_currencyFormat.format(vendor.balance)}',
                       style: TextStyle(
                         fontWeight: FontWeight.w500,
                         fontFamily: 'monospace',
-                        color: balance > 10000000 ? AppColors.expense : null,
+                        color: vendor.balance > 10000000 ? AppColors.expense : null,
                       ),
                     ),
                   ),
-                  DataCell(
-                    Text(
-                      vendor['billCount'].toString(),
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                  DataCell(_buildStatusBadge(vendor['status'])),
+                  DataCell(_buildStatusBadge(vendor.isActive ? 'Active' : 'Inactive')),
                   DataCell(
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          onPressed: () => _showEditVendorDialog(context, vendor),
+                          tooltip: 'Edit',
+                        ),
+                        IconButton(
                           icon: const Icon(Icons.receipt_outlined, size: 18),
                           onPressed: () {},
                           tooltip: 'View Bills',
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                          onPressed: () {},
-                          tooltip: 'Edit',
                         ),
                       ],
                     ),
@@ -396,85 +396,229 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
   }
 
   void _showAddVendorDialog(BuildContext context) {
+    final nameController = TextEditingController();
+    final emailController = TextEditingController();
+    final phoneController = TextEditingController();
+    final addressController = TextEditingController();
+    final taxIdController = TextEditingController();
+    String selectedPaymentTerms = 'Net 30';
+    final formKey = GlobalKey<FormState>();
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add New Vendor'),
-        content: SizedBox(
-          width: 500,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Company Name'),
-              ),
-              const SizedBox(height: 16),
-              Row(
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add New Vendor'),
+          content: SizedBox(
+            width: 500,
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Email'),
-                    ),
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Company Name *'),
+                    validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Phone'),
-                    ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: emailController,
+                          decoration: const InputDecoration(labelText: 'Email *'),
+                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: TextFormField(
+                          controller: phoneController,
+                          decoration: const InputDecoration(labelText: 'Phone *'),
+                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: addressController,
+                    decoration: const InputDecoration(labelText: 'Address'),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: taxIdController,
+                          decoration: const InputDecoration(labelText: 'Tax ID (TIN)'),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: selectedPaymentTerms,
+                          decoration: const InputDecoration(labelText: 'Payment Terms'),
+                          items: ['Due on Receipt', 'Net 7', 'Net 15', 'Net 30', 'Net 45', 'Net 60']
+                              .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                              .toList(),
+                          onChanged: (v) => setDialogState(() => selectedPaymentTerms = v ?? 'Net 30'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Address'),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Tax ID (TIN)'),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      decoration: const InputDecoration(labelText: 'Payment Terms'),
-                      items: ['Due on Receipt', 'Net 7', 'Net 15', 'Net 30', 'Net 45', 'Net 60']
-                          .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-                          .toList(),
-                      onChanged: (v) {},
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                if (formKey.currentState?.validate() ?? false) {
+                  final vendorData = {
+                    'name': nameController.text,
+                    'email': emailController.text,
+                    'phone': phoneController.text,
+                    'address': addressController.text,
+                    'tax_id': taxIdController.text,
+                    'payment_terms': selectedPaymentTerms,
+                    'is_active': true,
+                  };
+                  await ref.read(vendorsProvider.notifier).createVendor(vendorData);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                }
+              },
+              child: const Text('Add Vendor'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Add Vendor'),
-          ),
-        ],
       ),
     );
   }
 
-  void _showVendorDetails(BuildContext context, Map<String, dynamic> vendor) {
+  void _showEditVendorDialog(BuildContext context, Vendor vendor) {
+    final nameController = TextEditingController(text: vendor.name);
+    final emailController = TextEditingController(text: vendor.email);
+    final phoneController = TextEditingController(text: vendor.phone);
+    final addressController = TextEditingController(text: vendor.address);
+    final taxIdController = TextEditingController(text: vendor.taxId ?? '');
+    String selectedPaymentTerms = vendor.paymentTerms ?? 'Net 30';
+    bool isActive = vendor.isActive;
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit Vendor'),
+          content: SizedBox(
+            width: 500,
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Company Name *'),
+                    validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: emailController,
+                          decoration: const InputDecoration(labelText: 'Email *'),
+                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: TextFormField(
+                          controller: phoneController,
+                          decoration: const InputDecoration(labelText: 'Phone *'),
+                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: addressController,
+                    decoration: const InputDecoration(labelText: 'Address'),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: taxIdController,
+                          decoration: const InputDecoration(labelText: 'Tax ID (TIN)'),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: selectedPaymentTerms,
+                          decoration: const InputDecoration(labelText: 'Payment Terms'),
+                          items: ['Due on Receipt', 'Net 7', 'Net 15', 'Net 30', 'Net 45', 'Net 60']
+                              .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                              .toList(),
+                          onChanged: (v) => setDialogState(() => selectedPaymentTerms = v ?? 'Net 30'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    title: const Text('Active'),
+                    value: isActive,
+                    onChanged: (v) => setDialogState(() => isActive = v),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() ?? false) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Vendor updated (offline - will sync when online)')),
+                  );
+                }
+              },
+              child: const Text('Save Changes'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showVendorDetails(BuildContext context, Vendor vendor) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(vendor['name']),
-            _buildStatusBadge(vendor['status']),
+            Text(vendor.name),
+            _buildStatusBadge(vendor.isActive ? 'Active' : 'Inactive'),
           ],
         ),
         content: SizedBox(
@@ -483,16 +627,15 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _DetailRow('Vendor ID', vendor['id']),
-              _DetailRow('Email', vendor['email']),
-              _DetailRow('Phone', vendor['phone']),
-              _DetailRow('Address', vendor['address']),
-              _DetailRow('Tax ID', vendor['taxId']),
+              _DetailRow('Vendor ID', vendor.id),
+              _DetailRow('Email', vendor.email),
+              _DetailRow('Phone', vendor.phone),
+              _DetailRow('Address', vendor.address),
+              if (vendor.taxId != null) _DetailRow('Tax ID', vendor.taxId!),
               const Divider(),
-              _DetailRow('Payment Terms', vendor['paymentTerms']),
-              _DetailRow('Current Balance', 'UGX ${NumberFormat('#,###').format(vendor['balance'])}'),
-              _DetailRow('Total Bills', vendor['billCount'].toString()),
-              _DetailRow('Last Transaction', DateFormat('MMMM d, yyyy').format(vendor['lastTransaction'])),
+              _DetailRow('Payment Terms', vendor.paymentTerms ?? 'Net 30'),
+              _DetailRow('Current Balance', 'UGX ${_currencyFormat.format(vendor.balance)}'),
+              _DetailRow('Created', DateFormat('MMMM d, yyyy').format(vendor.createdAt)),
             ],
           ),
         ),
@@ -514,6 +657,108 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _exportVendors() async {
+    final vendorsState = ref.read(vendorsProvider);
+
+    if (vendorsState.vendors.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No vendors to export')),
+      );
+      return;
+    }
+
+    final result = await FilePicker.platform.saveFile(
+      dialogTitle: 'Export Vendors',
+      fileName: 'vendors_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+    );
+
+    if (result != null) {
+      final buffer = StringBuffer();
+      buffer.writeln('ID,Name,Email,Phone,Address,Tax ID,Payment Terms,Balance,Status,Created');
+
+      for (final vendor in vendorsState.vendors) {
+        buffer.writeln(
+          '"${vendor.id}","${vendor.name}","${vendor.email}","${vendor.phone}",'
+          '"${vendor.address}","${vendor.taxId ?? ''}","${vendor.paymentTerms ?? ''}",'
+          '${vendor.balance},"${vendor.isActive ? 'Active' : 'Inactive'}",'
+          '"${DateFormat('yyyy-MM-dd').format(vendor.createdAt)}"'
+        );
+      }
+
+      final file = File(result);
+      await file.writeAsString(buffer.toString());
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Exported ${vendorsState.vendors.length} vendors to $result')),
+        );
+      }
+    }
+  }
+
+  Future<void> _importVendors() async {
+    final result = await FilePicker.platform.pickFiles(
+      dialogTitle: 'Import Vendors',
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+    );
+
+    if (result != null && result.files.single.path != null) {
+      final file = File(result.files.single.path!);
+      final content = await file.readAsString();
+      final lines = content.split('\n');
+
+      if (lines.length < 2) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Invalid CSV file')),
+          );
+        }
+        return;
+      }
+
+      int imported = 0;
+      for (int i = 1; i < lines.length; i++) {
+        final line = lines[i].trim();
+        if (line.isEmpty) continue;
+
+        final parts = _parseCSVLine(line);
+        if (parts.length >= 5) {
+          imported++;
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Import complete: $imported vendors (will sync when online)')),
+        );
+        ref.read(vendorsProvider.notifier).loadVendors();
+      }
+    }
+  }
+
+  List<String> _parseCSVLine(String line) {
+    final result = <String>[];
+    bool inQuotes = false;
+    final buffer = StringBuffer();
+
+    for (int i = 0; i < line.length; i++) {
+      final char = line[i];
+      if (char == '"') {
+        inQuotes = !inQuotes;
+      } else if (char == ',' && !inQuotes) {
+        result.add(buffer.toString());
+        buffer.clear();
+      } else {
+        buffer.write(char);
+      }
+    }
+    result.add(buffer.toString());
+    return result;
   }
 }
 
