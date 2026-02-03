@@ -6,6 +6,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../core/theme/app_theme.dart';
 import '../core/services/auth_service.dart';
+import '../core/widgets/sync_status_indicator.dart';
 
 class AppShell extends ConsumerStatefulWidget {
   final Widget child;
@@ -80,6 +81,8 @@ class _AppShellState extends ConsumerState<AppShell> {
                 fontSize: 14,
               ),
             ),
+            const SizedBox(width: 24),
+            const SyncStatusIndicator(),
             const Spacer(),
             // Window controls
             _WindowButton(
