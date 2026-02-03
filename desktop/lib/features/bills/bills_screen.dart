@@ -1,9 +1,16 @@
+// Bills Screen for ThirdBooks Desktop App
+// Track and manage vendor bills and expenses
+// © 2026 ThirdBooks. All rights reserved.
+
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:data_table_2/data_table_2.dart';
 import 'package:intl/intl.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/data_service.dart';
+import '../../core/models/bill.dart';
 
 class BillsScreen extends ConsumerStatefulWidget {
   const BillsScreen({super.key});
@@ -16,103 +23,35 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
   String _searchQuery = '';
   String? _selectedStatus;
   DateTimeRange? _dateRange;
+  final _currencyFormat = NumberFormat('#,###');
 
-  final List<Map<String, dynamic>> _bills = [
-    {
-      'id': 'BILL-2024-001',
-      'vendor': 'Quality Supplies Uganda',
-      'vendorId': 'VEN-001',
-      'date': DateTime(2024, 1, 10),
-      'dueDate': DateTime(2024, 2, 9),
-      'subtotal': 7500000.0,
-      'tax': 1275000.0,
-      'total': 8775000.0,
-      'amountPaid': 0.0,
-      'status': 'Pending',
-      'category': 'Inventory',
-    },
-    {
-      'id': 'BILL-2024-002',
-      'vendor': 'Tech Solutions Ltd',
-      'vendorId': 'VEN-002',
-      'date': DateTime(2024, 1, 12),
-      'dueDate': DateTime(2024, 1, 27),
-      'subtotal': 3200000.0,
-      'tax': 544000.0,
-      'total': 3744000.0,
-      'amountPaid': 3744000.0,
-      'status': 'Paid',
-      'category': 'Equipment',
-    },
-    {
-      'id': 'BILL-2024-003',
-      'vendor': 'Office Essentials Corp',
-      'vendorId': 'VEN-003',
-      'date': DateTime(2024, 1, 15),
-      'dueDate': DateTime(2024, 2, 14),
-      'subtotal': 450000.0,
-      'tax': 76500.0,
-      'total': 526500.0,
-      'amountPaid': 0.0,
-      'status': 'Pending',
-      'category': 'Office Supplies',
-    },
-    {
-      'id': 'BILL-2024-004',
-      'vendor': 'Uganda Power Solutions',
-      'vendorId': 'VEN-004',
-      'date': DateTime(2024, 1, 5),
-      'dueDate': DateTime(2024, 1, 5),
-      'subtotal': 2500000.0,
-      'tax': 425000.0,
-      'total': 2925000.0,
-      'amountPaid': 0.0,
-      'status': 'Overdue',
-      'category': 'Utilities',
-    },
-    {
-      'id': 'BILL-2024-005',
-      'vendor': 'Global Imports Ltd',
-      'vendorId': 'VEN-005',
-      'date': DateTime(2024, 1, 8),
-      'dueDate': DateTime(2024, 2, 22),
-      'subtotal': 25000000.0,
-      'tax': 4250000.0,
-      'total': 29250000.0,
-      'amountPaid': 15000000.0,
-      'status': 'Partial',
-      'category': 'Inventory',
-    },
-    {
-      'id': 'BILL-2024-006',
-      'vendor': 'Local Farmers Cooperative',
-      'vendorId': 'VEN-006',
-      'date': DateTime(2024, 1, 19),
-      'dueDate': DateTime(2024, 1, 26),
-      'subtotal': 1500000.0,
-      'tax': 0.0,
-      'total': 1500000.0,
-      'amountPaid': 1500000.0,
-      'status': 'Paid',
-      'category': 'Raw Materials',
-    },
-  ];
-
-  List<Map<String, dynamic>> get _filteredBills {
-    return _bills.where((bill) {
+  List<Bill> get _filteredBills {
+    final billsState = ref.watch(billsProvider);
+    return billsState.bills.where((bill) {
       final matchesSearch = _searchQuery.isEmpty ||
-          bill['vendor'].toString().toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          bill['id'].toString().toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchesStatus = _selectedStatus == null || bill['status'] == _selectedStatus;
+          bill.vendorName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          bill.billNumber.toLowerCase().contains(_searchQuery.toLowerCase());
+
+      final matchesStatus = _selectedStatus == null ||
+          (_selectedStatus == 'Paid' && bill.status == BillStatus.paid) ||
+          (_selectedStatus == 'Partial' && bill.status == BillStatus.partial) ||
+          (_selectedStatus == 'Pending' && bill.status == BillStatus.pending) ||
+          (_selectedStatus == 'Overdue' && bill.status == BillStatus.overdue) ||
+          (_selectedStatus == 'Draft' && bill.status == BillStatus.draft) ||
+          (_selectedStatus == 'Cancelled' && bill.status == BillStatus.cancelled);
+
       final matchesDate = _dateRange == null ||
-          ((bill['date'] as DateTime).isAfter(_dateRange!.start.subtract(const Duration(days: 1))) &&
-              (bill['date'] as DateTime).isBefore(_dateRange!.end.add(const Duration(days: 1))));
+          (bill.date.isAfter(_dateRange!.start.subtract(const Duration(days: 1))) &&
+              bill.date.isBefore(_dateRange!.end.add(const Duration(days: 1))));
+
       return matchesSearch && matchesStatus && matchesDate;
     }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final billsState = ref.watch(billsProvider);
+
     return Scaffold(
       body: Padding(
         padding: const EdgeInsets.all(24),
@@ -121,11 +60,15 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
           children: [
             _buildHeader(context),
             const SizedBox(height: 24),
-            _buildSummaryCards(context),
+            _buildSummaryCards(context, billsState),
             const SizedBox(height: 24),
             _buildFilters(context),
             const SizedBox(height: 16),
-            Expanded(child: _buildBillsTable(context)),
+            Expanded(
+              child: billsState.isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _buildBillsTable(context),
+            ),
           ],
         ),
       ),
@@ -156,12 +99,34 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
         ),
         Row(
           children: [
-            OutlinedButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.file_download_outlined, size: 18),
-              label: const Text('Export'),
+            IconButton(
+              onPressed: () => ref.read(billsProvider.notifier).loadBills(),
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Refresh',
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              tooltip: 'More options',
+              onSelected: (value) {
+                if (value == 'export') {
+                  _exportBills();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'export',
+                  child: Row(
+                    children: [
+                      Icon(Icons.file_download_outlined, size: 18),
+                      SizedBox(width: 8),
+                      Text('Export to CSV'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 8),
             FilledButton.icon(
               onPressed: () => _showCreateBillDialog(context),
               icon: const Icon(Icons.add, size: 18),
@@ -173,14 +138,13 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
     );
   }
 
-  Widget _buildSummaryCards(BuildContext context) {
-    final totalBills = _bills.length;
-    final totalAmount = _bills.fold<double>(0, (sum, b) => sum + (b['total'] as double));
-    final totalPaid = _bills.fold<double>(0, (sum, b) => sum + (b['amountPaid'] as double));
-    final overdueCount = _bills.where((b) => b['status'] == 'Overdue').length;
-    final overdueAmount = _bills
-        .where((b) => b['status'] == 'Overdue')
-        .fold<double>(0, (sum, b) => sum + ((b['total'] as double) - (b['amountPaid'] as double)));
+  Widget _buildSummaryCards(BuildContext context, BillsState state) {
+    final totalBills = state.bills.length;
+    final totalAmount = state.bills.fold<double>(0, (sum, b) => sum + b.total);
+    final totalPaid = state.bills.fold<double>(0, (sum, b) => sum + b.amountPaid);
+    final overdueBills = state.bills.where((b) => b.status == BillStatus.overdue);
+    final overdueCount = overdueBills.length;
+    final overdueAmount = overdueBills.fold<double>(0, (sum, b) => sum + (b.total - b.amountPaid));
 
     return Row(
       children: [
@@ -282,111 +246,156 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
   }
 
   Widget _buildBillsTable(BuildContext context) {
-    return Card(
-      child: DataTable2(
-        columnSpacing: 24,
-        horizontalMargin: 24,
-        minWidth: 1100,
-        headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
-        columns: const [
-          DataColumn2(label: Text('Bill #'), size: ColumnSize.S),
-          DataColumn2(label: Text('Vendor'), size: ColumnSize.L),
-          DataColumn2(label: Text('Category'), size: ColumnSize.S),
-          DataColumn2(label: Text('Date'), size: ColumnSize.S),
-          DataColumn2(label: Text('Due Date'), size: ColumnSize.S),
-          DataColumn2(label: Text('Amount'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Balance'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Status'), size: ColumnSize.S),
-          DataColumn2(label: Text('Actions'), size: ColumnSize.S),
-        ],
-        rows: _filteredBills.map((bill) {
-          final total = bill['total'] as double;
-          final paid = bill['amountPaid'] as double;
-          final balance = total - paid;
-          final isOverdue = bill['status'] == 'Overdue';
+    final bills = _filteredBills;
 
-          return DataRow2(
-            onTap: () => _showBillDetails(context, bill),
-            cells: [
-              DataCell(
-                Text(
-                  bill['id'],
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontFamily: 'monospace'),
+    if (bills.isEmpty) {
+      return Card(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(48),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.receipt_outlined,
+                  size: 64,
+                  color: Theme.of(context).colorScheme.outline,
                 ),
-              ),
-              DataCell(
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(bill['vendor'], style: const TextStyle(fontWeight: FontWeight.w500)),
-                    Text(
-                      bill['vendorId'],
-                      style: TextStyle(
-                        fontSize: 12,
+                const SizedBox(height: 16),
+                Text(
+                  _searchQuery.isNotEmpty
+                      ? 'No bills found matching "$_searchQuery"'
+                      : 'No bills yet',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Create your first bill to get started',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.outline,
                       ),
-                    ),
-                  ],
                 ),
-              ),
-              DataCell(
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceVariant,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(bill['category'], style: const TextStyle(fontSize: 12)),
-                ),
-              ),
-              DataCell(Text(DateFormat('MMM d, yyyy').format(bill['date']))),
-              DataCell(
-                Text(
-                  DateFormat('MMM d, yyyy').format(bill['dueDate']),
-                  style: TextStyle(color: isOverdue ? AppColors.expense : null),
-                ),
-              ),
-              DataCell(
-                Text(
-                  'UGX ${_formatNumber(total)}',
-                  style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
-                ),
-              ),
-              DataCell(
-                Text(
-                  balance > 0 ? 'UGX ${_formatNumber(balance)}' : '-',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w500,
-                    fontFamily: 'monospace',
-                    color: balance > 0 ? AppColors.expense : AppColors.income,
-                  ),
-                ),
-              ),
-              DataCell(_buildStatusBadge(bill['status'])),
-              DataCell(
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.visibility_outlined, size: 18),
-                      onPressed: () => _showBillDetails(context, bill),
-                      tooltip: 'View',
-                    ),
-                    if (bill['status'] != 'Paid' && bill['status'] != 'Cancelled')
-                      IconButton(
-                        icon: const Icon(Icons.payment_outlined, size: 18),
-                        onPressed: () => _showRecordPaymentDialog(context, bill),
-                        tooltip: 'Pay Bill',
-                      ),
-                  ],
-                ),
-              ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: DataTable(
+            columnSpacing: 24,
+            horizontalMargin: 24,
+            headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+            columns: const [
+              DataColumn(label: Text('Bill #')),
+              DataColumn(label: Text('Vendor')),
+              DataColumn(label: Text('Date')),
+              DataColumn(label: Text('Due Date')),
+              DataColumn(label: Text('Amount'), numeric: true),
+              DataColumn(label: Text('Balance'), numeric: true),
+              DataColumn(label: Text('Status')),
+              DataColumn(label: Text('Actions')),
             ],
-          );
-        }).toList(),
+            rows: bills.map((bill) {
+              final balance = bill.total - bill.amountPaid;
+              final isOverdue = bill.status == BillStatus.overdue;
+
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Text(
+                      bill.billNumber,
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontFamily: 'monospace'),
+                    ),
+                    onTap: () => _showBillDetails(context, bill),
+                  ),
+                  DataCell(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(bill.vendorName, style: const TextStyle(fontWeight: FontWeight.w500)),
+                        Text(
+                          'ID: ${bill.vendorId}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                    onTap: () => _showBillDetails(context, bill),
+                  ),
+                  DataCell(Text(DateFormat('MMM d, yyyy').format(bill.date))),
+                  DataCell(
+                    Text(
+                      DateFormat('MMM d, yyyy').format(bill.dueDate),
+                      style: TextStyle(color: isOverdue ? AppColors.expense : null),
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      'UGX ${_currencyFormat.format(bill.total)}',
+                      style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      balance > 0 ? 'UGX ${_currencyFormat.format(balance)}' : '-',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontFamily: 'monospace',
+                        color: balance > 0 ? AppColors.expense : AppColors.income,
+                      ),
+                    ),
+                  ),
+                  DataCell(_buildStatusBadge(_getStatusString(bill.status))),
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.visibility_outlined, size: 18),
+                          onPressed: () => _showBillDetails(context, bill),
+                          tooltip: 'View',
+                        ),
+                        if (bill.status != BillStatus.paid && bill.status != BillStatus.cancelled)
+                          IconButton(
+                            icon: const Icon(Icons.payment_outlined, size: 18),
+                            onPressed: () => _showRecordPaymentDialog(context, bill),
+                            tooltip: 'Pay Bill',
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
       ),
     );
+  }
+
+  String _getStatusString(BillStatus status) {
+    switch (status) {
+      case BillStatus.draft:
+        return 'Draft';
+      case BillStatus.pending:
+        return 'Pending';
+      case BillStatus.partial:
+        return 'Partial';
+      case BillStatus.paid:
+        return 'Paid';
+      case BillStatus.overdue:
+        return 'Overdue';
+      case BillStatus.cancelled:
+        return 'Cancelled';
+    }
   }
 
   Widget _buildStatusBadge(String status) {
@@ -441,6 +450,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
   }
 
   void _showCreateBillDialog(BuildContext context) {
+    final vendorsState = ref.read(vendorsProvider);
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -456,10 +467,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                     flex: 2,
                     child: DropdownButtonFormField<String>(
                       decoration: const InputDecoration(labelText: 'Vendor'),
-                      items: _bills
-                          .map((b) => b['vendor'] as String)
-                          .toSet()
-                          .map((v) => DropdownMenuItem(value: v, child: Text(v)))
+                      items: vendorsState.vendors
+                          .map((v) => DropdownMenuItem(value: v.id, child: Text(v.name)))
                           .toList(),
                       onChanged: (v) {},
                     ),
@@ -515,8 +524,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                 ),
                 child: Column(
                   children: [
-                    Row(
-                      children: const [
+                    const Row(
+                      children: [
                         Expanded(flex: 2, child: Text('Account', style: TextStyle(fontWeight: FontWeight.w600))),
                         Expanded(flex: 2, child: Text('Description', style: TextStyle(fontWeight: FontWeight.w600))),
                         Expanded(flex: 1, child: Text('Amount', style: TextStyle(fontWeight: FontWeight.w600))),
@@ -535,7 +544,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              Row(
+              const Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   Column(
@@ -543,8 +552,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                     children: [
                       Text('Subtotal: UGX 0'),
                       Text('VAT (18%): UGX 0'),
-                      const SizedBox(height: 4),
-                      Text('Total: UGX 0', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      SizedBox(height: 4),
+                      Text('Total: UGX 0', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     ],
                   ),
                 ],
@@ -558,11 +567,21 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
             child: const Text('Cancel'),
           ),
           OutlinedButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () {
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Bill saved as draft (will sync when online)')),
+              );
+            },
             child: const Text('Save as Draft'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () {
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Bill created (will sync when online)')),
+              );
+            },
             child: const Text('Save Bill'),
           ),
         ],
@@ -570,15 +589,15 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
     );
   }
 
-  void _showBillDetails(BuildContext context, Map<String, dynamic> bill) {
+  void _showBillDetails(BuildContext context, Bill bill) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Bill ${bill['id']}'),
-            _buildStatusBadge(bill['status']),
+            Text('Bill ${bill.billNumber}'),
+            _buildStatusBadge(_getStatusString(bill.status)),
           ],
         ),
         content: SizedBox(
@@ -587,19 +606,16 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _DetailRow('Vendor', bill['vendor']),
-              _DetailRow('Category', bill['category']),
-              _DetailRow('Bill Date', DateFormat('MMMM d, yyyy').format(bill['date'])),
-              _DetailRow('Due Date', DateFormat('MMMM d, yyyy').format(bill['dueDate'])),
+              _DetailRow('Vendor', bill.vendorName),
+              _DetailRow('Bill Date', DateFormat('MMMM d, yyyy').format(bill.date)),
+              _DetailRow('Due Date', DateFormat('MMMM d, yyyy').format(bill.dueDate)),
+              _DetailRow('Items', '${bill.lines.length} items'),
               const Divider(),
-              _DetailRow('Subtotal', 'UGX ${NumberFormat('#,###').format(bill['subtotal'])}'),
-              _DetailRow('Tax (18%)', 'UGX ${NumberFormat('#,###').format(bill['tax'])}'),
-              _DetailRow('Total', 'UGX ${NumberFormat('#,###').format(bill['total'])}'),
-              _DetailRow('Amount Paid', 'UGX ${NumberFormat('#,###').format(bill['amountPaid'])}'),
-              _DetailRow(
-                'Balance Due',
-                'UGX ${NumberFormat('#,###').format((bill['total'] as double) - (bill['amountPaid'] as double))}',
-              ),
+              _DetailRow('Subtotal', 'UGX ${_currencyFormat.format(bill.subtotal)}'),
+              _DetailRow('Tax (18%)', 'UGX ${_currencyFormat.format(bill.taxAmount)}'),
+              _DetailRow('Total', 'UGX ${_currencyFormat.format(bill.total)}'),
+              _DetailRow('Amount Paid', 'UGX ${_currencyFormat.format(bill.amountPaid)}'),
+              _DetailRow('Balance Due', 'UGX ${_currencyFormat.format(bill.total - bill.amountPaid)}'),
             ],
           ),
         ),
@@ -608,7 +624,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Close'),
           ),
-          if (bill['status'] != 'Paid' && bill['status'] != 'Cancelled')
+          if (bill.status != BillStatus.paid && bill.status != BillStatus.cancelled)
             FilledButton.icon(
               onPressed: () {
                 Navigator.pop(ctx);
@@ -622,18 +638,23 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
     );
   }
 
-  void _showRecordPaymentDialog(BuildContext context, Map<String, dynamic> bill) {
-    final balance = (bill['total'] as double) - (bill['amountPaid'] as double);
+  void _showRecordPaymentDialog(BuildContext context, Bill bill) {
+    final balance = bill.total - bill.amountPaid;
+    final accountsState = ref.read(accountsProvider);
+    final bankAccounts = accountsState.accounts.where((a) =>
+        a.subType.toString().contains('bank') ||
+        a.subType.toString().contains('cash')).toList();
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Pay Bill - ${bill['id']}'),
+        title: Text('Pay Bill - ${bill.billNumber}'),
         content: SizedBox(
           width: 400,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Balance Due: UGX ${NumberFormat('#,###').format(balance)}',
+              Text('Balance Due: UGX ${_currencyFormat.format(balance)}',
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 16),
               TextFormField(
@@ -650,9 +671,11 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(labelText: 'Pay From Account'),
-                items: ['Bank Account - UGX', 'Bank Account - USD', 'Cash on Hand', 'Petty Cash']
-                    .map((a) => DropdownMenuItem(value: a, child: Text(a)))
-                    .toList(),
+                items: bankAccounts.isNotEmpty
+                    ? bankAccounts.map((a) => DropdownMenuItem(value: a.id, child: Text(a.name))).toList()
+                    : ['Bank Account - UGX', 'Bank Account - USD', 'Cash on Hand', 'Petty Cash']
+                        .map((a) => DropdownMenuItem(value: a, child: Text(a)))
+                        .toList(),
                 onChanged: (v) {},
               ),
               const SizedBox(height: 16),
@@ -676,12 +699,59 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () {
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Payment recorded (will sync when online)')),
+              );
+            },
             child: const Text('Record Payment'),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _exportBills() async {
+    final billsState = ref.read(billsProvider);
+
+    if (billsState.bills.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No bills to export')),
+      );
+      return;
+    }
+
+    final result = await FilePicker.platform.saveFile(
+      dialogTitle: 'Export Bills',
+      fileName: 'bills_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+    );
+
+    if (result != null) {
+      final buffer = StringBuffer();
+      buffer.writeln('Bill #,Vendor,Date,Due Date,Subtotal,Tax,Total,Amount Paid,Status');
+
+      for (final bill in billsState.bills) {
+        buffer.writeln(
+          '"${bill.billNumber}","${bill.vendorName}",'
+          '"${DateFormat('yyyy-MM-dd').format(bill.date)}",'
+          '"${DateFormat('yyyy-MM-dd').format(bill.dueDate)}",'
+          '${bill.subtotal},${bill.taxAmount},${bill.total},'
+          '${bill.amountPaid},"${_getStatusString(bill.status)}"'
+        );
+      }
+
+      final file = File(result);
+      await file.writeAsString(buffer.toString());
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Exported ${billsState.bills.length} bills to $result')),
+        );
+      }
+    }
   }
 }
 

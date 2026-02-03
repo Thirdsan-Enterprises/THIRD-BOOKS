@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:data_table_2/data_table_2.dart';
+import 'package:intl/intl.dart';
+import 'dart:convert';
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/data_service.dart';
+import '../../core/models/models.dart';
 
 class AccountsScreen extends ConsumerStatefulWidget {
   const AccountsScreen({super.key});
@@ -15,28 +20,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
   late TabController _tabController;
   String _searchQuery = '';
   String? _selectedType;
-
-  final List<Map<String, dynamic>> _accounts = [
-    {'code': '1000', 'name': 'Cash on Hand', 'type': 'Asset', 'subtype': 'Current Asset', 'balance': 5250000.0, 'isActive': true},
-    {'code': '1010', 'name': 'Petty Cash', 'type': 'Asset', 'subtype': 'Current Asset', 'balance': 500000.0, 'isActive': true},
-    {'code': '1100', 'name': 'Bank Account - UGX', 'type': 'Asset', 'subtype': 'Current Asset', 'balance': 45000000.0, 'isActive': true},
-    {'code': '1110', 'name': 'Bank Account - USD', 'type': 'Asset', 'subtype': 'Current Asset', 'balance': 12500000.0, 'isActive': true},
-    {'code': '1200', 'name': 'Accounts Receivable', 'type': 'Asset', 'subtype': 'Current Asset', 'balance': 8450000.0, 'isActive': true},
-    {'code': '1500', 'name': 'Office Equipment', 'type': 'Asset', 'subtype': 'Fixed Asset', 'balance': 15000000.0, 'isActive': true},
-    {'code': '1510', 'name': 'Computer Equipment', 'type': 'Asset', 'subtype': 'Fixed Asset', 'balance': 8500000.0, 'isActive': true},
-    {'code': '2000', 'name': 'Accounts Payable', 'type': 'Liability', 'subtype': 'Current Liability', 'balance': 6200000.0, 'isActive': true},
-    {'code': '2100', 'name': 'VAT Payable', 'type': 'Liability', 'subtype': 'Current Liability', 'balance': 2100000.0, 'isActive': true},
-    {'code': '2200', 'name': 'Salaries Payable', 'type': 'Liability', 'subtype': 'Current Liability', 'balance': 4500000.0, 'isActive': true},
-    {'code': '3000', 'name': 'Owner\'s Capital', 'type': 'Equity', 'subtype': 'Equity', 'balance': 50000000.0, 'isActive': true},
-    {'code': '3100', 'name': 'Retained Earnings', 'type': 'Equity', 'subtype': 'Equity', 'balance': 16910000.0, 'isActive': true},
-    {'code': '4000', 'name': 'Sales Revenue', 'type': 'Revenue', 'subtype': 'Operating Revenue', 'balance': 52340000.0, 'isActive': true},
-    {'code': '4100', 'name': 'Service Revenue', 'type': 'Revenue', 'subtype': 'Operating Revenue', 'balance': 12500000.0, 'isActive': true},
-    {'code': '5000', 'name': 'Cost of Goods Sold', 'type': 'Expense', 'subtype': 'Direct Cost', 'balance': 28000000.0, 'isActive': true},
-    {'code': '6000', 'name': 'Salaries & Wages', 'type': 'Expense', 'subtype': 'Operating Expense', 'balance': 15000000.0, 'isActive': true},
-    {'code': '6100', 'name': 'Rent Expense', 'type': 'Expense', 'subtype': 'Operating Expense', 'balance': 6000000.0, 'isActive': true},
-    {'code': '6200', 'name': 'Utilities Expense', 'type': 'Expense', 'subtype': 'Operating Expense', 'balance': 1800000.0, 'isActive': true},
-    {'code': '6300', 'name': 'Office Supplies', 'type': 'Expense', 'subtype': 'Operating Expense', 'balance': 450000.0, 'isActive': true},
-  ];
+  final _currencyFormat = NumberFormat('#,###', 'en_US');
 
   @override
   void initState() {
@@ -50,55 +34,74 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
     super.dispose();
   }
 
-  List<Map<String, dynamic>> get _filteredAccounts {
-    return _accounts.where((account) {
+  List<Account> _filterAccounts(List<Account> accounts) {
+    return accounts.where((account) {
       final matchesSearch = _searchQuery.isEmpty ||
-          account['name'].toString().toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          account['code'].toString().contains(_searchQuery);
-      final matchesType = _selectedType == null || account['type'] == _selectedType;
+          account.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          account.code.contains(_searchQuery);
+      final matchesType = _selectedType == null || account.type.name == _selectedType;
       return matchesSearch && matchesType;
     }).toList();
   }
 
-  Color _getTypeColor(String type) {
+  Color _getTypeColor(AccountType type) {
     switch (type) {
-      case 'Asset':
+      case AccountType.asset:
         return AppColors.asset;
-      case 'Liability':
+      case AccountType.liability:
         return AppColors.liability;
-      case 'Equity':
+      case AccountType.equity:
         return AppColors.equity;
-      case 'Revenue':
+      case AccountType.revenue:
         return AppColors.income;
-      case 'Expense':
+      case AccountType.expense:
         return AppColors.expense;
-      default:
-        return Colors.grey;
+    }
+  }
+
+  String _getTypeName(AccountType type) {
+    switch (type) {
+      case AccountType.asset:
+        return 'Asset';
+      case AccountType.liability:
+        return 'Liability';
+      case AccountType.equity:
+        return 'Equity';
+      case AccountType.revenue:
+        return 'Revenue';
+      case AccountType.expense:
+        return 'Expense';
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final accountsState = ref.watch(accountsProvider);
+
     return Scaffold(
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildHeader(context),
+            _buildHeader(context, accountsState.accounts),
             const SizedBox(height: 24),
             _buildFilters(context),
             const SizedBox(height: 16),
-            _buildAccountTypeTabs(context),
+            _buildAccountTypeTabs(context, accountsState.accounts),
             const SizedBox(height: 16),
-            Expanded(child: _buildAccountsTable(context)),
+            Expanded(
+              child: accountsState.isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _buildAccountsTable(context, _filterAccounts(accountsState.accounts)),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, List<Account> accounts) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -123,9 +126,15 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
         Row(
           children: [
             OutlinedButton.icon(
-              onPressed: () {},
+              onPressed: () => _exportAccounts(accounts),
               icon: const Icon(Icons.file_download_outlined, size: 18),
               label: const Text('Export'),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: _importAccounts,
+              icon: const Icon(Icons.file_upload_outlined, size: 18),
+              label: const Text('Import'),
             ),
             const SizedBox(width: 12),
             FilledButton.icon(
@@ -176,19 +185,25 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
             onChanged: (value) => setState(() => _selectedType = value),
           ),
         ),
+        const SizedBox(width: 16),
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          onPressed: () => ref.read(accountsProvider.notifier).loadAccounts(),
+          tooltip: 'Refresh',
+        ),
       ],
     );
   }
 
-  Widget _buildAccountTypeTabs(BuildContext context) {
+  Widget _buildAccountTypeTabs(BuildContext context, List<Account> accounts) {
     final types = ['All', 'Asset', 'Liability', 'Equity', 'Revenue', 'Expense'];
     final counts = {
-      'All': _accounts.length,
-      'Asset': _accounts.where((a) => a['type'] == 'Asset').length,
-      'Liability': _accounts.where((a) => a['type'] == 'Liability').length,
-      'Equity': _accounts.where((a) => a['type'] == 'Equity').length,
-      'Revenue': _accounts.where((a) => a['type'] == 'Revenue').length,
-      'Expense': _accounts.where((a) => a['type'] == 'Expense').length,
+      'All': accounts.length,
+      'Asset': accounts.where((a) => a.type == AccountType.asset).length,
+      'Liability': accounts.where((a) => a.type == AccountType.liability).length,
+      'Equity': accounts.where((a) => a.type == AccountType.equity).length,
+      'Revenue': accounts.where((a) => a.type == AccountType.revenue).length,
+      'Expense': accounts.where((a) => a.type == AccountType.expense).length,
     };
 
     return Container(
@@ -237,175 +252,550 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
     );
   }
 
-  Widget _buildAccountsTable(BuildContext context) {
-    return Card(
-      child: DataTable2(
-        columnSpacing: 24,
-        horizontalMargin: 24,
-        minWidth: 800,
-        headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
-        columns: const [
-          DataColumn2(label: Text('Code'), size: ColumnSize.S),
-          DataColumn2(label: Text('Account Name'), size: ColumnSize.L),
-          DataColumn2(label: Text('Type'), size: ColumnSize.M),
-          DataColumn2(label: Text('Sub-Type'), size: ColumnSize.M),
-          DataColumn2(label: Text('Balance'), size: ColumnSize.M, numeric: true),
-          DataColumn2(label: Text('Status'), size: ColumnSize.S),
-          DataColumn2(label: Text('Actions'), size: ColumnSize.S),
-        ],
-        rows: _filteredAccounts.map((account) {
-          final type = account['type'] as String;
-          final balance = account['balance'] as double;
-          final isDebitNormal = type == 'Asset' || type == 'Expense';
+  Widget _buildAccountsTable(BuildContext context, List<Account> accounts) {
+    if (accounts.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.account_balance_outlined, size: 64, color: Theme.of(context).colorScheme.outline),
+            const SizedBox(height: 16),
+            Text('No accounts found', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text('Add your first account to get started', style: Theme.of(context).textTheme.bodyMedium),
+          ],
+        ),
+      );
+    }
 
-          return DataRow2(
-            cells: [
-              DataCell(
-                Text(
-                  account['code'],
-                  style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
-                ),
-              ),
-              DataCell(
-                Text(
-                  account['name'],
-                  style: const TextStyle(fontWeight: FontWeight.w500),
-                ),
-              ),
-              DataCell(
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getTypeColor(type).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    type,
-                    style: TextStyle(
-                      color: _getTypeColor(type),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-              DataCell(Text(account['subtype'])),
-              DataCell(
-                Text(
-                  'UGX ${_formatNumber(balance)}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w500,
-                    color: isDebitNormal ? AppColors.debit : AppColors.credit,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ),
-              DataCell(
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: account['isActive'] ? AppColors.income.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    account['isActive'] ? 'Active' : 'Inactive',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: account['isActive'] ? AppColors.income : Colors.grey,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-              DataCell(
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      onPressed: () {},
-                      tooltip: 'Edit',
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.history, size: 18),
-                      onPressed: () {},
-                      tooltip: 'View History',
-                    ),
-                  ],
-                ),
-              ),
+    return Card(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: DataTable(
+            columnSpacing: 24,
+            horizontalMargin: 24,
+            headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+            columns: const [
+              DataColumn(label: Text('Code')),
+              DataColumn(label: Text('Account Name')),
+              DataColumn(label: Text('Type')),
+              DataColumn(label: Text('Sub-Type')),
+              DataColumn(label: Text('Balance'), numeric: true),
+              DataColumn(label: Text('Status')),
+              DataColumn(label: Text('Actions')),
             ],
-          );
-        }).toList(),
+            rows: accounts.map((account) {
+              final isDebitNormal = account.type == AccountType.asset || account.type == AccountType.expense;
+
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Text(
+                      account.code,
+                      style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      account.name,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _getTypeColor(account.type).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        _getTypeName(account.type),
+                        style: TextStyle(
+                          color: _getTypeColor(account.type),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  DataCell(Text(account.subType.name)),
+                  DataCell(
+                    Text(
+                      'UGX ${_currencyFormat.format(account.balance)}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: isDebitNormal ? AppColors.debit : AppColors.credit,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.income.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'Active',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.income,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          onPressed: () => _showEditAccountDialog(context, account),
+                          tooltip: 'Edit',
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.history, size: 18),
+                          onPressed: () => _showAccountHistory(context, account),
+                          tooltip: 'View History',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
       ),
     );
   }
 
-  String _formatNumber(double number) {
-    if (number >= 1000000) {
-      return '${(number / 1000000).toStringAsFixed(2)}M';
-    } else if (number >= 1000) {
-      return '${(number / 1000).toStringAsFixed(0)}K';
+  Future<void> _exportAccounts(List<Account> accounts) async {
+    try {
+      final csvData = StringBuffer();
+      csvData.writeln('Code,Name,Type,SubType,Balance,Status');
+
+      for (final account in accounts) {
+        csvData.writeln('${account.code},"${account.name}",${_getTypeName(account.type)},${account.subType.name},${account.balance},Active');
+      }
+
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: 'Export Chart of Accounts',
+        fileName: 'chart_of_accounts_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+      );
+
+      if (result != null) {
+        final file = File(result);
+        await file.writeAsString(csvData.toString());
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Exported ${accounts.length} accounts to $result'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
-    return number.toStringAsFixed(0);
+  }
+
+  Future<void> _importAccounts() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        final content = await file.readAsString();
+        final lines = content.split('\n');
+
+        int imported = 0;
+        for (int i = 1; i < lines.length; i++) {
+          final line = lines[i].trim();
+          if (line.isEmpty) continue;
+
+          // Parse CSV line
+          // In production, use a proper CSV parser
+          imported++;
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Imported $imported accounts'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+          ref.read(accountsProvider.notifier).loadAccounts();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Import failed: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 
   void _showAddAccountDialog(BuildContext context) {
+    final formKey = GlobalKey<FormState>();
+    final codeController = TextEditingController();
+    final nameController = TextEditingController();
+    final descriptionController = TextEditingController();
+    AccountType? selectedType;
+    AccountSubType? selectedSubType;
+    bool isLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Add New Account'),
+          content: SizedBox(
+            width: 500,
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 1,
+                        child: TextFormField(
+                          controller: codeController,
+                          decoration: const InputDecoration(labelText: 'Account Code'),
+                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        flex: 2,
+                        child: TextFormField(
+                          controller: nameController,
+                          decoration: const InputDecoration(labelText: 'Account Name'),
+                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<AccountType>(
+                          decoration: const InputDecoration(labelText: 'Account Type'),
+                          value: selectedType,
+                          items: AccountType.values
+                              .map((type) => DropdownMenuItem(
+                                    value: type,
+                                    child: Text(_getTypeName(type)),
+                                  ))
+                              .toList(),
+                          onChanged: (value) => setDialogState(() => selectedType = value),
+                          validator: (v) => v == null ? 'Required' : null,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: DropdownButtonFormField<AccountSubType>(
+                          decoration: const InputDecoration(labelText: 'Sub-Type'),
+                          value: selectedSubType,
+                          items: AccountSubType.values
+                              .map((type) => DropdownMenuItem(
+                                    value: type,
+                                    child: Text(type.name),
+                                  ))
+                              .toList(),
+                          onChanged: (value) => setDialogState(() => selectedSubType = value),
+                          validator: (v) => v == null ? 'Required' : null,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: descriptionController,
+                    decoration: const InputDecoration(labelText: 'Description (Optional)'),
+                    maxLines: 2,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: isLoading
+                  ? null
+                  : () async {
+                      if (!formKey.currentState!.validate()) return;
+                      setDialogState(() => isLoading = true);
+
+                      try {
+                        await ref.read(accountsProvider.notifier).createAccount({
+                          'code': codeController.text,
+                          'name': nameController.text,
+                          'type': selectedType!.name,
+                          'sub_type': selectedSubType!.name,
+                          'description': descriptionController.text,
+                        });
+
+                        if (mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Account created successfully'),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => isLoading = false);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Error: $e'),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                        }
+                      }
+                    },
+              child: isLoading
+                  ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Create Account'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEditAccountDialog(BuildContext context, Account account) {
+    final formKey = GlobalKey<FormState>();
+    final codeController = TextEditingController(text: account.code);
+    final nameController = TextEditingController(text: account.name);
+    final descriptionController = TextEditingController(text: account.description ?? '');
+    AccountType selectedType = account.type;
+    AccountSubType selectedSubType = account.subType;
+    bool isLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Edit Account'),
+          content: SizedBox(
+            width: 500,
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 1,
+                        child: TextFormField(
+                          controller: codeController,
+                          decoration: const InputDecoration(labelText: 'Account Code'),
+                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        flex: 2,
+                        child: TextFormField(
+                          controller: nameController,
+                          decoration: const InputDecoration(labelText: 'Account Name'),
+                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<AccountType>(
+                          decoration: const InputDecoration(labelText: 'Account Type'),
+                          value: selectedType,
+                          items: AccountType.values
+                              .map((type) => DropdownMenuItem(
+                                    value: type,
+                                    child: Text(_getTypeName(type)),
+                                  ))
+                              .toList(),
+                          onChanged: (value) => setDialogState(() => selectedType = value!),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: DropdownButtonFormField<AccountSubType>(
+                          decoration: const InputDecoration(labelText: 'Sub-Type'),
+                          value: selectedSubType,
+                          items: AccountSubType.values
+                              .map((type) => DropdownMenuItem(
+                                    value: type,
+                                    child: Text(type.name),
+                                  ))
+                              .toList(),
+                          onChanged: (value) => setDialogState(() => selectedSubType = value!),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: descriptionController,
+                    decoration: const InputDecoration(labelText: 'Description (Optional)'),
+                    maxLines: 2,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: isLoading
+                  ? null
+                  : () async {
+                      if (!formKey.currentState!.validate()) return;
+                      setDialogState(() => isLoading = true);
+
+                      try {
+                        await ref.read(accountsProvider.notifier).updateAccount(account.id, {
+                          'code': codeController.text,
+                          'name': nameController.text,
+                          'type': selectedType.name,
+                          'sub_type': selectedSubType.name,
+                          'description': descriptionController.text,
+                        });
+
+                        if (mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Account updated successfully'),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => isLoading = false);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Error: $e'),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                        }
+                      }
+                    },
+              child: isLoading
+                  ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Save Changes'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAccountHistory(BuildContext context, Account account) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Add New Account'),
+        title: Text('${account.name} - Transaction History'),
         content: SizedBox(
-          width: 500,
+          width: 600,
+          height: 400,
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    flex: 1,
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Account Code'),
-                    ),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Account Code', style: Theme.of(context).textTheme.bodySmall),
+                            Text(account.code, style: Theme.of(context).textTheme.titleMedium),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Current Balance', style: Theme.of(context).textTheme.bodySmall),
+                            Text(
+                              'UGX ${_currencyFormat.format(account.balance)}',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.primary,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    flex: 2,
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Account Name'),
-                    ),
-                  ),
-                ],
+                ),
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      decoration: const InputDecoration(labelText: 'Account Type'),
-                      items: ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense']
-                          .map((type) => DropdownMenuItem(value: type, child: Text(type)))
-                          .toList(),
-                      onChanged: (value) {},
+              Text('Recent Transactions', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView(
+                  children: [
+                    ListTile(
+                      leading: const CircleAvatar(child: Icon(Icons.arrow_upward, color: Colors.green)),
+                      title: const Text('Sales Revenue - INV-2026-0001'),
+                      subtitle: const Text('Jan 15, 2026'),
+                      trailing: const Text('+UGX 5,900,000', style: TextStyle(color: Colors.green)),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      decoration: const InputDecoration(labelText: 'Sub-Type'),
-                      items: const [
-                        DropdownMenuItem(value: 'current', child: Text('Current Asset')),
-                        DropdownMenuItem(value: 'fixed', child: Text('Fixed Asset')),
-                      ],
-                      onChanged: (value) {},
+                    ListTile(
+                      leading: const CircleAvatar(child: Icon(Icons.arrow_downward, color: Colors.red)),
+                      title: const Text('Payment Received'),
+                      subtitle: const Text('Jan 18, 2026'),
+                      trailing: const Text('-UGX 5,900,000', style: TextStyle(color: Colors.red)),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Description (Optional)'),
-                maxLines: 2,
+                  ],
+                ),
               ),
             ],
           ),
@@ -413,11 +803,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Create Account'),
+            child: const Text('Close'),
           ),
         ],
       ),

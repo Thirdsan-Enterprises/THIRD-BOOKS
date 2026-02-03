@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../core/theme/app_theme.dart';
+import '../core/services/auth_service.dart';
+import '../core/widgets/sync_status_indicator.dart';
 
 class AppShell extends ConsumerStatefulWidget {
   final Widget child;
@@ -20,6 +22,9 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    final authState = ref.watch(authStateProvider);
+    final user = authState.user;
+
     return Scaffold(
       body: Column(
         children: [
@@ -32,7 +37,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             child: Row(
               children: [
                 // Sidebar
-                _buildSidebar(context),
+                _buildSidebar(context, user),
 
                 // Main content area
                 Expanded(
@@ -76,6 +81,8 @@ class _AppShellState extends ConsumerState<AppShell> {
                 fontSize: 14,
               ),
             ),
+            const SizedBox(width: 24),
+            const SyncStatusIndicator(),
             const Spacer(),
             // Window controls
             _WindowButton(
@@ -103,66 +110,18 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
   }
 
-  Widget _buildSidebar(BuildContext context) {
+  Widget _buildSidebar(BuildContext context, User? user) {
     final currentPath = GoRouterState.of(context).uri.path;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      width: _isCollapsed ? 70 : 240,
+      width: _isCollapsed ? 70 : 260,
       color: AppColors.sidebarBackground,
       child: Column(
         children: [
-          // Company info section
+          // User profile section
           if (!_isCollapsed)
-            Container(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppColors.secondary,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.business,
-                          color: Colors.white,
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Demo Company',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            Text(
-                              'FY 2024/2025',
-                              style: TextStyle(
-                                color: AppColors.sidebarTextMuted,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+            _buildUserSection(user),
 
           const Divider(color: AppColors.sidebarItemHover, height: 1),
 
@@ -265,6 +224,8 @@ class _AppShellState extends ConsumerState<AppShell> {
 
           // Bottom section
           const Divider(color: AppColors.sidebarItemHover, height: 1),
+
+          // Settings
           _buildNavItem(
             context,
             icon: Icons.settings_outlined,
@@ -274,17 +235,221 @@ class _AppShellState extends ConsumerState<AppShell> {
             isActive: currentPath == '/settings',
           ),
 
-          // Collapse button
+          // Logout button
+          _buildLogoutButton(context),
+
+          // Collapse button and copyright
           Padding(
             padding: const EdgeInsets.all(8),
-            child: IconButton(
-              onPressed: () => setState(() => _isCollapsed = !_isCollapsed),
-              icon: Icon(
-                _isCollapsed ? Icons.chevron_right : Icons.chevron_left,
-                color: AppColors.sidebarTextMuted,
-              ),
-              tooltip: _isCollapsed ? 'Expand' : 'Collapse',
+            child: Row(
+              mainAxisAlignment: _isCollapsed ? MainAxisAlignment.center : MainAxisAlignment.spaceBetween,
+              children: [
+                if (!_isCollapsed)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: Text(
+                      '© 2026 ThirdBooks',
+                      style: TextStyle(
+                        color: AppColors.sidebarTextMuted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                IconButton(
+                  onPressed: () => setState(() => _isCollapsed = !_isCollapsed),
+                  icon: Icon(
+                    _isCollapsed ? Icons.chevron_right : Icons.chevron_left,
+                    color: AppColors.sidebarTextMuted,
+                  ),
+                  tooltip: _isCollapsed ? 'Expand' : 'Collapse',
+                ),
+              ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUserSection(User? user) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppColors.secondary, AppColors.secondaryLight],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.secondary.withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    user?.name.isNotEmpty == true
+                        ? user!.name.substring(0, 1).toUpperCase()
+                        : 'U',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user?.name ?? 'Guest User',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      user?.email ?? 'Offline Mode',
+                      style: TextStyle(
+                        color: AppColors.sidebarTextMuted,
+                        fontSize: 12,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Role badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.secondary.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.verified_user,
+                  size: 14,
+                  color: AppColors.secondary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  user?.role.replaceAll('_', ' ').toUpperCase() ?? 'GUEST',
+                  style: TextStyle(
+                    color: AppColors.secondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogoutButton(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: () => _showLogoutDialog(context),
+          borderRadius: BorderRadius.circular(8),
+          hoverColor: Colors.red.withOpacity(0.15),
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: _isCollapsed ? 12 : 12,
+              vertical: 12,
+            ),
+            child: Row(
+              mainAxisAlignment: _isCollapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.logout,
+                  color: Colors.red.shade300,
+                  size: 20,
+                ),
+                if (!_isCollapsed) ...[
+                  const SizedBox(width: 12),
+                  Text(
+                    'Sign Out',
+                    style: TextStyle(
+                      color: Colors.red.shade300,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showLogoutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sign Out'),
+        content: const Text('Are you sure you want to sign out? Any unsaved changes will be lost.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+
+              // Show loading indicator
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (ctx) => const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              );
+
+              // Perform logout
+              await ref.read(authStateProvider.notifier).logout();
+
+              if (mounted) {
+                Navigator.pop(context); // Close loading dialog
+                context.go('/login');
+              }
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Sign Out'),
           ),
         ],
       ),
@@ -343,6 +508,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                   : null,
             ),
             child: Row(
+              mainAxisAlignment: _isCollapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
               children: [
                 Icon(
                   isActive ? activeIcon : icon,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/theme_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -910,6 +911,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _buildAppearanceSettings(BuildContext context) {
+    final currentTheme = ref.watch(themeModeProvider);
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
       child: Column(
@@ -930,22 +933,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       _ThemeOption(
                         label: 'Light',
                         icon: Icons.light_mode,
-                        isSelected: true,
-                        onTap: () {},
+                        isSelected: currentTheme == ThemeMode.light,
+                        onTap: () {
+                          ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.light);
+                        },
                       ),
                       const SizedBox(width: 16),
                       _ThemeOption(
                         label: 'Dark',
                         icon: Icons.dark_mode,
-                        isSelected: false,
-                        onTap: () {},
+                        isSelected: currentTheme == ThemeMode.dark,
+                        onTap: () {
+                          ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.dark);
+                        },
                       ),
                       const SizedBox(width: 16),
                       _ThemeOption(
                         label: 'System',
                         icon: Icons.settings_brightness,
-                        isSelected: false,
-                        onTap: () {},
+                        isSelected: currentTheme == ThemeMode.system,
+                        onTap: () {
+                          ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.system);
+                        },
                       ),
                     ],
                   ),
