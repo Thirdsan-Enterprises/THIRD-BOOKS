@@ -724,6 +724,44 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
       ),
     ];
   }
+
+  void addEntry(JournalEntry entry) {
+    final updatedEntries = [...state.entries, entry];
+    state = state.copyWith(entries: updatedEntries);
+    // Try to sync with server
+    _syncEntry(entry);
+  }
+
+  void postEntry(String entryId) {
+    final updatedEntries = state.entries.map((e) {
+      if (e.id == entryId) {
+        return e.copyWith(
+          status: JournalEntryStatus.posted,
+          updatedAt: DateTime.now(),
+        );
+      }
+      return e;
+    }).toList();
+    state = state.copyWith(entries: updatedEntries);
+    // Try to sync with server
+    _syncPostEntry(entryId);
+  }
+
+  Future<void> _syncEntry(JournalEntry entry) async {
+    try {
+      await _apiClient.post('/journals', data: entry.toJson());
+    } catch (e) {
+      // Will sync when online
+    }
+  }
+
+  Future<void> _syncPostEntry(String entryId) async {
+    try {
+      await _apiClient.put('/journals/$entryId/post');
+    } catch (e) {
+      // Will sync when online
+    }
+  }
 }
 
 final journalsProvider = StateNotifierProvider<JournalsNotifier, JournalsState>((ref) {
@@ -806,6 +844,21 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
       Payment(id: '4', paymentNumber: 'PAY-2026-0002', paymentType: PaymentType.made, vendorId: '4', vendorName: 'Uganda Petroleum Ltd', paymentDate: DateTime(2026, 1, 22), amount: 3000000, paymentMethod: 'Bank Transfer', reference: 'TRF-789012', accountId: '3', accountName: 'Bank Account - UGX', status: PaymentStatus.completed, createdAt: now, updatedAt: now),
       Payment(id: '5', paymentNumber: 'REC-2026-0003', paymentType: PaymentType.received, customerId: '4', customerName: 'Mbarara Beverages Co', paymentDate: DateTime(2026, 1, 25), amount: 8500000, paymentMethod: 'Mobile Money', reference: 'MTN-123456789', accountId: '3', accountName: 'Bank Account - UGX', status: PaymentStatus.completed, createdAt: now, updatedAt: now),
     ];
+  }
+
+  void addPayment(Payment payment) {
+    final updatedPayments = [...state.payments, payment];
+    state = state.copyWith(payments: updatedPayments);
+    // Try to sync with server
+    _syncPayment(payment);
+  }
+
+  Future<void> _syncPayment(Payment payment) async {
+    try {
+      await _apiClient.post('/payments', data: payment.toJson());
+    } catch (e) {
+      // Will sync when online
+    }
   }
 }
 

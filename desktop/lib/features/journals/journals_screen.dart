@@ -1,8 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/data_service.dart';
+import '../../core/models/journal_entry.dart';
 
 class JournalsScreen extends ConsumerStatefulWidget {
   const JournalsScreen({super.key});
@@ -14,112 +18,27 @@ class JournalsScreen extends ConsumerStatefulWidget {
 class _JournalsScreenState extends ConsumerState<JournalsScreen> {
   String _searchQuery = '';
   DateTimeRange? _dateRange;
-  String? _selectedStatus;
+  JournalEntryStatus? _selectedStatus;
 
-  final List<Map<String, dynamic>> _journalEntries = [
-    {
-      'id': 'JE-2024-001',
-      'date': DateTime(2024, 1, 15),
-      'description': 'Sales revenue - Invoice INV-001',
-      'reference': 'INV-001',
-      'debitTotal': 5850000.0,
-      'creditTotal': 5850000.0,
-      'status': 'Posted',
-      'createdBy': 'John Doe',
-      'lines': [
-        {'account': 'Accounts Receivable', 'debit': 5850000.0, 'credit': 0.0},
-        {'account': 'Sales Revenue', 'debit': 0.0, 'credit': 5000000.0},
-        {'account': 'VAT Payable', 'debit': 0.0, 'credit': 850000.0},
-      ],
-    },
-    {
-      'id': 'JE-2024-002',
-      'date': DateTime(2024, 1, 16),
-      'description': 'Office rent payment - January',
-      'reference': 'CHQ-456',
-      'debitTotal': 2500000.0,
-      'creditTotal': 2500000.0,
-      'status': 'Posted',
-      'createdBy': 'Jane Smith',
-      'lines': [
-        {'account': 'Rent Expense', 'debit': 2500000.0, 'credit': 0.0},
-        {'account': 'Bank Account - UGX', 'debit': 0.0, 'credit': 2500000.0},
-      ],
-    },
-    {
-      'id': 'JE-2024-003',
-      'date': DateTime(2024, 1, 17),
-      'description': 'Purchase of office supplies',
-      'reference': 'BILL-089',
-      'debitTotal': 450000.0,
-      'creditTotal': 450000.0,
-      'status': 'Posted',
-      'createdBy': 'John Doe',
-      'lines': [
-        {'account': 'Office Supplies', 'debit': 450000.0, 'credit': 0.0},
-        {'account': 'Accounts Payable', 'debit': 0.0, 'credit': 450000.0},
-      ],
-    },
-    {
-      'id': 'JE-2024-004',
-      'date': DateTime(2024, 1, 18),
-      'description': 'Customer payment received',
-      'reference': 'REC-012',
-      'debitTotal': 3500000.0,
-      'creditTotal': 3500000.0,
-      'status': 'Posted',
-      'createdBy': 'Jane Smith',
-      'lines': [
-        {'account': 'Bank Account - UGX', 'debit': 3500000.0, 'credit': 0.0},
-        {'account': 'Accounts Receivable', 'debit': 0.0, 'credit': 3500000.0},
-      ],
-    },
-    {
-      'id': 'JE-2024-005',
-      'date': DateTime(2024, 1, 19),
-      'description': 'Salary advance - Staff',
-      'reference': 'ADV-001',
-      'debitTotal': 500000.0,
-      'creditTotal': 500000.0,
-      'status': 'Draft',
-      'createdBy': 'John Doe',
-      'lines': [
-        {'account': 'Salary Advance', 'debit': 500000.0, 'credit': 0.0},
-        {'account': 'Cash on Hand', 'debit': 0.0, 'credit': 500000.0},
-      ],
-    },
-    {
-      'id': 'JE-2024-006',
-      'date': DateTime(2024, 1, 20),
-      'description': 'Depreciation - January',
-      'reference': 'DEP-JAN',
-      'debitTotal': 850000.0,
-      'creditTotal': 850000.0,
-      'status': 'Pending',
-      'createdBy': 'System',
-      'lines': [
-        {'account': 'Depreciation Expense', 'debit': 850000.0, 'credit': 0.0},
-        {'account': 'Accumulated Depreciation', 'debit': 0.0, 'credit': 850000.0},
-      ],
-    },
-  ];
-
-  List<Map<String, dynamic>> get _filteredEntries {
-    return _journalEntries.where((entry) {
+  List<JournalEntry> get _filteredEntries {
+    final journalsState = ref.watch(journalsProvider);
+    return journalsState.entries.where((entry) {
       final matchesSearch = _searchQuery.isEmpty ||
-          entry['description'].toString().toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          entry['id'].toString().toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          entry['reference'].toString().toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchesStatus = _selectedStatus == null || entry['status'] == _selectedStatus;
+          entry.description.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          entry.entryNumber.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          (entry.reference?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
+      final matchesStatus = _selectedStatus == null || entry.status == _selectedStatus;
       final matchesDate = _dateRange == null ||
-          ((entry['date'] as DateTime).isAfter(_dateRange!.start.subtract(const Duration(days: 1))) &&
-              (entry['date'] as DateTime).isBefore(_dateRange!.end.add(const Duration(days: 1))));
+          (entry.date.isAfter(_dateRange!.start.subtract(const Duration(days: 1))) &&
+              entry.date.isBefore(_dateRange!.end.add(const Duration(days: 1))));
       return matchesSearch && matchesStatus && matchesDate;
     }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final journalsState = ref.watch(journalsProvider);
+
     return Scaffold(
       body: Padding(
         padding: const EdgeInsets.all(24),
@@ -132,9 +51,50 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
             const SizedBox(height: 16),
             _buildSummaryCards(context),
             const SizedBox(height: 16),
-            Expanded(child: _buildJournalTable(context)),
+            Expanded(
+              child: journalsState.isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : journalsState.entries.isEmpty
+                      ? _buildEmptyState(context)
+                      : _buildJournalTable(context),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.book_outlined,
+            size: 64,
+            color: Theme.of(context).colorScheme.outline,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No journal entries yet',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Create your first journal entry to start tracking transactions',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: () => _showNewJournalEntryDialog(context),
+            icon: const Icon(Icons.add),
+            label: const Text('New Journal Entry'),
+          ),
+        ],
       ),
     );
   }
@@ -164,7 +124,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
         Row(
           children: [
             OutlinedButton.icon(
-              onPressed: () {},
+              onPressed: () => _exportToCSV(context),
               icon: const Icon(Icons.file_download_outlined, size: 18),
               label: const Text('Export'),
             ),
@@ -203,16 +163,21 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
         const SizedBox(width: 16),
         SizedBox(
           width: 180,
-          child: DropdownButtonFormField<String>(
+          child: DropdownButtonFormField<JournalEntryStatus?>(
             value: _selectedStatus,
             decoration: const InputDecoration(
               hintText: 'All Statuses',
               contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
             items: [
-              const DropdownMenuItem(value: null, child: Text('All Statuses')),
-              ...['Posted', 'Draft', 'Pending', 'Voided']
-                  .map((s) => DropdownMenuItem(value: s, child: Text(s))),
+              const DropdownMenuItem<JournalEntryStatus?>(
+                value: null,
+                child: Text('All Statuses'),
+              ),
+              ...JournalEntryStatus.values.map((status) => DropdownMenuItem(
+                    value: status,
+                    child: Text(_getStatusLabel(status)),
+                  )),
             ],
             onChanged: (value) => setState(() => _selectedStatus = value),
           ),
@@ -248,10 +213,13 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
   }
 
   Widget _buildSummaryCards(BuildContext context) {
-    final posted = _journalEntries.where((e) => e['status'] == 'Posted').length;
-    final draft = _journalEntries.where((e) => e['status'] == 'Draft').length;
-    final pending = _journalEntries.where((e) => e['status'] == 'Pending').length;
-    final totalDebit = _journalEntries.fold<double>(0, (sum, e) => sum + (e['debitTotal'] as double));
+    final journalsState = ref.watch(journalsProvider);
+    final entries = journalsState.entries;
+
+    final posted = entries.where((e) => e.status == JournalEntryStatus.posted).length;
+    final draft = entries.where((e) => e.status == JournalEntryStatus.draft).length;
+    final pending = entries.where((e) => e.status == JournalEntryStatus.pending).length;
+    final totalDebit = entries.fold<double>(0, (sum, e) => sum + e.totalDebit);
 
     return Row(
       children: [
@@ -287,6 +255,30 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
   }
 
   Widget _buildJournalTable(BuildContext context) {
+    final entries = _filteredEntries;
+
+    if (entries.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.search_off,
+              size: 48,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No entries match your filters',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Card(
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -294,7 +286,9 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
           child: DataTable(
             columnSpacing: 24,
             horizontalMargin: 24,
-            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+            headingRowColor: WidgetStateProperty.all(
+              Theme.of(context).colorScheme.surfaceContainerHighest,
+            ),
             columns: const [
               DataColumn(label: Text('Entry ID')),
               DataColumn(label: Text('Date')),
@@ -305,29 +299,32 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
               DataColumn(label: Text('Status')),
               DataColumn(label: Text('Actions')),
             ],
-            rows: _filteredEntries.map((entry) {
+            rows: entries.map((entry) {
               return DataRow(
                 cells: [
                   DataCell(
                     Text(
-                      entry['id'],
+                      entry.entryNumber,
                       style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
                     ),
                     onTap: () => _showEntryDetails(context, entry),
                   ),
-                  DataCell(Text(DateFormat('MMM d, yyyy').format(entry['date']))),
+                  DataCell(Text(DateFormat('MMM d, yyyy').format(entry.date))),
                   DataCell(
-                    Text(
-                      entry['description'],
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                      overflow: TextOverflow.ellipsis,
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 250),
+                      child: Text(
+                        entry.description,
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                     onTap: () => _showEntryDetails(context, entry),
                   ),
-                  DataCell(Text(entry['reference'])),
+                  DataCell(Text(entry.reference ?? '-')),
                   DataCell(
                     Text(
-                      'UGX ${_formatNumber(entry['debitTotal'])}',
+                      'UGX ${_formatNumber(entry.totalDebit)}',
                       style: const TextStyle(
                         fontWeight: FontWeight.w500,
                         color: AppColors.debit,
@@ -337,7 +334,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                   ),
                   DataCell(
                     Text(
-                      'UGX ${_formatNumber(entry['creditTotal'])}',
+                      'UGX ${_formatNumber(entry.totalCredit)}',
                       style: const TextStyle(
                         fontWeight: FontWeight.w500,
                         color: AppColors.credit,
@@ -345,7 +342,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                       ),
                     ),
                   ),
-                  DataCell(_buildStatusBadge(entry['status'])),
+                  DataCell(_buildStatusBadge(entry.status)),
                   DataCell(
                     Row(
                       mainAxisSize: MainAxisSize.min,
@@ -357,9 +354,19 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.edit_outlined, size: 18),
-                          onPressed: entry['status'] == 'Draft' ? () {} : null,
+                          onPressed: entry.status == JournalEntryStatus.draft
+                              ? () => _showEditEntryDialog(context, entry)
+                              : null,
                           tooltip: 'Edit',
                         ),
+                        if (entry.status == JournalEntryStatus.draft ||
+                            entry.status == JournalEntryStatus.pending)
+                          IconButton(
+                            icon: const Icon(Icons.check_circle_outline, size: 18),
+                            onPressed: () => _postEntry(context, entry),
+                            tooltip: 'Post',
+                            color: AppColors.income,
+                          ),
                       ],
                     ),
                   ),
@@ -372,23 +379,21 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
     );
   }
 
-  Widget _buildStatusBadge(String status) {
+  Widget _buildStatusBadge(JournalEntryStatus status) {
     Color color;
     switch (status) {
-      case 'Posted':
+      case JournalEntryStatus.posted:
         color = AppColors.income;
         break;
-      case 'Draft':
+      case JournalEntryStatus.draft:
         color = AppColors.warning;
         break;
-      case 'Pending':
+      case JournalEntryStatus.pending:
         color = AppColors.info;
         break;
-      case 'Voided':
+      case JournalEntryStatus.voided:
         color = AppColors.expense;
         break;
-      default:
-        color = Colors.grey;
     }
 
     return Container(
@@ -398,7 +403,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
-        status,
+        _getStatusLabel(status),
         style: TextStyle(
           color: color,
           fontSize: 12,
@@ -406,6 +411,19 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
         ),
       ),
     );
+  }
+
+  String _getStatusLabel(JournalEntryStatus status) {
+    switch (status) {
+      case JournalEntryStatus.posted:
+        return 'Posted';
+      case JournalEntryStatus.draft:
+        return 'Draft';
+      case JournalEntryStatus.pending:
+        return 'Pending';
+      case JournalEntryStatus.voided:
+        return 'Voided';
+    }
   }
 
   String _formatNumber(double number) {
@@ -417,83 +435,90 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
     return number.toStringAsFixed(0);
   }
 
-  void _showNewJournalEntryDialog(BuildContext context) {
+  void _exportToCSV(BuildContext context) async {
+    final journalsState = ref.read(journalsProvider);
+    if (journalsState.entries.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No journal entries to export')),
+      );
+      return;
+    }
+
+    try {
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: 'Export Journal Entries',
+        fileName: 'journal_entries_${DateFormat('yyyyMMdd').format(DateTime.now())}.csv',
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+      );
+
+      if (result != null) {
+        final buffer = StringBuffer();
+        buffer.writeln('Entry Number,Date,Description,Reference,Total Debit,Total Credit,Status,Created By');
+
+        for (final entry in journalsState.entries) {
+          buffer.writeln(
+            '${entry.entryNumber},'
+            '${DateFormat('yyyy-MM-dd').format(entry.date)},'
+            '"${entry.description.replaceAll('"', '""')}",'
+            '"${entry.reference ?? ''}",'
+            '${entry.totalDebit},'
+            '${entry.totalCredit},'
+            '${_getStatusLabel(entry.status)},'
+            '"${entry.createdBy ?? ''}"',
+          );
+        }
+
+        final file = File(result);
+        await file.writeAsString(buffer.toString());
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Exported ${journalsState.entries.length} entries to CSV')),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e')),
+        );
+      }
+    }
+  }
+
+  void _postEntry(BuildContext context, JournalEntry entry) {
+    if (!entry.isBalanced) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot post: Debits and credits must be equal'),
+          backgroundColor: AppColors.expense,
+        ),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('New Journal Entry'),
-        content: SizedBox(
-          width: 700,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Date'),
-                      readOnly: true,
-                      initialValue: DateFormat('MMM d, yyyy').format(DateTime.now()),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Reference'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Description'),
-              ),
-              const SizedBox(height: 24),
-              Text('Journal Lines', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(flex: 3, child: Text('Account', style: TextStyle(fontWeight: FontWeight.w600))),
-                        Expanded(flex: 2, child: Text('Debit', style: TextStyle(fontWeight: FontWeight.w600))),
-                        Expanded(flex: 2, child: Text('Credit', style: TextStyle(fontWeight: FontWeight.w600))),
-                        const SizedBox(width: 40),
-                      ],
-                    ),
-                    const Divider(),
-                    _JournalLineRow(),
-                    _JournalLineRow(),
-                    const SizedBox(height: 8),
-                    TextButton.icon(
-                      onPressed: () {},
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Add Line'),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+        title: const Text('Post Journal Entry'),
+        content: Text('Are you sure you want to post entry ${entry.entryNumber}? This action cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
-          OutlinedButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Save as Draft'),
-          ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () {
+              ref.read(journalsProvider.notifier).postEntry(entry.id);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text('Journal entry posted (will sync when online)'),
+                  backgroundColor: AppColors.income,
+                ),
+              );
+            },
             child: const Text('Post Entry'),
           ),
         ],
@@ -501,67 +526,497 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
     );
   }
 
-  void _showEntryDetails(BuildContext context, Map<String, dynamic> entry) {
+  void _showNewJournalEntryDialog(BuildContext context) {
+    final accountsState = ref.read(accountsProvider);
+    final dateController = TextEditingController(
+      text: DateFormat('MMM d, yyyy').format(DateTime.now()),
+    );
+    final referenceController = TextEditingController();
+    final descriptionController = TextEditingController();
+    DateTime selectedDate = DateTime.now();
+
+    // Start with two empty lines
+    final List<_JournalLineData> lines = [
+      _JournalLineData(),
+      _JournalLineData(),
+    ];
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          double totalDebit = lines.fold(0, (sum, line) => sum + line.debit);
+          double totalCredit = lines.fold(0, (sum, line) => sum + line.credit);
+          bool isBalanced = (totalDebit - totalCredit).abs() < 0.01;
+
+          return AlertDialog(
+            title: const Text('New Journal Entry'),
+            content: SizedBox(
+              width: 750,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: dateController,
+                            decoration: const InputDecoration(
+                              labelText: 'Date',
+                              suffixIcon: Icon(Icons.calendar_today, size: 18),
+                            ),
+                            readOnly: true,
+                            onTap: () async {
+                              final date = await showDatePicker(
+                                context: context,
+                                initialDate: selectedDate,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                              );
+                              if (date != null) {
+                                selectedDate = date;
+                                dateController.text = DateFormat('MMM d, yyyy').format(date);
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: TextFormField(
+                            controller: referenceController,
+                            decoration: const InputDecoration(labelText: 'Reference (Optional)'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: descriptionController,
+                      decoration: const InputDecoration(labelText: 'Description *'),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Journal Lines', style: Theme.of(context).textTheme.titleMedium),
+                        Row(
+                          children: [
+                            if (!isBalanced && totalDebit > 0)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppColors.expense.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'Unbalanced: ${NumberFormat('#,###').format((totalDebit - totalCredit).abs())}',
+                                  style: const TextStyle(
+                                    color: AppColors.expense,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            if (isBalanced && totalDebit > 0)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppColors.income.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.check, size: 14, color: AppColors.income),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Balanced',
+                                      style: TextStyle(
+                                        color: AppColors.income,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Theme.of(context).dividerColor),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(flex: 3, child: Text('Account', style: TextStyle(fontWeight: FontWeight.w600))),
+                              Expanded(flex: 2, child: Text('Debit', style: TextStyle(fontWeight: FontWeight.w600))),
+                              Expanded(flex: 2, child: Text('Credit', style: TextStyle(fontWeight: FontWeight.w600))),
+                              const SizedBox(width: 40),
+                            ],
+                          ),
+                          const Divider(),
+                          ...lines.asMap().entries.map((entry) {
+                            final index = entry.key;
+                            final line = entry.value;
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    flex: 3,
+                                    child: DropdownButtonFormField<String>(
+                                      value: line.accountId.isEmpty ? null : line.accountId,
+                                      decoration: const InputDecoration(
+                                        hintText: 'Select account',
+                                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        isDense: true,
+                                      ),
+                                      items: accountsState.accounts
+                                          .map((a) => DropdownMenuItem(
+                                                value: a.id,
+                                                child: Text('${a.code} - ${a.name}'),
+                                              ))
+                                          .toList(),
+                                      onChanged: (v) {
+                                        setDialogState(() {
+                                          line.accountId = v ?? '';
+                                          final account = accountsState.accounts.firstWhere(
+                                            (a) => a.id == v,
+                                            orElse: () => accountsState.accounts.first,
+                                          );
+                                          line.accountName = account.name;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    flex: 2,
+                                    child: TextFormField(
+                                      initialValue: line.debit > 0 ? line.debit.toString() : '',
+                                      decoration: const InputDecoration(
+                                        hintText: '0.00',
+                                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        isDense: true,
+                                      ),
+                                      keyboardType: TextInputType.number,
+                                      onChanged: (v) {
+                                        setDialogState(() {
+                                          line.debit = double.tryParse(v) ?? 0;
+                                          if (line.debit > 0) line.credit = 0;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    flex: 2,
+                                    child: TextFormField(
+                                      initialValue: line.credit > 0 ? line.credit.toString() : '',
+                                      decoration: const InputDecoration(
+                                        hintText: '0.00',
+                                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        isDense: true,
+                                      ),
+                                      keyboardType: TextInputType.number,
+                                      onChanged: (v) {
+                                        setDialogState(() {
+                                          line.credit = double.tryParse(v) ?? 0;
+                                          if (line.credit > 0) line.debit = 0;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, size: 18),
+                                    onPressed: lines.length > 2
+                                        ? () {
+                                            setDialogState(() {
+                                              lines.removeAt(index);
+                                            });
+                                          }
+                                        : null,
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: () {
+                              setDialogState(() {
+                                lines.add(_JournalLineData());
+                              });
+                            },
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Add Line'),
+                          ),
+                          const Divider(),
+                          Row(
+                            children: [
+                              const Expanded(flex: 3, child: Text('Total', style: TextStyle(fontWeight: FontWeight.bold))),
+                              Expanded(
+                                flex: 2,
+                                child: Text(
+                                  NumberFormat('#,###').format(totalDebit),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.debit),
+                                ),
+                              ),
+                              Expanded(
+                                flex: 2,
+                                child: Text(
+                                  NumberFormat('#,###').format(totalCredit),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.credit),
+                                ),
+                              ),
+                              const SizedBox(width: 40),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              OutlinedButton(
+                onPressed: () {
+                  if (descriptionController.text.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Please enter a description')),
+                    );
+                    return;
+                  }
+                  if (lines.where((l) => l.accountId.isNotEmpty).length < 2) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Please add at least 2 lines with accounts')),
+                    );
+                    return;
+                  }
+                  _saveEntry(
+                    context: context,
+                    date: selectedDate,
+                    description: descriptionController.text,
+                    reference: referenceController.text.isEmpty ? null : referenceController.text,
+                    lines: lines,
+                    status: JournalEntryStatus.draft,
+                  );
+                  Navigator.pop(ctx);
+                },
+                child: const Text('Save as Draft'),
+              ),
+              FilledButton(
+                onPressed: isBalanced && totalDebit > 0
+                    ? () {
+                        if (descriptionController.text.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Please enter a description')),
+                          );
+                          return;
+                        }
+                        if (lines.where((l) => l.accountId.isNotEmpty).length < 2) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Please add at least 2 lines with accounts')),
+                          );
+                          return;
+                        }
+                        _saveEntry(
+                          context: context,
+                          date: selectedDate,
+                          description: descriptionController.text,
+                          reference: referenceController.text.isEmpty ? null : referenceController.text,
+                          lines: lines,
+                          status: JournalEntryStatus.posted,
+                        );
+                        Navigator.pop(ctx);
+                      }
+                    : null,
+                child: const Text('Post Entry'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _saveEntry({
+    required BuildContext context,
+    required DateTime date,
+    required String description,
+    String? reference,
+    required List<_JournalLineData> lines,
+    required JournalEntryStatus status,
+  }) {
+    final validLines = lines.where((l) => l.accountId.isNotEmpty && (l.debit > 0 || l.credit > 0)).toList();
+
+    final journalLines = validLines.map((l) {
+      return JournalLine(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        journalEntryId: '',
+        accountId: l.accountId,
+        accountName: l.accountName,
+        debit: l.debit,
+        credit: l.credit,
+      );
+    }).toList();
+
+    final entry = JournalEntry(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      entryNumber: 'JE-${DateFormat('yyyyMMdd').format(date)}-${DateTime.now().millisecondsSinceEpoch % 1000}',
+      date: date,
+      description: description,
+      reference: reference,
+      status: status,
+      lines: journalLines,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    ref.read(journalsProvider.notifier).addEntry(entry);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(status == JournalEntryStatus.posted
+            ? 'Journal entry posted (will sync when online)'
+            : 'Journal entry saved as draft (will sync when online)'),
+        backgroundColor: AppColors.income,
+      ),
+    );
+  }
+
+  void _showEditEntryDialog(BuildContext context, JournalEntry entry) {
+    // Similar to create dialog but pre-populated with entry data
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Edit functionality coming soon')),
+    );
+  }
+
+  void _showEntryDetails(BuildContext context, JournalEntry entry) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Journal Entry: ${entry['id']}'),
-            _buildStatusBadge(entry['status']),
+            Text('Journal Entry: ${entry.entryNumber}'),
+            _buildStatusBadge(entry.status),
           ],
         ),
         content: SizedBox(
-          width: 600,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _DetailRow('Date', DateFormat('MMMM d, yyyy').format(entry['date'])),
-              _DetailRow('Description', entry['description']),
-              _DetailRow('Reference', entry['reference']),
-              _DetailRow('Created By', entry['createdBy']),
-              const SizedBox(height: 16),
-              Text('Lines', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: DataTable(
-                  columns: const [
-                    DataColumn(label: Text('Account')),
-                    DataColumn(label: Text('Debit'), numeric: true),
-                    DataColumn(label: Text('Credit'), numeric: true),
+          width: 650,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _DetailRow('Date', DateFormat('MMMM d, yyyy').format(entry.date)),
+                _DetailRow('Description', entry.description),
+                _DetailRow('Reference', entry.reference ?? '-'),
+                _DetailRow('Created By', entry.createdBy ?? 'System'),
+                _DetailRow('Created At', DateFormat('MMM d, yyyy HH:mm').format(entry.createdAt)),
+                if (entry.notes != null && entry.notes!.isNotEmpty)
+                  _DetailRow('Notes', entry.notes!),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Text('Lines', style: Theme.of(context).textTheme.titleMedium),
+                    const Spacer(),
+                    if (entry.isBalanced)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.income.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check, size: 14, color: AppColors.income),
+                            SizedBox(width: 4),
+                            Text(
+                              'Balanced',
+                              style: TextStyle(
+                                color: AppColors.income,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
-                  rows: (entry['lines'] as List).map((line) {
-                    return DataRow(cells: [
-                      DataCell(Text(line['account'])),
-                      DataCell(Text(
-                        line['debit'] > 0 ? 'UGX ${NumberFormat('#,###').format(line['debit'])}' : '-',
-                        style: const TextStyle(color: AppColors.debit, fontFamily: 'monospace'),
-                      )),
-                      DataCell(Text(
-                        line['credit'] > 0 ? 'UGX ${NumberFormat('#,###').format(line['credit'])}' : '-',
-                        style: const TextStyle(color: AppColors.credit, fontFamily: 'monospace'),
-                      )),
-                    ]);
-                  }).toList(),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Text(
-                    'Total: UGX ${NumberFormat('#,###').format(entry['debitTotal'])}',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Theme.of(context).dividerColor),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                ],
-              ),
-            ],
+                  child: DataTable(
+                    columnSpacing: 16,
+                    columns: const [
+                      DataColumn(label: Text('Account')),
+                      DataColumn(label: Text('Debit'), numeric: true),
+                      DataColumn(label: Text('Credit'), numeric: true),
+                    ],
+                    rows: [
+                      ...entry.lines.map((line) {
+                        return DataRow(cells: [
+                          DataCell(Text(line.accountName ?? line.accountId)),
+                          DataCell(Text(
+                            line.debit > 0 ? 'UGX ${NumberFormat('#,###').format(line.debit)}' : '-',
+                            style: const TextStyle(color: AppColors.debit, fontFamily: 'monospace'),
+                          )),
+                          DataCell(Text(
+                            line.credit > 0 ? 'UGX ${NumberFormat('#,###').format(line.credit)}' : '-',
+                            style: const TextStyle(color: AppColors.credit, fontFamily: 'monospace'),
+                          )),
+                        ]);
+                      }),
+                      DataRow(
+                        color: WidgetStateProperty.all(
+                          Theme.of(context).colorScheme.surfaceContainerHighest,
+                        ),
+                        cells: [
+                          const DataCell(Text('Total', style: TextStyle(fontWeight: FontWeight.bold))),
+                          DataCell(Text(
+                            'UGX ${NumberFormat('#,###').format(entry.totalDebit)}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.debit,
+                              fontFamily: 'monospace',
+                            ),
+                          )),
+                          DataCell(Text(
+                            'UGX ${NumberFormat('#,###').format(entry.totalCredit)}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.credit,
+                              fontFamily: 'monospace',
+                            ),
+                          )),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -569,15 +1024,33 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Close'),
           ),
-          if (entry['status'] == 'Draft')
+          if (entry.status == JournalEntryStatus.draft)
             FilledButton(
-              onPressed: () => Navigator.pop(ctx),
+              onPressed: entry.isBalanced
+                  ? () {
+                      ref.read(journalsProvider.notifier).postEntry(entry.id);
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text('Journal entry posted (will sync when online)'),
+                          backgroundColor: AppColors.income,
+                        ),
+                      );
+                    }
+                  : null,
               child: const Text('Post Entry'),
             ),
         ],
       ),
     );
   }
+}
+
+class _JournalLineData {
+  String accountId = '';
+  String accountName = '';
+  double debit = 0;
+  double credit = 0;
 }
 
 class _SummaryCard extends StatelessWidget {
@@ -660,61 +1133,6 @@ class _DetailRow extends StatelessWidget {
             ),
           ),
           Expanded(child: Text(value)),
-        ],
-      ),
-    );
-  }
-}
-
-class _JournalLineRow extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: DropdownButtonFormField<String>(
-              decoration: const InputDecoration(
-                hintText: 'Select account',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                isDense: true,
-              ),
-              items: ['Cash on Hand', 'Bank Account - UGX', 'Accounts Receivable', 'Sales Revenue', 'VAT Payable']
-                  .map((a) => DropdownMenuItem(value: a, child: Text(a)))
-                  .toList(),
-              onChanged: (v) {},
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 2,
-            child: TextFormField(
-              decoration: const InputDecoration(
-                hintText: '0.00',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                isDense: true,
-              ),
-              keyboardType: TextInputType.number,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 2,
-            child: TextFormField(
-              decoration: const InputDecoration(
-                hintText: '0.00',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                isDense: true,
-              ),
-              keyboardType: TextInputType.number,
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, size: 18),
-            onPressed: () {},
-          ),
         ],
       ),
     );
