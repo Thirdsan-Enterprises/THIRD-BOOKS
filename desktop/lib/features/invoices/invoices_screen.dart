@@ -29,7 +29,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     final invoicesState = ref.watch(invoicesProvider);
     return invoicesState.invoices.where((invoice) {
       final matchesSearch = _searchQuery.isEmpty ||
-          invoice.customerName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          (invoice.customerName?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
           invoice.invoiceNumber.toLowerCase().contains(_searchQuery.toLowerCase());
 
       final matchesStatus = _selectedStatus == null ||
@@ -289,7 +289,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
           child: DataTable(
             columnSpacing: 24,
             horizontalMargin: 24,
-            headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
             columns: const [
               DataColumn(label: Text('Invoice #')),
               DataColumn(label: Text('Customer')),
@@ -318,7 +318,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(invoice.customerName, style: const TextStyle(fontWeight: FontWeight.w500)),
+                        Text(invoice.customerName ?? '-', style: const TextStyle(fontWeight: FontWeight.w500)),
                         Text(
                           'ID: ${invoice.customerId}',
                           style: TextStyle(
@@ -390,6 +390,8 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     switch (status) {
       case InvoiceStatus.draft:
         return 'Draft';
+      case InvoiceStatus.sent:
+        return 'Sent';
       case InvoiceStatus.pending:
         return 'Pending';
       case InvoiceStatus.partial:
@@ -592,7 +594,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _DetailRow('Customer', invoice.customerName),
+              _DetailRow('Customer', invoice.customerName ?? '-'),
               _DetailRow('Invoice Date', DateFormat('MMMM d, yyyy').format(invoice.date)),
               _DetailRow('Due Date', DateFormat('MMMM d, yyyy').format(invoice.dueDate)),
               _DetailRow('Items', '${invoice.lines.length} items'),

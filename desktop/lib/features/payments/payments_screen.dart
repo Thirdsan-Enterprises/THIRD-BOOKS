@@ -217,7 +217,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
   Widget _buildTabBar(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
         borderRadius: BorderRadius.circular(8),
       ),
       child: TabBar(
@@ -575,7 +575,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                     vendorName: vendorName,
                     paymentDate: selectedDate,
                     amount: amount,
-                    paymentMethod: selectedMethod,
+                    paymentMethod: selectedMethod!,
                     reference: referenceController.text.isEmpty ? null : referenceController.text,
                     notes: notesController.text.isEmpty ? null : notesController.text,
                     accountId: selectedAccountId,

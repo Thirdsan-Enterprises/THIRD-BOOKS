@@ -286,8 +286,8 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
           child: DataTable(
             columnSpacing: 24,
             horizontalMargin: 24,
-            headingRowColor: WidgetStateProperty.all(
-              Theme.of(context).colorScheme.surfaceContainerHighest,
+            headingRowColor: MaterialStateProperty.all(
+              Theme.of(context).colorScheme.surfaceVariant,
             ),
             columns: const [
               DataColumn(label: Text('Entry ID')),

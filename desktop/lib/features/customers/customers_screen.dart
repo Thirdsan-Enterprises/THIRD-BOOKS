@@ -29,7 +29,7 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
     return customersState.customers.where((customer) {
       final matchesSearch = _searchQuery.isEmpty ||
           customer.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          customer.email.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          (customer.email?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
           customer.id.toLowerCase().contains(_searchQuery.toLowerCase());
 
       final matchesStatus = _selectedStatus == null ||
@@ -267,7 +267,7 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
           child: DataTable(
             columnSpacing: 24,
             horizontalMargin: 24,
-            headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
             columns: const [
               DataColumn(label: Text('Customer')),
               DataColumn(label: Text('Contact')),
@@ -309,9 +309,9 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(customer.email, style: const TextStyle(fontSize: 13)),
+                        Text(customer.email ?? '-', style: const TextStyle(fontSize: 13)),
                         Text(
-                          customer.phone,
+                          customer.phone ?? '-',
                           style: TextStyle(
                             fontSize: 12,
                             color: Theme.of(context).colorScheme.outline,
@@ -644,9 +644,9 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _DetailRow('Customer ID', customer.id),
-              _DetailRow('Email', customer.email),
-              _DetailRow('Phone', customer.phone),
-              _DetailRow('Address', customer.address),
+              _DetailRow('Email', customer.email ?? '-'),
+              _DetailRow('Phone', customer.phone ?? '-'),
+              _DetailRow('Address', customer.address ?? '-'),
               if (customer.taxId != null) _DetailRow('Tax ID', customer.taxId!),
               const Divider(),
               _DetailRow('Credit Limit', 'UGX ${_currencyFormat.format(customer.creditLimit)}'),
