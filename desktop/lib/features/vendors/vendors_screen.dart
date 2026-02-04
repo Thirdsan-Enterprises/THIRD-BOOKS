@@ -481,16 +481,19 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
             FilledButton(
               onPressed: () async {
                 if (formKey.currentState?.validate() ?? false) {
-                  final vendorData = {
-                    'name': nameController.text,
-                    'email': emailController.text,
-                    'phone': phoneController.text,
-                    'address': addressController.text,
-                    'tax_id': taxIdController.text,
-                    'payment_terms': selectedPaymentTerms,
-                    'is_active': true,
-                  };
-                  await ref.read(vendorsProvider.notifier).createVendor(vendorData);
+                  final newVendor = Vendor(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    name: nameController.text,
+                    email: emailController.text.isNotEmpty ? emailController.text : null,
+                    phone: phoneController.text.isNotEmpty ? phoneController.text : null,
+                    address: addressController.text.isNotEmpty ? addressController.text : null,
+                    taxId: taxIdController.text.isNotEmpty ? taxIdController.text : null,
+                    paymentTerms: selectedPaymentTerms,
+                    isActive: true,
+                    createdAt: DateTime.now(),
+                    updatedAt: DateTime.now(),
+                  );
+                  ref.read(vendorsProvider.notifier).addVendor(newVendor);
                   if (ctx.mounted) Navigator.pop(ctx);
                 }
               },

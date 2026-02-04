@@ -557,13 +557,17 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
                       setDialogState(() => isLoading = true);
 
                       try {
-                        await ref.read(accountsProvider.notifier).createAccount({
-                          'code': codeController.text,
-                          'name': nameController.text,
-                          'type': selectedType!.name,
-                          'sub_type': selectedSubType!.name,
-                          'description': descriptionController.text,
-                        });
+                        final newAccount = Account(
+                          id: DateTime.now().millisecondsSinceEpoch.toString(),
+                          code: codeController.text,
+                          name: nameController.text,
+                          type: selectedType!,
+                          subType: selectedSubType,
+                          description: descriptionController.text.isNotEmpty ? descriptionController.text : null,
+                          createdAt: DateTime.now(),
+                          updatedAt: DateTime.now(),
+                        );
+                        ref.read(accountsProvider.notifier).addAccount(newAccount);
 
                         if (mounted) {
                           Navigator.pop(ctx);
@@ -693,13 +697,23 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
                       setDialogState(() => isLoading = true);
 
                       try {
-                        await ref.read(accountsProvider.notifier).updateAccount(account.id, {
-                          'code': codeController.text,
-                          'name': nameController.text,
-                          'type': selectedType.name,
-                          'sub_type': selectedSubType.name,
-                          'description': descriptionController.text,
-                        });
+                        final updatedAccount = Account(
+                          id: account.id,
+                          code: codeController.text,
+                          name: nameController.text,
+                          type: selectedType,
+                          subType: selectedSubType,
+                          description: descriptionController.text.isNotEmpty ? descriptionController.text : null,
+                          parentId: account.parentId,
+                          currencyCode: account.currencyCode,
+                          balance: account.balance,
+                          isActive: account.isActive,
+                          isSystemAccount: account.isSystemAccount,
+                          createdAt: account.createdAt,
+                          updatedAt: DateTime.now(),
+                          syncSequence: account.syncSequence,
+                        );
+                        ref.read(accountsProvider.notifier).updateAccount(updatedAccount);
 
                         if (mounted) {
                           Navigator.pop(ctx);
