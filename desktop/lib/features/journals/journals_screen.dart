@@ -989,8 +989,8 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                         ]);
                       }),
                       DataRow(
-                        color: WidgetStateProperty.all(
-                          Theme.of(context).colorScheme.surfaceContainerHighest,
+                        color: MaterialStateProperty.all(
+                          Theme.of(context).colorScheme.surfaceVariant,
                         ),
                         cells: [
                           const DataCell(Text('Total', style: TextStyle(fontWeight: FontWeight.bold))),

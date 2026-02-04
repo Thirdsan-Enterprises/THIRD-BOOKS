@@ -500,16 +500,19 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
           FilledButton(
             onPressed: () async {
               if (formKey.currentState?.validate() ?? false) {
-                final customerData = {
-                  'name': nameController.text,
-                  'email': emailController.text,
-                  'phone': phoneController.text,
-                  'address': addressController.text,
-                  'tax_id': taxIdController.text,
-                  'credit_limit': double.tryParse(creditLimitController.text) ?? 0,
-                  'is_active': true,
-                };
-                await ref.read(customersProvider.notifier).createCustomer(customerData);
+                final newCustomer = Customer(
+                  id: DateTime.now().millisecondsSinceEpoch.toString(),
+                  name: nameController.text,
+                  email: emailController.text.isNotEmpty ? emailController.text : null,
+                  phone: phoneController.text.isNotEmpty ? phoneController.text : null,
+                  address: addressController.text.isNotEmpty ? addressController.text : null,
+                  taxId: taxIdController.text.isNotEmpty ? taxIdController.text : null,
+                  creditLimit: double.tryParse(creditLimitController.text) ?? 0,
+                  isActive: true,
+                  createdAt: DateTime.now(),
+                  updatedAt: DateTime.now(),
+                );
+                ref.read(customersProvider.notifier).addCustomer(newCustomer);
                 if (ctx.mounted) Navigator.pop(ctx);
               }
             },
