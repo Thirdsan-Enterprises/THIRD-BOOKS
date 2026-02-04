@@ -29,7 +29,7 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
     return vendorsState.vendors.where((vendor) {
       final matchesSearch = _searchQuery.isEmpty ||
           vendor.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          vendor.email.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          (vendor.email?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
           vendor.id.toLowerCase().contains(_searchQuery.toLowerCase());
 
       final matchesStatus = _selectedStatus == null ||
@@ -266,7 +266,7 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
           child: DataTable(
             columnSpacing: 24,
             horizontalMargin: 24,
-            headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
             columns: const [
               DataColumn(label: Text('Vendor')),
               DataColumn(label: Text('Contact')),
@@ -304,9 +304,9 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(vendor.email, style: const TextStyle(fontSize: 13)),
+                        Text(vendor.email ?? '-', style: const TextStyle(fontSize: 13)),
                         Text(
-                          vendor.phone,
+                          vendor.phone ?? '-',
                           style: TextStyle(
                             fontSize: 12,
                             color: Theme.of(context).colorScheme.outline,
@@ -628,9 +628,9 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _DetailRow('Vendor ID', vendor.id),
-              _DetailRow('Email', vendor.email),
-              _DetailRow('Phone', vendor.phone),
-              _DetailRow('Address', vendor.address),
+              _DetailRow('Email', vendor.email ?? '-'),
+              _DetailRow('Phone', vendor.phone ?? '-'),
+              _DetailRow('Address', vendor.address ?? '-'),
               if (vendor.taxId != null) _DetailRow('Tax ID', vendor.taxId!),
               const Divider(),
               _DetailRow('Payment Terms', vendor.paymentTerms ?? 'Net 30'),

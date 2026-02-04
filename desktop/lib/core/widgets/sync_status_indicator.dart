@@ -246,7 +246,7 @@ class _SyncDialog extends ConsumerWidget {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(ctx),
+          onPressed: () => Navigator.pop(context),
           child: const Text('Close'),
         ),
         if (!syncState.isSyncing)

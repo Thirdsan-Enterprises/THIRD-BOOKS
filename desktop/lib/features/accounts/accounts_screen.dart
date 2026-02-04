@@ -275,7 +275,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
           child: DataTable(
             columnSpacing: 24,
             horizontalMargin: 24,
-            headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
             columns: const [
               DataColumn(label: Text('Code')),
               DataColumn(label: Text('Account Name')),
@@ -319,7 +319,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
                       ),
                     ),
                   ),
-                  DataCell(Text(account.subType.name)),
+                  DataCell(Text(account.subType?.name ?? '-')),
                   DataCell(
                     Text(
                       'UGX ${_currencyFormat.format(account.balance)}',
@@ -379,7 +379,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
       csvData.writeln('Code,Name,Type,SubType,Balance,Status');
 
       for (final account in accounts) {
-        csvData.writeln('${account.code},"${account.name}",${_getTypeName(account.type)},${account.subType.name},${account.balance},Active');
+        csvData.writeln('${account.code},"${account.name}",${_getTypeName(account.type)},${account.subType?.name ?? ''},${account.balance},Active');
       }
 
       final result = await FilePicker.platform.saveFile(
@@ -602,7 +602,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
     final nameController = TextEditingController(text: account.name);
     final descriptionController = TextEditingController(text: account.description ?? '');
     AccountType selectedType = account.type;
-    AccountSubType selectedSubType = account.subType;
+    AccountSubType? selectedSubType = account.subType;
     bool isLoading = false;
 
     showDialog(

@@ -29,7 +29,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
     final billsState = ref.watch(billsProvider);
     return billsState.bills.where((bill) {
       final matchesSearch = _searchQuery.isEmpty ||
-          bill.vendorName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          (bill.vendorName?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
           bill.billNumber.toLowerCase().contains(_searchQuery.toLowerCase());
 
       final matchesStatus = _selectedStatus == null ||
@@ -289,7 +289,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
           child: DataTable(
             columnSpacing: 24,
             horizontalMargin: 24,
-            headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
             columns: const [
               DataColumn(label: Text('Bill #')),
               DataColumn(label: Text('Vendor')),
@@ -318,7 +318,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(bill.vendorName, style: const TextStyle(fontWeight: FontWeight.w500)),
+                        Text(bill.vendorName ?? '-', style: const TextStyle(fontWeight: FontWeight.w500)),
                         Text(
                           'ID: ${bill.vendorId}',
                           style: TextStyle(
@@ -606,7 +606,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _DetailRow('Vendor', bill.vendorName),
+              _DetailRow('Vendor', bill.vendorName ?? '-'),
               _DetailRow('Bill Date', DateFormat('MMMM d, yyyy').format(bill.date)),
               _DetailRow('Due Date', DateFormat('MMMM d, yyyy').format(bill.dueDate)),
               _DetailRow('Items', '${bill.lines.length} items'),
