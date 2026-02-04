@@ -1,12 +1,17 @@
 // Data Service for ThirdBooks Desktop App
-// Connects to the API and provides data to all screens
+// Offline-First Architecture with Local Storage and Sync Queue
 // © 2026 ThirdBooks. All rights reserved.
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
 
 import 'api_client.dart';
+import 'local_storage_service.dart';
+import 'sync_service.dart';
 import '../models/models.dart';
+
+// Global local storage instance
+final _localStorage = LocalStorageService.instance;
 
 // ============================================================================
 // Dashboard Service
@@ -75,7 +80,6 @@ class DashboardData {
     );
   }
 
-  // Default demo data for offline mode
   factory DashboardData.demo() {
     return DashboardData(
       totalRevenue: 45250000,
@@ -137,7 +141,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
 });
 
 // ============================================================================
-// Accounts Service
+// Accounts Service - OFFLINE-FIRST
 // ============================================================================
 
 class AccountsState {
@@ -166,14 +170,31 @@ class AccountsState {
 
 class AccountsNotifier extends StateNotifier<AccountsState> {
   final ApiClient _apiClient;
+  final Ref _ref;
 
-  AccountsNotifier(this._apiClient) : super(AccountsState()) {
-    loadAccounts();
+  AccountsNotifier(this._apiClient, this._ref) : super(AccountsState()) {
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    state = state.copyWith(isLoading: true);
+
+    // 1. First, load from local storage (instant offline data)
+    try {
+      final localAccounts = await _localStorage.loadAccounts();
+      if (localAccounts.isNotEmpty) {
+        state = state.copyWith(accounts: localAccounts, isLoading: false);
+        debugPrint('Loaded ${localAccounts.length} accounts from local storage');
+      }
+    } catch (e) {
+      debugPrint('Error loading accounts from local storage: $e');
+    }
+
+    // 2. Then try to fetch fresh data from API (background refresh)
+    await loadAccounts();
   }
 
   Future<void> loadAccounts() async {
-    state = state.copyWith(isLoading: true, error: null);
-
     try {
       final response = await _apiClient.get('/accounts');
       if (response.statusCode == 200) {
@@ -181,36 +202,59 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
         final accounts = (data as List<dynamic>)
             .map((json) => Account.fromJson(json as Map<String, dynamic>))
             .toList();
+
+        // Save to local storage for offline access
+        await _localStorage.saveAccounts(accounts);
+
         state = state.copyWith(accounts: accounts, isLoading: false);
         return;
       }
     } catch (e) {
-      // Use demo data on error
+      debugPrint('API fetch failed, using cached/demo data: $e');
     }
 
-    // Demo data for offline mode
-    state = state.copyWith(
-      accounts: _getDemoAccounts(),
-      isLoading: false,
+    // Only use demo data if we have nothing cached
+    if (state.accounts.isEmpty) {
+      final demoAccounts = _getDemoAccounts();
+      await _localStorage.saveAccounts(demoAccounts);
+      state = state.copyWith(accounts: demoAccounts, isLoading: false);
+    } else {
+      state = state.copyWith(isLoading: false);
+    }
+  }
+
+  void addAccount(Account account) {
+    final updatedAccounts = [...state.accounts, account];
+    state = state.copyWith(accounts: updatedAccounts);
+
+    // Save locally immediately
+    _localStorage.saveAccounts(updatedAccounts);
+
+    // Queue for sync
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.create,
+      entityType: SyncEntityType.account,
+      entityId: account.id,
+      data: account.toJson(),
     );
   }
 
-  Future<void> createAccount(Map<String, dynamic> accountData) async {
-    try {
-      await _apiClient.post('/accounts', data: accountData);
-      await loadAccounts();
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
-  }
+  void updateAccount(Account account) {
+    final updatedAccounts = state.accounts.map((a) {
+      return a.id == account.id ? account : a;
+    }).toList();
+    state = state.copyWith(accounts: updatedAccounts);
 
-  Future<void> updateAccount(String id, Map<String, dynamic> accountData) async {
-    try {
-      await _apiClient.put('/accounts/$id', data: accountData);
-      await loadAccounts();
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
+    // Save locally immediately
+    _localStorage.saveAccounts(updatedAccounts);
+
+    // Queue for sync
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.update,
+      entityType: SyncEntityType.account,
+      entityId: account.id,
+      data: account.toJson(),
+    );
   }
 
   List<Account> _getDemoAccounts() {
@@ -240,11 +284,11 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
 }
 
 final accountsProvider = StateNotifierProvider<AccountsNotifier, AccountsState>((ref) {
-  return AccountsNotifier(ref.read(apiClientProvider));
+  return AccountsNotifier(ref.read(apiClientProvider), ref);
 });
 
 // ============================================================================
-// Customers Service
+// Customers Service - OFFLINE-FIRST
 // ============================================================================
 
 class CustomersState {
@@ -273,14 +317,29 @@ class CustomersState {
 
 class CustomersNotifier extends StateNotifier<CustomersState> {
   final ApiClient _apiClient;
+  final Ref _ref;
 
-  CustomersNotifier(this._apiClient) : super(CustomersState()) {
-    loadCustomers();
+  CustomersNotifier(this._apiClient, this._ref) : super(CustomersState()) {
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    state = state.copyWith(isLoading: true);
+
+    try {
+      final localCustomers = await _localStorage.loadCustomers();
+      if (localCustomers.isNotEmpty) {
+        state = state.copyWith(customers: localCustomers, isLoading: false);
+        debugPrint('Loaded ${localCustomers.length} customers from local storage');
+      }
+    } catch (e) {
+      debugPrint('Error loading customers from local storage: $e');
+    }
+
+    await loadCustomers();
   }
 
   Future<void> loadCustomers() async {
-    state = state.copyWith(isLoading: true, error: null);
-
     try {
       final response = await _apiClient.get('/customers');
       if (response.statusCode == 200) {
@@ -288,26 +347,52 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
         final customers = (data as List<dynamic>)
             .map((json) => Customer.fromJson(json as Map<String, dynamic>))
             .toList();
+
+        await _localStorage.saveCustomers(customers);
         state = state.copyWith(customers: customers, isLoading: false);
         return;
       }
     } catch (e) {
-      // Use demo data on error
+      debugPrint('API fetch failed for customers: $e');
     }
 
-    state = state.copyWith(
-      customers: _getDemoCustomers(),
-      isLoading: false,
+    if (state.customers.isEmpty) {
+      final demoCustomers = _getDemoCustomers();
+      await _localStorage.saveCustomers(demoCustomers);
+      state = state.copyWith(customers: demoCustomers, isLoading: false);
+    } else {
+      state = state.copyWith(isLoading: false);
+    }
+  }
+
+  void addCustomer(Customer customer) {
+    final updatedCustomers = [...state.customers, customer];
+    state = state.copyWith(customers: updatedCustomers);
+
+    _localStorage.saveCustomers(updatedCustomers);
+
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.create,
+      entityType: SyncEntityType.customer,
+      entityId: customer.id,
+      data: customer.toJson(),
     );
   }
 
-  Future<void> createCustomer(Map<String, dynamic> customerData) async {
-    try {
-      await _apiClient.post('/customers', data: customerData);
-      await loadCustomers();
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
+  void updateCustomer(Customer customer) {
+    final updatedCustomers = state.customers.map((c) {
+      return c.id == customer.id ? customer : c;
+    }).toList();
+    state = state.copyWith(customers: updatedCustomers);
+
+    _localStorage.saveCustomers(updatedCustomers);
+
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.update,
+      entityType: SyncEntityType.customer,
+      entityId: customer.id,
+      data: customer.toJson(),
+    );
   }
 
   List<Customer> _getDemoCustomers() {
@@ -324,11 +409,11 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
 }
 
 final customersProvider = StateNotifierProvider<CustomersNotifier, CustomersState>((ref) {
-  return CustomersNotifier(ref.read(apiClientProvider));
+  return CustomersNotifier(ref.read(apiClientProvider), ref);
 });
 
 // ============================================================================
-// Vendors Service
+// Vendors Service - OFFLINE-FIRST
 // ============================================================================
 
 class VendorsState {
@@ -357,14 +442,29 @@ class VendorsState {
 
 class VendorsNotifier extends StateNotifier<VendorsState> {
   final ApiClient _apiClient;
+  final Ref _ref;
 
-  VendorsNotifier(this._apiClient) : super(VendorsState()) {
-    loadVendors();
+  VendorsNotifier(this._apiClient, this._ref) : super(VendorsState()) {
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    state = state.copyWith(isLoading: true);
+
+    try {
+      final localVendors = await _localStorage.loadVendors();
+      if (localVendors.isNotEmpty) {
+        state = state.copyWith(vendors: localVendors, isLoading: false);
+        debugPrint('Loaded ${localVendors.length} vendors from local storage');
+      }
+    } catch (e) {
+      debugPrint('Error loading vendors from local storage: $e');
+    }
+
+    await loadVendors();
   }
 
   Future<void> loadVendors() async {
-    state = state.copyWith(isLoading: true, error: null);
-
     try {
       final response = await _apiClient.get('/vendors');
       if (response.statusCode == 200) {
@@ -372,26 +472,52 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
         final vendors = (data as List<dynamic>)
             .map((json) => Vendor.fromJson(json as Map<String, dynamic>))
             .toList();
+
+        await _localStorage.saveVendors(vendors);
         state = state.copyWith(vendors: vendors, isLoading: false);
         return;
       }
     } catch (e) {
-      // Use demo data on error
+      debugPrint('API fetch failed for vendors: $e');
     }
 
-    state = state.copyWith(
-      vendors: _getDemoVendors(),
-      isLoading: false,
+    if (state.vendors.isEmpty) {
+      final demoVendors = _getDemoVendors();
+      await _localStorage.saveVendors(demoVendors);
+      state = state.copyWith(vendors: demoVendors, isLoading: false);
+    } else {
+      state = state.copyWith(isLoading: false);
+    }
+  }
+
+  void addVendor(Vendor vendor) {
+    final updatedVendors = [...state.vendors, vendor];
+    state = state.copyWith(vendors: updatedVendors);
+
+    _localStorage.saveVendors(updatedVendors);
+
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.create,
+      entityType: SyncEntityType.vendor,
+      entityId: vendor.id,
+      data: vendor.toJson(),
     );
   }
 
-  Future<void> createVendor(Map<String, dynamic> vendorData) async {
-    try {
-      await _apiClient.post('/vendors', data: vendorData);
-      await loadVendors();
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
+  void updateVendor(Vendor vendor) {
+    final updatedVendors = state.vendors.map((v) {
+      return v.id == vendor.id ? vendor : v;
+    }).toList();
+    state = state.copyWith(vendors: updatedVendors);
+
+    _localStorage.saveVendors(updatedVendors);
+
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.update,
+      entityType: SyncEntityType.vendor,
+      entityId: vendor.id,
+      data: vendor.toJson(),
+    );
   }
 
   List<Vendor> _getDemoVendors() {
@@ -407,11 +533,11 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
 }
 
 final vendorsProvider = StateNotifierProvider<VendorsNotifier, VendorsState>((ref) {
-  return VendorsNotifier(ref.read(apiClientProvider));
+  return VendorsNotifier(ref.read(apiClientProvider), ref);
 });
 
 // ============================================================================
-// Invoices Service
+// Invoices Service - OFFLINE-FIRST
 // ============================================================================
 
 class InvoicesState {
@@ -440,14 +566,29 @@ class InvoicesState {
 
 class InvoicesNotifier extends StateNotifier<InvoicesState> {
   final ApiClient _apiClient;
+  final Ref _ref;
 
-  InvoicesNotifier(this._apiClient) : super(InvoicesState()) {
-    loadInvoices();
+  InvoicesNotifier(this._apiClient, this._ref) : super(InvoicesState()) {
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    state = state.copyWith(isLoading: true);
+
+    try {
+      final localInvoices = await _localStorage.loadInvoices();
+      if (localInvoices.isNotEmpty) {
+        state = state.copyWith(invoices: localInvoices, isLoading: false);
+        debugPrint('Loaded ${localInvoices.length} invoices from local storage');
+      }
+    } catch (e) {
+      debugPrint('Error loading invoices from local storage: $e');
+    }
+
+    await loadInvoices();
   }
 
   Future<void> loadInvoices() async {
-    state = state.copyWith(isLoading: true, error: null);
-
     try {
       final response = await _apiClient.get('/invoices');
       if (response.statusCode == 200) {
@@ -455,26 +596,80 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
         final invoices = (data as List<dynamic>)
             .map((json) => Invoice.fromJson(json as Map<String, dynamic>))
             .toList();
+
+        await _localStorage.saveInvoices(invoices);
         state = state.copyWith(invoices: invoices, isLoading: false);
         return;
       }
     } catch (e) {
-      // Use demo data on error
+      debugPrint('API fetch failed for invoices: $e');
     }
 
-    state = state.copyWith(
-      invoices: _getDemoInvoices(),
-      isLoading: false,
+    if (state.invoices.isEmpty) {
+      final demoInvoices = _getDemoInvoices();
+      await _localStorage.saveInvoices(demoInvoices);
+      state = state.copyWith(invoices: demoInvoices, isLoading: false);
+    } else {
+      state = state.copyWith(isLoading: false);
+    }
+  }
+
+  void addInvoice(Invoice invoice) {
+    final updatedInvoices = [...state.invoices, invoice];
+    state = state.copyWith(invoices: updatedInvoices);
+
+    _localStorage.saveInvoices(updatedInvoices);
+
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.create,
+      entityType: SyncEntityType.invoice,
+      entityId: invoice.id,
+      data: invoice.toJson(),
     );
   }
 
-  Future<void> createInvoice(Map<String, dynamic> invoiceData) async {
-    try {
-      await _apiClient.post('/invoices', data: invoiceData);
-      await loadInvoices();
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
+  void updateInvoice(Invoice invoice) {
+    final updatedInvoices = state.invoices.map((i) {
+      return i.id == invoice.id ? invoice : i;
+    }).toList();
+    state = state.copyWith(invoices: updatedInvoices);
+
+    _localStorage.saveInvoices(updatedInvoices);
+
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.update,
+      entityType: SyncEntityType.invoice,
+      entityId: invoice.id,
+      data: invoice.toJson(),
+    );
+  }
+
+  void recordPayment(String invoiceId, double amount) {
+    final updatedInvoices = state.invoices.map((invoice) {
+      if (invoice.id == invoiceId) {
+        final newAmountPaid = invoice.amountPaid + amount;
+        final newStatus = newAmountPaid >= invoice.total
+            ? InvoiceStatus.paid
+            : InvoiceStatus.partial;
+        return invoice.copyWith(
+          amountPaid: newAmountPaid,
+          status: newStatus,
+          updatedAt: DateTime.now(),
+        );
+      }
+      return invoice;
+    }).toList();
+    state = state.copyWith(invoices: updatedInvoices);
+
+    _localStorage.saveInvoices(updatedInvoices);
+
+    final invoice = updatedInvoices.firstWhere((i) => i.id == invoiceId);
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.update,
+      entityType: SyncEntityType.invoice,
+      entityId: invoiceId,
+      data: invoice.toJson(),
+    );
   }
 
   List<Invoice> _getDemoInvoices() {
@@ -490,11 +685,11 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
 }
 
 final invoicesProvider = StateNotifierProvider<InvoicesNotifier, InvoicesState>((ref) {
-  return InvoicesNotifier(ref.read(apiClientProvider));
+  return InvoicesNotifier(ref.read(apiClientProvider), ref);
 });
 
 // ============================================================================
-// Bills Service
+// Bills Service - OFFLINE-FIRST
 // ============================================================================
 
 class BillsState {
@@ -523,14 +718,29 @@ class BillsState {
 
 class BillsNotifier extends StateNotifier<BillsState> {
   final ApiClient _apiClient;
+  final Ref _ref;
 
-  BillsNotifier(this._apiClient) : super(BillsState()) {
-    loadBills();
+  BillsNotifier(this._apiClient, this._ref) : super(BillsState()) {
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    state = state.copyWith(isLoading: true);
+
+    try {
+      final localBills = await _localStorage.loadBills();
+      if (localBills.isNotEmpty) {
+        state = state.copyWith(bills: localBills, isLoading: false);
+        debugPrint('Loaded ${localBills.length} bills from local storage');
+      }
+    } catch (e) {
+      debugPrint('Error loading bills from local storage: $e');
+    }
+
+    await loadBills();
   }
 
   Future<void> loadBills() async {
-    state = state.copyWith(isLoading: true, error: null);
-
     try {
       final response = await _apiClient.get('/bills');
       if (response.statusCode == 200) {
@@ -538,26 +748,80 @@ class BillsNotifier extends StateNotifier<BillsState> {
         final bills = (data as List<dynamic>)
             .map((json) => Bill.fromJson(json as Map<String, dynamic>))
             .toList();
+
+        await _localStorage.saveBills(bills);
         state = state.copyWith(bills: bills, isLoading: false);
         return;
       }
     } catch (e) {
-      // Use demo data on error
+      debugPrint('API fetch failed for bills: $e');
     }
 
-    state = state.copyWith(
-      bills: _getDemoBills(),
-      isLoading: false,
+    if (state.bills.isEmpty) {
+      final demoBills = _getDemoBills();
+      await _localStorage.saveBills(demoBills);
+      state = state.copyWith(bills: demoBills, isLoading: false);
+    } else {
+      state = state.copyWith(isLoading: false);
+    }
+  }
+
+  void addBill(Bill bill) {
+    final updatedBills = [...state.bills, bill];
+    state = state.copyWith(bills: updatedBills);
+
+    _localStorage.saveBills(updatedBills);
+
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.create,
+      entityType: SyncEntityType.bill,
+      entityId: bill.id,
+      data: bill.toJson(),
     );
   }
 
-  Future<void> createBill(Map<String, dynamic> billData) async {
-    try {
-      await _apiClient.post('/bills', data: billData);
-      await loadBills();
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
+  void updateBill(Bill bill) {
+    final updatedBills = state.bills.map((b) {
+      return b.id == bill.id ? bill : b;
+    }).toList();
+    state = state.copyWith(bills: updatedBills);
+
+    _localStorage.saveBills(updatedBills);
+
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.update,
+      entityType: SyncEntityType.bill,
+      entityId: bill.id,
+      data: bill.toJson(),
+    );
+  }
+
+  void recordPayment(String billId, double amount) {
+    final updatedBills = state.bills.map((bill) {
+      if (bill.id == billId) {
+        final newAmountPaid = bill.amountPaid + amount;
+        final newStatus = newAmountPaid >= bill.total
+            ? BillStatus.paid
+            : BillStatus.partial;
+        return bill.copyWith(
+          amountPaid: newAmountPaid,
+          status: newStatus,
+          updatedAt: DateTime.now(),
+        );
+      }
+      return bill;
+    }).toList();
+    state = state.copyWith(bills: updatedBills);
+
+    _localStorage.saveBills(updatedBills);
+
+    final bill = updatedBills.firstWhere((b) => b.id == billId);
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.update,
+      entityType: SyncEntityType.bill,
+      entityId: billId,
+      data: bill.toJson(),
+    );
   }
 
   List<Bill> _getDemoBills() {
@@ -573,11 +837,11 @@ class BillsNotifier extends StateNotifier<BillsState> {
 }
 
 final billsProvider = StateNotifierProvider<BillsNotifier, BillsState>((ref) {
-  return BillsNotifier(ref.read(apiClientProvider));
+  return BillsNotifier(ref.read(apiClientProvider), ref);
 });
 
 // ============================================================================
-// Journal Entries Service
+// Journal Entries Service - OFFLINE-FIRST
 // ============================================================================
 
 class JournalsState {
@@ -606,14 +870,29 @@ class JournalsState {
 
 class JournalsNotifier extends StateNotifier<JournalsState> {
   final ApiClient _apiClient;
+  final Ref _ref;
 
-  JournalsNotifier(this._apiClient) : super(JournalsState()) {
-    loadJournals();
+  JournalsNotifier(this._apiClient, this._ref) : super(JournalsState()) {
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    state = state.copyWith(isLoading: true);
+
+    try {
+      final localEntries = await _localStorage.loadJournalEntries();
+      if (localEntries.isNotEmpty) {
+        state = state.copyWith(entries: localEntries, isLoading: false);
+        debugPrint('Loaded ${localEntries.length} journal entries from local storage');
+      }
+    } catch (e) {
+      debugPrint('Error loading journals from local storage: $e');
+    }
+
+    await loadJournals();
   }
 
   Future<void> loadJournals() async {
-    state = state.copyWith(isLoading: true, error: null);
-
     try {
       final response = await _apiClient.get('/journals');
       if (response.statusCode == 200) {
@@ -621,26 +900,59 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
         final entries = (data as List<dynamic>)
             .map((json) => JournalEntry.fromJson(json as Map<String, dynamic>))
             .toList();
+
+        await _localStorage.saveJournalEntries(entries);
         state = state.copyWith(entries: entries, isLoading: false);
         return;
       }
     } catch (e) {
-      // Use demo data on error
+      debugPrint('API fetch failed for journals: $e');
     }
 
-    state = state.copyWith(
-      entries: _getDemoJournals(),
-      isLoading: false,
+    if (state.entries.isEmpty) {
+      final demoJournals = _getDemoJournals();
+      await _localStorage.saveJournalEntries(demoJournals);
+      state = state.copyWith(entries: demoJournals, isLoading: false);
+    } else {
+      state = state.copyWith(isLoading: false);
+    }
+  }
+
+  void addEntry(JournalEntry entry) {
+    final updatedEntries = [...state.entries, entry];
+    state = state.copyWith(entries: updatedEntries);
+
+    _localStorage.saveJournalEntries(updatedEntries);
+
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.create,
+      entityType: SyncEntityType.journalEntry,
+      entityId: entry.id,
+      data: entry.toJson(),
     );
   }
 
-  Future<void> createJournalEntry(Map<String, dynamic> entryData) async {
-    try {
-      await _apiClient.post('/journals', data: entryData);
-      await loadJournals();
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
+  void postEntry(String entryId) {
+    final updatedEntries = state.entries.map((e) {
+      if (e.id == entryId) {
+        return e.copyWith(
+          status: JournalEntryStatus.posted,
+          updatedAt: DateTime.now(),
+        );
+      }
+      return e;
+    }).toList();
+    state = state.copyWith(entries: updatedEntries);
+
+    _localStorage.saveJournalEntries(updatedEntries);
+
+    final entry = updatedEntries.firstWhere((e) => e.id == entryId);
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.update,
+      entityType: SyncEntityType.journalEntry,
+      entityId: entryId,
+      data: entry.toJson(),
+    );
   }
 
   List<JournalEntry> _getDemoJournals() {
@@ -724,52 +1036,14 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
       ),
     ];
   }
-
-  void addEntry(JournalEntry entry) {
-    final updatedEntries = [...state.entries, entry];
-    state = state.copyWith(entries: updatedEntries);
-    // Try to sync with server
-    _syncEntry(entry);
-  }
-
-  void postEntry(String entryId) {
-    final updatedEntries = state.entries.map((e) {
-      if (e.id == entryId) {
-        return e.copyWith(
-          status: JournalEntryStatus.posted,
-          updatedAt: DateTime.now(),
-        );
-      }
-      return e;
-    }).toList();
-    state = state.copyWith(entries: updatedEntries);
-    // Try to sync with server
-    _syncPostEntry(entryId);
-  }
-
-  Future<void> _syncEntry(JournalEntry entry) async {
-    try {
-      await _apiClient.post('/journals', data: entry.toJson());
-    } catch (e) {
-      // Will sync when online
-    }
-  }
-
-  Future<void> _syncPostEntry(String entryId) async {
-    try {
-      await _apiClient.put('/journals/$entryId/post');
-    } catch (e) {
-      // Will sync when online
-    }
-  }
 }
 
 final journalsProvider = StateNotifierProvider<JournalsNotifier, JournalsState>((ref) {
-  return JournalsNotifier(ref.read(apiClientProvider));
+  return JournalsNotifier(ref.read(apiClientProvider), ref);
 });
 
 // ============================================================================
-// Payments Service
+// Payments Service - OFFLINE-FIRST
 // ============================================================================
 
 class PaymentsState {
@@ -798,14 +1072,29 @@ class PaymentsState {
 
 class PaymentsNotifier extends StateNotifier<PaymentsState> {
   final ApiClient _apiClient;
+  final Ref _ref;
 
-  PaymentsNotifier(this._apiClient) : super(PaymentsState()) {
-    loadPayments();
+  PaymentsNotifier(this._apiClient, this._ref) : super(PaymentsState()) {
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    state = state.copyWith(isLoading: true);
+
+    try {
+      final localPayments = await _localStorage.loadPayments();
+      if (localPayments.isNotEmpty) {
+        state = state.copyWith(payments: localPayments, isLoading: false);
+        debugPrint('Loaded ${localPayments.length} payments from local storage');
+      }
+    } catch (e) {
+      debugPrint('Error loading payments from local storage: $e');
+    }
+
+    await loadPayments();
   }
 
   Future<void> loadPayments() async {
-    state = state.copyWith(isLoading: true, error: null);
-
     try {
       final response = await _apiClient.get('/payments');
       if (response.statusCode == 200) {
@@ -813,26 +1102,36 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
         final payments = (data as List<dynamic>)
             .map((json) => Payment.fromJson(json as Map<String, dynamic>))
             .toList();
+
+        await _localStorage.savePayments(payments);
         state = state.copyWith(payments: payments, isLoading: false);
         return;
       }
     } catch (e) {
-      // Use demo data on error
+      debugPrint('API fetch failed for payments: $e');
     }
 
-    state = state.copyWith(
-      payments: _getDemoPayments(),
-      isLoading: false,
-    );
+    if (state.payments.isEmpty) {
+      final demoPayments = _getDemoPayments();
+      await _localStorage.savePayments(demoPayments);
+      state = state.copyWith(payments: demoPayments, isLoading: false);
+    } else {
+      state = state.copyWith(isLoading: false);
+    }
   }
 
-  Future<void> createPayment(Map<String, dynamic> paymentData) async {
-    try {
-      await _apiClient.post('/payments', data: paymentData);
-      await loadPayments();
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
+  void addPayment(Payment payment) {
+    final updatedPayments = [...state.payments, payment];
+    state = state.copyWith(payments: updatedPayments);
+
+    _localStorage.savePayments(updatedPayments);
+
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.create,
+      entityType: SyncEntityType.payment,
+      entityId: payment.id,
+      data: payment.toJson(),
+    );
   }
 
   List<Payment> _getDemoPayments() {
@@ -845,23 +1144,8 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
       Payment(id: '5', paymentNumber: 'REC-2026-0003', paymentType: PaymentType.received, customerId: '4', customerName: 'Mbarara Beverages Co', paymentDate: DateTime(2026, 1, 25), amount: 8500000, paymentMethod: 'Mobile Money', reference: 'MTN-123456789', accountId: '3', accountName: 'Bank Account - UGX', status: PaymentStatus.completed, createdAt: now, updatedAt: now),
     ];
   }
-
-  void addPayment(Payment payment) {
-    final updatedPayments = [...state.payments, payment];
-    state = state.copyWith(payments: updatedPayments);
-    // Try to sync with server
-    _syncPayment(payment);
-  }
-
-  Future<void> _syncPayment(Payment payment) async {
-    try {
-      await _apiClient.post('/payments', data: payment.toJson());
-    } catch (e) {
-      // Will sync when online
-    }
-  }
 }
 
 final paymentsProvider = StateNotifierProvider<PaymentsNotifier, PaymentsState>((ref) {
-  return PaymentsNotifier(ref.read(apiClientProvider));
+  return PaymentsNotifier(ref.read(apiClientProvider), ref);
 });
