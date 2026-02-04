@@ -58,6 +58,22 @@ class Tenant extends BaseTenant implements TenantWithDatabase
     }
 
     /**
+     * Get the tenant's users
+     */
+    public function users(): HasMany
+    {
+        return $this->hasMany(\App\Models\User::class);
+    }
+
+    /**
+     * Get the tenant's companies
+     */
+    public function companies(): HasMany
+    {
+        return $this->hasMany(\App\Models\Company::class);
+    }
+
+    /**
      * Check if tenant is on trial
      */
     public function isOnTrial(): bool

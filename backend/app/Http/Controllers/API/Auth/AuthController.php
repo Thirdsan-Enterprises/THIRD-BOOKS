@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Tenant\Tenant;
+use App\Services\TenantService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
@@ -13,15 +14,30 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    protected TenantService $tenantService;
+
+    public function __construct(TenantService $tenantService)
+    {
+        $this->tenantService = $tenantService;
+    }
+
     /**
      * Register a new user and tenant
+     *
+     * This endpoint provisions a complete tenant setup including:
+     * - Tenant record with subscription
+     * - Primary domain
+     * - Admin user
+     * - Default company
+     * - Default chart of accounts
+     * - Default currencies
      */
     public function register(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'company_name' => 'required|string|max:255',
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:tenants,email',
+            'email' => 'required|string|email|max:255|unique:tenants,email|unique:users,email',
             'password' => 'required|string|min:8|confirmed',
             'phone' => 'nullable|string|max:20',
             'country' => 'nullable|string|size:2',
@@ -36,39 +52,23 @@ class AuthController extends Controller
         }
 
         try {
-            // Create tenant
-            $tenant = Tenant::create([
-                'name' => $request->company_name,
+            // Use TenantService for complete tenant provisioning
+            $result = $this->tenantService->provisionTenant([
                 'company_name' => $request->company_name,
-                'email' => $request->email,
-                'phone' => $request->phone,
-                'country' => $request->country ?? 'UG',
-                'base_currency' => $request->base_currency ?? 'UGX',
-                'plan' => 'trial',
-                'trial_ends_at' => now()->addDays(30),
-            ]);
-
-            // Create primary domain
-            $subdomain = \Illuminate\Support\Str::slug($request->company_name);
-            $domain = $subdomain . '.thirdbooks.test';
-
-            $tenant->domains()->create([
-                'domain' => $domain,
-                'is_primary' => true,
-            ]);
-
-            // Create user
-            $user = User::create([
-                'tenant_id' => $tenant->id,
                 'name' => $request->name,
                 'email' => $request->email,
-                'password' => Hash::make($request->password),
+                'password' => $request->password,
                 'phone' => $request->phone,
-                'role' => User::ROLE_ADMIN,
-                'email_verified_at' => now(),
+                'country' => $request->country,
+                'base_currency' => $request->base_currency,
             ]);
 
-            // Create token
+            $tenant = $result['tenant'];
+            $user = $result['user'];
+            $company = $result['company'];
+            $domain = $result['domain'];
+
+            // Create authentication token
             $token = $user->createToken('auth-token')->plainTextToken;
 
             return response()->json([
@@ -84,22 +84,32 @@ class AuthController extends Controller
                 'tenant' => [
                     'id' => $tenant->id,
                     'name' => $tenant->name,
-                    'domain' => $domain,
+                    'company_name' => $tenant->company_name,
+                    'domain' => $domain->domain,
                     'plan' => $tenant->plan,
+                    'status' => $tenant->status,
                     'trial_ends_at' => $tenant->trial_ends_at,
+                ],
+                'company' => [
+                    'id' => $company->id,
+                    'name' => $company->name,
+                    'base_currency' => $company->base_currency,
                 ],
             ], 201);
 
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Registration failed',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An error occurred during registration',
             ], 500);
         }
     }
 
     /**
      * Login user
+     *
+     * Authenticates a user and returns their tenant and company information.
+     * This enables multi-tenant login where users can access their organization's data.
      */
     public function login(Request $request)
     {
@@ -134,12 +144,18 @@ class AuthController extends Controller
         if (!$user->tenant->canAccess()) {
             return response()->json([
                 'message' => 'Your subscription has expired or account is suspended',
+                'tenant_status' => $user->tenant->status,
+                'trial_ends_at' => $user->tenant->trial_ends_at,
+                'subscription_ends_at' => $user->tenant->subscription_ends_at,
             ], 403);
         }
 
         // Create token
         $deviceName = $request->device_name ?? $request->userAgent() ?? 'unknown';
         $token = $user->createToken($deviceName)->plainTextToken;
+
+        // Get user's default company (first company in the tenant)
+        $company = \App\Models\Company::where('tenant_id', $user->tenant_id)->first();
 
         return response()->json([
             'message' => 'Login successful',
@@ -148,14 +164,25 @@ class AuthController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'phone' => $user->phone,
                 'role' => $user->role,
                 'tenant_id' => $user->tenant_id,
             ],
             'tenant' => [
                 'id' => $user->tenant->id,
                 'name' => $user->tenant->name,
+                'company_name' => $user->tenant->company_name,
                 'plan' => $user->tenant->plan,
+                'status' => $user->tenant->status,
+                'trial_ends_at' => $user->tenant->trial_ends_at,
+                'subscription_ends_at' => $user->tenant->subscription_ends_at,
             ],
+            'company' => $company ? [
+                'id' => $company->id,
+                'name' => $company->name,
+                'base_currency' => $company->base_currency,
+                'fiscal_year_start' => $company->fiscal_year_start,
+            ] : null,
         ]);
     }
 
