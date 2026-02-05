@@ -3,7 +3,15 @@ name: Deploy Landing Page
 on:
   push:
     branches: [ main ]
-    # Removed path filters - deploy on any push to main
+    paths:
+      - 'landing-page/**'
+      - '.github/workflows/deploy-landing.yml'
+  pull_request:
+    branches: [ main ]
+    types: [ closed ]
+    paths:
+      - 'landing-page/**'
+      - '.github/workflows/deploy-landing.yml'
   workflow_dispatch:
 
 concurrency:
@@ -14,6 +22,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    # Run on push to main OR when PR is merged to main (not just closed)
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
 
     steps:
       - name: Starting Landing Page Deployment
