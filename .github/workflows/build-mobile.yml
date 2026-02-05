@@ -1,14 +1,16 @@
 name: Build Mobile Apps (Android & iOS)
 
+# TEMPORARILY DISABLED - Re-enable by changing branches back to: [ main ]
 on:
   push:
-    branches: [ main ]
+    branches: [ disabled-auto-build ]
     paths:
       - 'mobile-admin/**'
       - '.github/workflows/build-mobile.yml'
     tags:
       - 'v*.*.*'
   workflow_dispatch:
+    # Manual trigger still available for when you need to build
     inputs:
       api_url:
         description: 'API Base URL'
