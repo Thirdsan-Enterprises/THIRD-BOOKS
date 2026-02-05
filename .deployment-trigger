@@ -1,0 +1,9 @@
+# Deployment Trigger
+# This file triggers the deployment workflows
+
+Deployment requested at: 2026-02-05 11:35:00 UTC
+Target environments:
+- Landing Page: thirdbooks.digital
+- Backend API: api.thirdbooks.digital
+
+Status: DEPLOYING
