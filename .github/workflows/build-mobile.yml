@@ -1,9 +1,8 @@
 name: Build Mobile Apps (Android & iOS)
 
-# TEMPORARILY DISABLED - Re-enable by changing branches back to: [ main ]
 on:
   push:
-    branches: [ disabled-auto-build ]
+    branches: [ main, 'claude/**' ]
     paths:
       - 'mobile-admin/**'
       - '.github/workflows/build-mobile.yml'

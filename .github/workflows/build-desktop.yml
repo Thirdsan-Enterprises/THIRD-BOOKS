@@ -1,9 +1,8 @@
 name: Build Desktop Apps (Linux, Windows, macOS)
 
-# TEMPORARILY DISABLED - Re-enable by changing branches back to: [ main, 'claude/**' ]
 on:
   push:
-    branches: [ disabled-auto-build ]
+    branches: [ main, 'claude/**' ]
     paths:
       - 'desktop/**'
       - '.github/workflows/build-desktop.yml'
