@@ -1,0 +1,57 @@
+name: Deploy Landing Page
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'landing-page/**'
+      - '.github/workflows/deploy-landing.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-landing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Starting Landing Page Deployment
+        run: |
+          echo "============================================"
+          echo "  DEPLOYING THIRDBOOKS LANDING PAGE"
+          echo "============================================"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to thirdbooks.digital via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./landing-page/
+          server-dir: /domains/thirdbooks.digital/public_html/
+          dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.DS_Store
+            **/README.md
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "============================================"
+          echo "  LANDING PAGE DEPLOYED SUCCESSFULLY!"
+          echo "============================================"
+          echo ""
+          echo "URL: https://thirdbooks.digital"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo ""

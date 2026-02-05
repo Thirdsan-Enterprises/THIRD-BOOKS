@@ -1,14 +1,15 @@
 name: Build Windows x64
 
+# TEMPORARILY DISABLED - Re-enable by changing branches back to: main, 'claude/**'
 on:
   push:
     branches:
-      - main
-      - 'claude/**'
+      - disabled-auto-build
     paths:
       - 'desktop/**'
       - '.github/workflows/build-windows.yml'
   workflow_dispatch:
+    # Manual trigger still available for when you need to build
 
 concurrency:
   group: build-windows-${{ github.ref }}

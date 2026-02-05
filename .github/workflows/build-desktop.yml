@@ -1,14 +1,16 @@
 name: Build Desktop Apps (Linux, Windows, macOS)
 
+# TEMPORARILY DISABLED - Re-enable by changing branches back to: [ main, 'claude/**' ]
 on:
   push:
-    branches: [ main, 'claude/**' ]
+    branches: [ disabled-auto-build ]
     paths:
       - 'desktop/**'
       - '.github/workflows/build-desktop.yml'
     tags:
       - 'v*.*.*'
   workflow_dispatch:
+    # Manual trigger still available for when you need to build
     inputs:
       api_url:
         description: 'API Base URL'
