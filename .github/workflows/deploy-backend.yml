@@ -3,7 +3,15 @@ name: Deploy Backend to DirectAdmin
 on:
   push:
     branches: [ main ]
-    # Removed path filters - deploy on any push to main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  pull_request:
+    branches: [ main ]
+    types: [ closed ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
     inputs:
       environment:
@@ -23,6 +31,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    # Run on push to main OR when PR is merged to main (not just closed)
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
 
     steps:
       - name: Starting Backend Deployment
