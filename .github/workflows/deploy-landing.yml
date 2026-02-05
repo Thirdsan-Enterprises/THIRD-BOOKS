@@ -43,7 +43,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to thirdbooks.digital via FTP
+      - name: 📂 List files to deploy
+        run: |
+          echo "Files in landing-page directory:"
+          ls -laR landing-page/
+          echo ""
+          echo "Total size:"
+          du -sh landing-page/
+
+      - name: 📤 Deploy to thirdbooks.digital via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
@@ -52,10 +60,27 @@ jobs:
           local-dir: ./landing-page/
           server-dir: /domains/thirdbooks.digital/public_html/
           dangerous-clean-slate: false
+          log-level: verbose
           exclude: |
             **/.git*
             **/.DS_Store
             **/README.md
+
+      - name: 🔍 Verify deployment
+        run: |
+          echo "Deployment completed. Checking accessibility..."
+          echo ""
+          echo "Expected URL: https://thirdbooks.digital"
+          echo "Expected files uploaded:"
+          echo "  - index.html"
+          echo "  - css/style.css"
+          echo "  - js/main.js"
+          echo "  - images/favicon.svg"
+          echo ""
+          echo "If site doesn't load, check:"
+          echo "  1. FTP path is correct: /domains/thirdbooks.digital/public_html/"
+          echo "  2. Files have proper permissions (644 for files, 755 for folders)"
+          echo "  3. index.html is in the root of public_html/"
 
       - name: ✅ Deployment Summary
         if: success()
