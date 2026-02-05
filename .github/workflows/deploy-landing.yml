@@ -1,12 +1,21 @@
-name: Deploy Landing Page
+name: 🚀 Deploy Landing Page to Production
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - 'claude/thirdbooks-accounting-system-*'
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
+      - 'claude/thirdbooks-accounting-system-*'
     types: [ closed ]
   workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Deployment reason'
+        required: false
+        default: 'Manual deployment trigger'
 
 concurrency:
   group: deploy-landing-${{ github.ref }}
@@ -20,14 +29,16 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
 
     steps:
-      - name: Starting Landing Page Deployment
+      - name: 🚀 Starting Landing Page Deployment
         run: |
           echo "============================================"
-          echo "  DEPLOYING THIRDBOOKS LANDING PAGE"
+          echo "  🌐 DEPLOYING THIRDBOOKS LANDING PAGE"
           echo "============================================"
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
           echo "Triggered by: ${{ github.actor }}"
+          echo "Reason: ${{ github.event.inputs.reason || 'Automatic deployment' }}"
+          echo ""
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -46,14 +57,20 @@ jobs:
             **/.DS_Store
             **/README.md
 
-      - name: Deployment Summary
+      - name: ✅ Deployment Summary
         if: success()
         run: |
           echo "============================================"
-          echo "  LANDING PAGE DEPLOYED SUCCESSFULLY!"
+          echo "  ✅ LANDING PAGE DEPLOYED SUCCESSFULLY!"
           echo "============================================"
           echo ""
-          echo "URL: https://thirdbooks.digital"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Commit: ${{ github.sha }}"
+          echo "🌐 URL: https://thirdbooks.digital"
+          echo "📦 Branch: ${{ github.ref_name }}"
+          echo "📝 Commit: ${{ github.sha }}"
+          echo "⏰ Time: $(date -u)"
+          echo ""
+          echo "Next steps:"
+          echo "  1. Visit https://thirdbooks.digital"
+          echo "  2. Verify landing page loads correctly"
+          echo "  3. Test all sections and links"
           echo ""
