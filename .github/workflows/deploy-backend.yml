@@ -3,9 +3,7 @@ name: Deploy Backend to DirectAdmin
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'backend/**'
-      - '.github/workflows/deploy-backend.yml'
+    # Removed path filters - deploy on any push to main
   workflow_dispatch:
     inputs:
       environment:

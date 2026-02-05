@@ -3,9 +3,7 @@ name: Deploy Landing Page
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'landing-page/**'
-      - '.github/workflows/deploy-landing.yml'
+    # Removed path filters - deploy on any push to main
   workflow_dispatch:
 
 concurrency:
