@@ -1,10 +1,14 @@
-name: Deploy Backend to DirectAdmin
+name: ⚙️ Deploy Backend API to Production
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - 'claude/thirdbooks-accounting-system-*'
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
+      - 'claude/thirdbooks-accounting-system-*'
     types: [ closed ]
   workflow_dispatch:
     inputs:
@@ -16,6 +20,10 @@ on:
         options:
           - production
           - staging
+      reason:
+        description: 'Deployment reason'
+        required: false
+        default: 'Manual deployment trigger'
 
 concurrency:
   group: deploy-backend-${{ github.ref }}
@@ -29,12 +37,17 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
 
     steps:
-      - name: Starting Backend Deployment
+      - name: ⚙️ Starting Backend Deployment
         run: |
-          echo "Building and deploying ThirdBooks Backend API"
+          echo "============================================"
+          echo "  ⚙️ DEPLOYING THIRDBOOKS BACKEND API"
+          echo "============================================"
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
           echo "Triggered by: ${{ github.actor }}"
+          echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
+          echo "Reason: ${{ github.event.inputs.reason || 'Automatic deployment' }}"
+          echo ""
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -168,20 +181,33 @@ jobs:
             storage/framework/cache/**
             storage/framework/sessions/**
 
-      - name: Deployment Summary
+      - name: ✅ Deployment Summary
         if: success()
         run: |
           echo "============================================"
-          echo "  BACKEND DEPLOYED SUCCESSFULLY!"
+          echo "  ✅ BACKEND API DEPLOYED SUCCESSFULLY!"
           echo "============================================"
           echo ""
-          echo "API URL: ${{ secrets.APP_URL }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Commit: ${{ github.sha }}"
+          echo "🌐 API URL: ${{ secrets.APP_URL }}"
+          echo "📦 Branch: ${{ github.ref_name }}"
+          echo "📝 Commit: ${{ github.sha }}"
+          echo "⏰ Time: $(date -u)"
           echo ""
-          echo "POST-DEPLOYMENT STEPS:"
-          echo "1. SSH: chmod -R 775 storage bootstrap/cache"
-          echo "2. SSH: php artisan migrate --force"
-          echo "3. SSH: php artisan db:seed --force (first time)"
-          echo "4. SSH: php artisan config:cache"
-          echo "5. Test: curl ${{ secrets.APP_URL }}/api/health"
+          echo "🔧 CRITICAL POST-DEPLOYMENT STEPS (SSH Required):"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "1. Set permissions:"
+          echo "   chmod -R 775 storage bootstrap/cache"
+          echo ""
+          echo "2. Run migrations:"
+          echo "   php artisan migrate --force"
+          echo ""
+          echo "3. Seed database (first time only):"
+          echo "   php artisan db:seed --force"
+          echo ""
+          echo "4. Cache configuration:"
+          echo "   php artisan config:cache"
+          echo ""
+          echo "5. Test API health:"
+          echo "   curl ${{ secrets.APP_URL }}/api/health"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
