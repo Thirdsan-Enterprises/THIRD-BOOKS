@@ -1,4 +1,4 @@
-name: ⚙️ Deploy Backend API to Production
+name: Deploy Backend API to Production
 
 on:
   push:
@@ -20,6 +20,11 @@ on:
         options:
           - production
           - staging
+      run_seed:
+        description: 'Run database seeder (first deploy only)'
+        required: false
+        default: false
+        type: boolean
       reason:
         description: 'Deployment reason'
         required: false
@@ -33,21 +38,19 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
-    # Run on push to main OR when PR is merged to main (not just closed)
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
 
     steps:
-      - name: ⚙️ Starting Backend Deployment
+      - name: Starting Backend Deployment
         run: |
           echo "============================================"
-          echo "  ⚙️ DEPLOYING THIRDBOOKS BACKEND API"
+          echo "  DEPLOYING THIRDBOOKS BACKEND API"
           echo "============================================"
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
           echo "Triggered by: ${{ github.actor }}"
           echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
           echo "Reason: ${{ github.event.inputs.reason || 'Automatic deployment' }}"
-          echo ""
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -76,10 +79,13 @@ jobs:
         working-directory: backend
         run: |
           cp composer.json composer.json.backup
-          # Fix stancl/tenancy version
-          sed -i 's/"stancl\/tenancy": "\^4.0"/"stancl\/tenancy": "^3.8"/g' composer.json
-          # Remove require-dev section
-          php -r '$json = json_decode(file_get_contents("composer.json"), true); unset($json["require-dev"]); file_put_contents("composer.json", json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));'
+          # Pin stancl/tenancy to a compatible version for production
+          php -r '
+            $json = json_decode(file_get_contents("composer.json"), true);
+            $json["require"]["stancl/tenancy"] = "^3.8";
+            unset($json["require-dev"]);
+            file_put_contents("composer.json", json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+          '
 
       - name: Install Composer Dependencies
         working-directory: backend
@@ -95,7 +101,7 @@ jobs:
       - name: Create production .env file
         working-directory: backend
         run: |
-          cat > .env << 'ENVEOF'
+          cat > .env <<EOF
           APP_NAME=ThirdBooks
           APP_ENV=production
           APP_KEY=${{ secrets.APP_KEY }}
@@ -103,7 +109,7 @@ jobs:
           APP_URL=${{ secrets.APP_URL }}
           APP_TIMEZONE=Africa/Kampala
 
-          LOG_CHANNEL=stack
+          LOG_CHANNEL=daily
           LOG_LEVEL=error
 
           DB_CONNECTION=mysql
@@ -120,6 +126,7 @@ jobs:
           TENANT_DB_PASSWORD=${{ secrets.DB_PASSWORD }}
 
           TENANCY_ENABLED=true
+          TENANCY_MODE=single
 
           CACHE_DRIVER=file
           QUEUE_CONNECTION=database
@@ -127,7 +134,12 @@ jobs:
           SESSION_LIFETIME=120
 
           SANCTUM_STATEFUL_DOMAINS=${{ secrets.SANCTUM_DOMAINS }}
-          ENVEOF
+          SANCTUM_TOKEN_EXPIRATION=1440
+          EOF
+
+      - name: Create deploy token file
+        working-directory: backend
+        run: echo "${{ secrets.DEPLOY_HOOK_SECRET }}" > .deploy-token
 
       - name: Prepare deployment package
         working-directory: backend
@@ -141,15 +153,18 @@ jobs:
             --exclude='tests' \
             --exclude='phpunit.xml' \
             --exclude='composer.json.backup' \
+            --exclude='deploy_temp' \
             --exclude='storage/logs/*' \
-            --exclude='storage/framework/cache/*' \
+            --exclude='storage/framework/cache/data/*' \
             --exclude='storage/framework/sessions/*' \
             --exclude='storage/framework/views/*' \
             . deploy_temp/
 
+          # Copy public files to deploy root (DirectAdmin serves from public_html/)
           cp -r public/* deploy_temp/
           [ -f public/.htaccess ] && cp public/.htaccess deploy_temp/ || true
 
+          # Ensure required directories exist
           mkdir -p deploy_temp/storage/framework/{cache,sessions,views}
           mkdir -p deploy_temp/storage/logs
           mkdir -p deploy_temp/storage/app/public
@@ -157,14 +172,15 @@ jobs:
 
           find deploy_temp/storage -type d -exec touch {}/.gitkeep \;
 
-          cat > deploy_temp/DEPLOYMENT_INFO.txt << EOF
-          ThirdBooks Backend
+          cat > deploy_temp/DEPLOYMENT_INFO.txt <<EOF
+          ThirdBooks Backend API
           Deployed: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           Branch: ${{ github.ref_name }}
           Commit: ${{ github.sha }}
+          Actor: ${{ github.actor }}
           EOF
 
-      - name: Deploy to DirectAdmin via FTP
+      - name: Deploy Backend to DirectAdmin via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
@@ -178,36 +194,68 @@ jobs:
             **/node_modules/**
             **/tests/**
             storage/logs/**
-            storage/framework/cache/**
+            storage/framework/cache/data/**
             storage/framework/sessions/**
 
-      - name: ✅ Deployment Summary
-        if: success()
+      - name: Run Post-Deploy Hook (migrations, caching)
+        run: |
+          echo "Triggering post-deployment hook..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "X-Deploy-Token: ${{ secrets.DEPLOY_HOOK_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"migrate": true, "seed": ${{ github.event.inputs.run_seed || false }}, "cache": true}' \
+            "${{ secrets.APP_URL }}/deploy-hook.php" \
+            --max-time 120 || echo -e "\n000")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "WARNING: Post-deploy hook returned $HTTP_CODE"
+            echo "You may need to run migrations manually via SSH:"
+            echo "  cd /domains/api.thirdbooks.digital/public_html"
+            echo "  php artisan migrate --force"
+            echo "  php artisan config:cache"
+          fi
+
+      - name: Verify API Health
+        run: |
+          echo "Waiting 10 seconds for server to stabilize..."
+          sleep 10
+
+          echo "Checking API health endpoint..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.APP_URL }}/api/health" \
+            --max-time 30 || echo "000")
+
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "API health check PASSED (HTTP $HTTP_STATUS)"
+            HEALTH=$(curl -s "${{ secrets.APP_URL }}/api/health" --max-time 10)
+            echo "Response: $HEALTH"
+          else
+            echo "WARNING: API health check returned HTTP $HTTP_STATUS"
+            echo "The API may still be initializing. Check manually:"
+            echo "  curl ${{ secrets.APP_URL }}/api/health"
+          fi
+
+      - name: Deployment Summary
+        if: always()
         run: |
           echo "============================================"
-          echo "  ✅ BACKEND API DEPLOYED SUCCESSFULLY!"
+          echo "  BACKEND DEPLOYMENT COMPLETE"
           echo "============================================"
           echo ""
-          echo "🌐 API URL: ${{ secrets.APP_URL }}"
-          echo "📦 Branch: ${{ github.ref_name }}"
-          echo "📝 Commit: ${{ github.sha }}"
-          echo "⏰ Time: $(date -u)"
+          echo "API URL: ${{ secrets.APP_URL }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Time: $(date -u)"
           echo ""
-          echo "🔧 CRITICAL POST-DEPLOYMENT STEPS (SSH Required):"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "1. Set permissions:"
-          echo "   chmod -R 775 storage bootstrap/cache"
-          echo ""
-          echo "2. Run migrations:"
-          echo "   php artisan migrate --force"
-          echo ""
-          echo "3. Seed database (first time only):"
-          echo "   php artisan db:seed --force"
-          echo ""
-          echo "4. Cache configuration:"
-          echo "   php artisan config:cache"
-          echo ""
-          echo "5. Test API health:"
-          echo "   curl ${{ secrets.APP_URL }}/api/health"
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Required GitHub Secrets:"
+          echo "  FTP_HOST, FTP_USERNAME, FTP_PASSWORD"
+          echo "  APP_KEY, APP_URL"
+          echo "  DB_HOST, DB_DATABASE, DB_USERNAME, DB_PASSWORD"
+          echo "  SANCTUM_DOMAINS"
+          echo "  DEPLOY_HOOK_SECRET (for automated migrations)"
