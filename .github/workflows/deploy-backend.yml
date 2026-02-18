@@ -3,10 +3,12 @@ name: Deploy Backend API to Production
 on:
   push:
     branches:
+      - master
       - main
       - 'claude/thirdbooks-accounting-system-*'
   pull_request:
     branches:
+      - master
       - main
       - 'claude/thirdbooks-accounting-system-*'
     types: [ closed ]

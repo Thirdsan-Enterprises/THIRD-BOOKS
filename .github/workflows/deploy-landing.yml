@@ -3,10 +3,12 @@ name: Deploy Landing Page & Admin Panel to Production
 on:
   push:
     branches:
+      - master
       - main
       - 'claude/thirdbooks-accounting-system-*'
   pull_request:
     branches:
+      - master
       - main
       - 'claude/thirdbooks-accounting-system-*'
     types: [ closed ]
