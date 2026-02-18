@@ -7,7 +7,7 @@ use App\Models\Sales\Invoice;
 use App\Models\Sales\Customer;
 use App\Models\Purchases\Bill;
 use App\Models\Purchases\Vendor;
-use App\Models\Accounting\Payment;
+use App\Models\Sales\Payment;
 use App\Observers\InvoiceObserver;
 use App\Observers\CustomerObserver;
 use App\Observers\BillObserver;

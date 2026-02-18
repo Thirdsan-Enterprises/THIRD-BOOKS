@@ -2,7 +2,7 @@
 
 namespace App\Observers;
 
-use App\Models\Accounting\Payment;
+use App\Models\Sales\Payment;
 use App\Services\Sync\EventSourceService;
 
 class PaymentObserver
