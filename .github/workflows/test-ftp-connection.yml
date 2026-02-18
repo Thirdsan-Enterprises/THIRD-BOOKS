@@ -1,26 +1,27 @@
-name: 🔍 Test FTP Connection & Path
+name: Test FTP Connection & Path
 
 on:
   workflow_dispatch:
     inputs:
       test_path:
-        description: 'FTP path to test (default: /domains/thirdbooks.digital/public_html/)'
+        description: 'FTP path to test (default: /thirdbooks.digital/public_html/)'
         required: false
-        default: '/domains/thirdbooks.digital/public_html/'
+        default: '/thirdbooks.digital/public_html/'
 
 jobs:
   test-ftp:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 🔍 Test FTP Connection
+      - name: Test FTP Connection
         run: |
           echo "============================================"
-          echo "  🔍 TESTING FTP CONNECTION"
+          echo "  TESTING FTP CONNECTION"
           echo "============================================"
           echo "Server: ${{ secrets.FTP_HOST }}"
           echo "Username: ${{ secrets.FTP_USERNAME }}"
-          echo "Test Path: ${{ github.event.inputs.test_path || '/domains/thirdbooks.digital/public_html/' }}"
+          echo "FTP Root: /home/kandan/domains/"
+          echo "Test Path: ${{ github.event.inputs.test_path || '/thirdbooks.digital/public_html/' }}"
           echo ""
 
       - name: Checkout code
@@ -33,33 +34,31 @@ jobs:
           echo "Test file created"
           cat test-deploy/test.html
 
-      - name: 📤 Deploy test file via FTP
+      - name: Deploy test file via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./test-deploy/
-          server-dir: ${{ github.event.inputs.test_path || '/domains/thirdbooks.digital/public_html/' }}
+          server-dir: ${{ github.event.inputs.test_path || '/thirdbooks.digital/public_html/' }}
           dangerous-clean-slate: false
           log-level: verbose
 
-      - name: ✅ Test Summary
+      - name: Test Summary
         if: success()
         run: |
           echo "============================================"
-          echo "  ✅ FTP TEST SUCCESSFUL!"
+          echo "  FTP TEST SUCCESSFUL!"
           echo "============================================"
           echo ""
-          echo "Test file uploaded to:"
-          echo "  Path: ${{ github.event.inputs.test_path || '/domains/thirdbooks.digital/public_html/' }}test.html"
+          echo "FTP account root: /home/kandan/domains/"
+          echo "Test file uploaded to: ${{ github.event.inputs.test_path || '/thirdbooks.digital/public_html/' }}test.html"
           echo ""
           echo "Check if accessible at:"
           echo "  https://thirdbooks.digital/test.html"
           echo ""
-          echo "If you can see the test page, the FTP path is correct!"
-          echo "If not, try these alternative paths:"
-          echo "  - /public_html/"
-          echo "  - /domains/thirdbooks.digital/public_html/"
-          echo "  - /home/username/domains/thirdbooks.digital/public_html/"
-          echo "  - /home/username/public_html/"
+          echo "Deployment paths:"
+          echo "  Landing page:  /thirdbooks.digital/public_html/"
+          echo "  Admin panel:   /thirdbooks.digital/public_html/admin/"
+          echo "  Backend API:   /api.thirdbooks.digital/public_html/"

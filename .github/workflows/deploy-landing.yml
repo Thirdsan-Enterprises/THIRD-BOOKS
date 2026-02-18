@@ -54,7 +54,7 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./landing-page/
-          server-dir: /domains/thirdbooks.digital/public_html/
+          server-dir: /thirdbooks.digital/public_html/
           dangerous-clean-slate: false
           exclude: |
             **/.git*
@@ -105,7 +105,7 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./admin-panel/
-          server-dir: /domains/thirdbooks.digital/public_html/admin/
+          server-dir: /thirdbooks.digital/public_html/admin/
           dangerous-clean-slate: false
           exclude: |
             **/.git*

@@ -187,7 +187,7 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./backend/deploy_temp/
-          server-dir: /domains/api.thirdbooks.digital/public_html/
+          server-dir: /api.thirdbooks.digital/public_html/
           dangerous-clean-slate: false
           exclude: |
             **/.git*
