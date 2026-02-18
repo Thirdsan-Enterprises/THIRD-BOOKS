@@ -116,6 +116,11 @@ jobs:
           cp -r public/* deploy_temp/
           cp public/.htaccess deploy_temp/.htaccess
 
+          # Fix index.php paths - since public/ is flattened into the same
+          # directory as vendor/, bootstrap/, storage/, we need __DIR__.'/'
+          # instead of __DIR__.'/../'
+          sed -i "s|__DIR__.'/../|__DIR__.'/|g" deploy_temp/index.php
+
           # Required writable directories
           mkdir -p deploy_temp/storage/framework/{cache/data,sessions,views}
           mkdir -p deploy_temp/storage/logs
