@@ -108,6 +108,12 @@ final currentUserProvider = Provider<User?>((ref) {
   return ref.watch(authStateProvider).user;
 });
 
+// Demo mode provider - true when using demo token
+final isDemoModeProvider = Provider<bool>((ref) {
+  final token = ref.watch(authStateProvider).token;
+  return token != null && token.startsWith('demo-token');
+});
+
 // Auth notifier
 class AuthNotifier extends StateNotifier<AuthState> {
   final AuthService _authService;
@@ -153,6 +159,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
       return false;
     }
+  }
+
+  Future<void> loginAsDemo() async {
+    state = state.copyWith(isLoading: true, error: null);
+    final result = await _authService.loginDemo();
+    state = AuthState(
+      isAuthenticated: true,
+      user: result['user'],
+      token: result['token'],
+    );
   }
 
   Future<void> logout() async {
@@ -357,6 +373,33 @@ class AuthService {
     }
 
     throw Exception('Invalid email or password. Use demo credentials:\nadmin@thirdbooks.digital / Admin@123');
+  }
+
+  // Direct demo login - no credentials required
+  Future<Map<String, dynamic>> loginDemo() async {
+    final demoUser = {
+      'id': 1,
+      'tenant_id': '1',
+      'name': 'Demo User',
+      'email': 'demo@thirdbooks.digital',
+      'phone': '+256 700 000000',
+      'role': 'admin',
+      'is_active': true,
+      'created_at': DateTime.now().toIso8601String(),
+    };
+
+    const demoToken = 'demo-token-thirdbooks-2026';
+
+    await _storage.write(key: _tokenKey, value: demoToken);
+    await _storage.write(key: _userKey, value: jsonEncode(demoUser));
+
+    final expiry = DateTime.now().add(const Duration(hours: 24));
+    await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
+
+    return {
+      'token': demoToken,
+      'user': User.fromJson(demoUser),
+    };
   }
 
   // Register

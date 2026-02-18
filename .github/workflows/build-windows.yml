@@ -7,7 +7,6 @@ on:
       - 'desktop/**'
       - '.github/workflows/build-windows.yml'
   workflow_dispatch:
-    # Manual trigger still available for when you need to build
 
 concurrency:
   group: build-windows-${{ github.ref }}
@@ -15,10 +14,11 @@ concurrency:
 
 env:
   FLUTTER_VERSION: '3.19.0'
+  APP_VERSION: '1.0.0'
 
 jobs:
   build-windows:
-    name: Build Windows x64
+    name: Build Windows x64 Installer
     runs-on: windows-latest
 
     steps:
@@ -51,11 +51,32 @@ jobs:
             flutter create --platforms=windows --org=com.thirdbooks --project-name=thirdbooks .
           }
 
-      - name: Show project structure
+      - name: Generate app icon
         working-directory: desktop
+        shell: pwsh
         run: |
-          Write-Host "Project structure:"
-          Get-ChildItem -Recurse -Depth 2 | Where-Object { $_.PSIsContainer } | Select-Object FullName
+          # Install Magick for SVG to ICO conversion
+          choco install imagemagick -y --no-progress
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+          # Convert SVG to ICO with multiple sizes for Windows
+          $svgPath = "assets/images/icon.svg"
+          $icoPath = "assets/images/app_icon.ico"
+          $pngPath = "assets/images/app_icon.png"
+
+          # Generate PNG first (256x256)
+          magick convert -background none -resize 256x256 $svgPath $pngPath
+
+          # Generate ICO with multiple sizes
+          magick convert $pngPath -define icon:auto-resize=256,128,64,48,32,16 $icoPath
+
+          Write-Host "Generated app_icon.ico and app_icon.png"
+
+          # Replace the default Flutter icon in the windows runner
+          if (Test-Path "windows/runner/resources") {
+            Copy-Item $icoPath "windows/runner/resources/app_icon.ico" -Force
+            Write-Host "Replaced windows runner icon"
+          }
 
       - name: Get dependencies
         working-directory: desktop
@@ -89,17 +110,38 @@ jobs:
           Write-Host "Build output structure:"
           Get-ChildItem -Recurse build/windows/x64/runner/Release | Select-Object FullName
 
-      - name: Create ZIP package
-        working-directory: desktop/build/windows/x64/runner/Release
+      - name: Create installer with Inno Setup
+        working-directory: desktop
+        shell: pwsh
         run: |
-          Compress-Archive -Path * -DestinationPath ThirdBooks-Windows-x64.zip
-          Move-Item ThirdBooks-Windows-x64.zip $env:GITHUB_WORKSPACE/
+          # Inno Setup is pre-installed on windows-latest runners
+          $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $innoPath)) {
+            # Try alternate location
+            $innoPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path $innoPath)) {
+            Write-Host "Installing Inno Setup..."
+            choco install innosetup -y --no-progress
+            $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
 
-      - name: Upload Windows artifact
+          Write-Host "Using Inno Setup at: $innoPath"
+
+          # Create output directory
+          New-Item -ItemType Directory -Path "build/installer" -Force
+
+          # Run Inno Setup compiler
+          & $innoPath "installer/thirdbooks_setup.iss"
+
+          Write-Host "Installer created:"
+          Get-ChildItem "build/installer"
+
+      - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
-          name: ThirdBooks-Windows-x64
-          path: ThirdBooks-Windows-x64.zip
+          name: ThirdBooks-Setup-x64
+          path: desktop/build/installer/ThirdBooks-Setup-${{ env.APP_VERSION }}-x64.exe
           retention-days: 30
           if-no-files-found: error
 
@@ -110,7 +152,8 @@ jobs:
           Write-Host "  WINDOWS BUILD COMPLETE"
           Write-Host "========================================"
           Write-Host ""
-          Write-Host "Artifact: ThirdBooks-Windows-x64.zip"
+          Write-Host "Artifact: ThirdBooks-Setup-${{ env.APP_VERSION }}-x64.exe"
           Write-Host "Platform: Windows x64"
           Write-Host "Flutter:  ${{ env.FLUTTER_VERSION }}"
+          Write-Host "Output:   Single installer (.exe)"
           Write-Host ""
