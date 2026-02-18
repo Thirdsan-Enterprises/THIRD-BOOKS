@@ -13,11 +13,6 @@ on:
     types: [ closed ]
   workflow_dispatch:
     inputs:
-      run_seed:
-        description: 'Run database seeder (first deploy only)'
-        required: false
-        default: false
-        type: boolean
       reason:
         description: 'Deployment reason'
         required: false
@@ -34,15 +29,6 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
 
     steps:
-      - name: Starting Backend Deployment
-        run: |
-          echo "============================================"
-          echo "  DEPLOYING THIRDBOOKS BACKEND API"
-          echo "============================================"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Commit: ${{ github.sha }}"
-          echo "Triggered by: ${{ github.actor }}"
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -54,22 +40,11 @@ jobs:
           coverage: none
           tools: composer:v2
 
-      - name: Install Composer Dependencies
+      # .env MUST exist before composer runs (artisan needs APP_KEY)
+      - name: Create .env file
         working-directory: backend
         run: |
-          # Use composer update (not install) since there is no composer.lock
-          composer update \
-            --no-dev \
-            --optimize-autoloader \
-            --no-interaction \
-            --prefer-dist \
-            --no-progress
-          composer dump-autoload --optimize --classmap-authoritative
-
-      - name: Create production .env file
-        working-directory: backend
-        run: |
-          cat > .env << 'ENVEOF'
+          cat > .env <<'EOF'
           APP_NAME=ThirdBooks
           APP_ENV=production
           APP_KEY=${{ secrets.APP_KEY }}
@@ -97,18 +72,32 @@ jobs:
           SESSION_LIFETIME=120
           SANCTUM_STATEFUL_DOMAINS=${{ secrets.SANCTUM_DOMAINS }}
           SANCTUM_TOKEN_EXPIRATION=1440
-          ENVEOF
+          EOF
+          echo ".env created"
 
-      - name: Create deploy token file
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          composer update \
+            --no-dev \
+            --no-scripts \
+            --optimize-autoloader \
+            --no-interaction \
+            --prefer-dist \
+            --no-progress
+          composer dump-autoload --optimize --classmap-authoritative
+          echo "Dependencies installed. Vendor size: $(du -sh vendor/ | cut -f1)"
+
+      - name: Create deploy token
         working-directory: backend
         run: echo "${{ secrets.DEPLOY_HOOK_SECRET }}" > .deploy-token
 
-      - name: Prepare deployment package
+      - name: Build deployment package
         working-directory: backend
         run: |
           mkdir -p deploy_temp
 
-          # Copy backend source (excluding dev/build files)
+          # Copy entire backend
           rsync -a \
             --exclude='public' \
             --exclude='node_modules' \
@@ -122,40 +111,29 @@ jobs:
             --exclude='storage/framework/views/*' \
             . deploy_temp/
 
-          # Flatten public/ into deploy root (DirectAdmin serves from public_html/)
+          # Flatten public/ into root (DirectAdmin serves from public_html/)
           cp -r public/* deploy_temp/
           cp public/.htaccess deploy_temp/.htaccess
 
-          # Ensure required directories exist
+          # Required writable directories
           mkdir -p deploy_temp/storage/framework/{cache/data,sessions,views}
           mkdir -p deploy_temp/storage/logs
           mkdir -p deploy_temp/storage/app/public
           mkdir -p deploy_temp/bootstrap/cache
-
           find deploy_temp/storage -type d -exec touch {}/.gitkeep \;
           touch deploy_temp/bootstrap/cache/.gitkeep
 
-          # Verify critical files
-          echo "=== Deployment package verification ==="
-          for f in index.php .htaccess .env artisan bootstrap/app.php; do
-            if [ -f "deploy_temp/$f" ]; then
-              echo "OK: $f"
-            else
-              echo "MISSING: $f"
-              exit 1
-            fi
+          # Verify
+          echo "=== Package check ==="
+          for f in index.php .htaccess .env artisan; do
+            [ -f "deploy_temp/$f" ] && echo "OK $f" || { echo "FAIL $f"; exit 1; }
           done
-          for d in app config vendor routes storage bootstrap/cache; do
-            if [ -d "deploy_temp/$d" ]; then
-              echo "OK: $d/"
-            else
-              echo "MISSING: $d/"
-              exit 1
-            fi
+          for d in app config vendor routes storage; do
+            [ -d "deploy_temp/$d" ] && echo "OK $d/" || { echo "FAIL $d/"; exit 1; }
           done
-          echo "Total size: $(du -sh deploy_temp/ | cut -f1)"
+          echo "Size: $(du -sh deploy_temp/ | cut -f1)"
 
-      - name: Deploy Backend to DirectAdmin via FTP
+      - name: Deploy to api.thirdbooks.digital
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
@@ -169,36 +147,13 @@ jobs:
             **/node_modules/**
             **/tests/**
 
-      - name: Verify API Health
-        if: success()
-        run: |
-          echo "Waiting 15 seconds for server to stabilize..."
-          sleep 15
-
-          for i in 1 2 3; do
-            HTTP_STATUS=$(curl -s -o /tmp/health -w "%{http_code}" \
-              "${{ secrets.APP_URL }}/api/health" --max-time 30 2>/dev/null || echo "000")
-
-            if [ "$HTTP_STATUS" = "200" ]; then
-              echo "API health check PASSED (HTTP $HTTP_STATUS)"
-              cat /tmp/health
-              break
-            fi
-            echo "Attempt $i: HTTP $HTTP_STATUS - retrying in 10s..."
-            sleep 10
-          done
-
-          if [ "$HTTP_STATUS" != "200" ]; then
-            echo "API not responding yet. Check: ${{ secrets.APP_URL }}/api/health"
-          fi
-
-      - name: Deployment Summary
+      - name: Verify deployment
         if: always()
         run: |
-          echo "============================================"
-          echo "  BACKEND DEPLOYMENT COMPLETE"
-          echo "============================================"
-          echo "API: ${{ secrets.APP_URL }}"
+          echo "Backend deployed to: /api.thirdbooks.digital/public_html/"
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
           echo "Time: $(date -u)"
+          sleep 10
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" "${{ secrets.APP_URL }}/api/health" --max-time 20 2>/dev/null || echo "000")
+          echo "Health check: HTTP $HTTP"
