@@ -5,23 +5,14 @@ on:
     branches:
       - master
       - main
-      - 'claude/thirdbooks-accounting-system-*'
+      - 'claude/**'
   pull_request:
     branches:
       - master
       - main
-      - 'claude/thirdbooks-accounting-system-*'
     types: [ closed ]
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Deployment environment'
-        required: true
-        default: 'production'
-        type: choice
-        options:
-          - production
-          - staging
       run_seed:
         description: 'Run database seeder (first deploy only)'
         required: false
@@ -51,8 +42,6 @@ jobs:
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
           echo "Triggered by: ${{ github.actor }}"
-          echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
-          echo "Reason: ${{ github.event.inputs.reason || 'Automatic deployment' }}"
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -65,34 +54,11 @@ jobs:
           coverage: none
           tools: composer:v2
 
-      - name: Validate composer.json
-        working-directory: backend
-        run: composer validate --no-check-publish || true
-
-      - name: Cache Composer dependencies
-        uses: actions/cache@v4
-        with:
-          path: backend/vendor
-          key: ${{ runner.os }}-composer-${{ hashFiles('backend/composer.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-composer-
-
-      - name: Prepare composer.json for deployment
-        working-directory: backend
-        run: |
-          cp composer.json composer.json.backup
-          # Pin stancl/tenancy to a compatible version for production
-          php -r '
-            $json = json_decode(file_get_contents("composer.json"), true);
-            $json["require"]["stancl/tenancy"] = "^3.8";
-            unset($json["require-dev"]);
-            file_put_contents("composer.json", json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-          '
-
       - name: Install Composer Dependencies
         working-directory: backend
         run: |
-          composer install \
+          # Use composer update (not install) since there is no composer.lock
+          composer update \
             --no-dev \
             --optimize-autoloader \
             --no-interaction \
@@ -103,41 +69,35 @@ jobs:
       - name: Create production .env file
         working-directory: backend
         run: |
-          cat > .env <<EOF
+          cat > .env << 'ENVEOF'
           APP_NAME=ThirdBooks
           APP_ENV=production
           APP_KEY=${{ secrets.APP_KEY }}
           APP_DEBUG=false
           APP_URL=${{ secrets.APP_URL }}
           APP_TIMEZONE=Africa/Kampala
-
           LOG_CHANNEL=daily
           LOG_LEVEL=error
-
           DB_CONNECTION=mysql
           DB_HOST=${{ secrets.DB_HOST }}
           DB_PORT=3306
           DB_DATABASE=${{ secrets.DB_DATABASE }}
           DB_USERNAME=${{ secrets.DB_USERNAME }}
           DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-
           TENANT_DB_CONNECTION=tenant_mysql
           TENANT_DB_HOST=${{ secrets.DB_HOST }}
           TENANT_DB_PORT=3306
           TENANT_DB_USERNAME=${{ secrets.DB_USERNAME }}
           TENANT_DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-
           TENANCY_ENABLED=true
           TENANCY_MODE=single
-
           CACHE_DRIVER=file
           QUEUE_CONNECTION=database
           SESSION_DRIVER=file
           SESSION_LIFETIME=120
-
           SANCTUM_STATEFUL_DOMAINS=${{ secrets.SANCTUM_DOMAINS }}
           SANCTUM_TOKEN_EXPIRATION=1440
-          EOF
+          ENVEOF
 
       - name: Create deploy token file
         working-directory: backend
@@ -148,39 +108,52 @@ jobs:
         run: |
           mkdir -p deploy_temp
 
-          rsync -av \
+          # Copy backend source (excluding dev/build files)
+          rsync -a \
             --exclude='public' \
             --exclude='node_modules' \
             --exclude='.git' \
             --exclude='tests' \
             --exclude='phpunit.xml' \
-            --exclude='composer.json.backup' \
             --exclude='deploy_temp' \
-            --exclude='storage/logs/*' \
+            --exclude='storage/logs/*.log' \
             --exclude='storage/framework/cache/data/*' \
             --exclude='storage/framework/sessions/*' \
             --exclude='storage/framework/views/*' \
             . deploy_temp/
 
-          # Copy public files to deploy root (DirectAdmin serves from public_html/)
+          # Flatten public/ into deploy root (DirectAdmin serves from public_html/)
           cp -r public/* deploy_temp/
-          [ -f public/.htaccess ] && cp public/.htaccess deploy_temp/ || true
+          cp public/.htaccess deploy_temp/.htaccess
 
           # Ensure required directories exist
-          mkdir -p deploy_temp/storage/framework/{cache,sessions,views}
+          mkdir -p deploy_temp/storage/framework/{cache/data,sessions,views}
           mkdir -p deploy_temp/storage/logs
           mkdir -p deploy_temp/storage/app/public
           mkdir -p deploy_temp/bootstrap/cache
 
           find deploy_temp/storage -type d -exec touch {}/.gitkeep \;
+          touch deploy_temp/bootstrap/cache/.gitkeep
 
-          cat > deploy_temp/DEPLOYMENT_INFO.txt <<EOF
-          ThirdBooks Backend API
-          Deployed: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          Branch: ${{ github.ref_name }}
-          Commit: ${{ github.sha }}
-          Actor: ${{ github.actor }}
-          EOF
+          # Verify critical files
+          echo "=== Deployment package verification ==="
+          for f in index.php .htaccess .env artisan bootstrap/app.php; do
+            if [ -f "deploy_temp/$f" ]; then
+              echo "OK: $f"
+            else
+              echo "MISSING: $f"
+              exit 1
+            fi
+          done
+          for d in app config vendor routes storage bootstrap/cache; do
+            if [ -d "deploy_temp/$d" ]; then
+              echo "OK: $d/"
+            else
+              echo "MISSING: $d/"
+              exit 1
+            fi
+          done
+          echo "Total size: $(du -sh deploy_temp/ | cut -f1)"
 
       - name: Deploy Backend to DirectAdmin via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -195,52 +168,28 @@ jobs:
             **/.git*
             **/node_modules/**
             **/tests/**
-            storage/logs/**
-            storage/framework/cache/data/**
-            storage/framework/sessions/**
-
-      - name: Run Post-Deploy Hook (migrations, caching)
-        run: |
-          echo "Triggering post-deployment hook..."
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            -H "X-Deploy-Token: ${{ secrets.DEPLOY_HOOK_SECRET }}" \
-            -H "Content-Type: application/json" \
-            -d '{"migrate": true, "seed": ${{ github.event.inputs.run_seed || false }}, "cache": true}' \
-            "${{ secrets.APP_URL }}/deploy-hook.php" \
-            --max-time 120 || echo -e "\n000")
-
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
-
-          echo "HTTP Status: $HTTP_CODE"
-          echo "Response: $BODY"
-
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "WARNING: Post-deploy hook returned $HTTP_CODE"
-            echo "You may need to run migrations manually via SSH:"
-            echo "  cd /domains/api.thirdbooks.digital/public_html"
-            echo "  php artisan migrate --force"
-            echo "  php artisan config:cache"
-          fi
 
       - name: Verify API Health
+        if: success()
         run: |
-          echo "Waiting 10 seconds for server to stabilize..."
-          sleep 10
+          echo "Waiting 15 seconds for server to stabilize..."
+          sleep 15
 
-          echo "Checking API health endpoint..."
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            "${{ secrets.APP_URL }}/api/health" \
-            --max-time 30 || echo "000")
+          for i in 1 2 3; do
+            HTTP_STATUS=$(curl -s -o /tmp/health -w "%{http_code}" \
+              "${{ secrets.APP_URL }}/api/health" --max-time 30 2>/dev/null || echo "000")
 
-          if [ "$HTTP_STATUS" = "200" ]; then
-            echo "API health check PASSED (HTTP $HTTP_STATUS)"
-            HEALTH=$(curl -s "${{ secrets.APP_URL }}/api/health" --max-time 10)
-            echo "Response: $HEALTH"
-          else
-            echo "WARNING: API health check returned HTTP $HTTP_STATUS"
-            echo "The API may still be initializing. Check manually:"
-            echo "  curl ${{ secrets.APP_URL }}/api/health"
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "API health check PASSED (HTTP $HTTP_STATUS)"
+              cat /tmp/health
+              break
+            fi
+            echo "Attempt $i: HTTP $HTTP_STATUS - retrying in 10s..."
+            sleep 10
+          done
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "API not responding yet. Check: ${{ secrets.APP_URL }}/api/health"
           fi
 
       - name: Deployment Summary
@@ -249,15 +198,7 @@ jobs:
           echo "============================================"
           echo "  BACKEND DEPLOYMENT COMPLETE"
           echo "============================================"
-          echo ""
-          echo "API URL: ${{ secrets.APP_URL }}"
+          echo "API: ${{ secrets.APP_URL }}"
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
           echo "Time: $(date -u)"
-          echo ""
-          echo "Required GitHub Secrets:"
-          echo "  FTP_HOST, FTP_USERNAME, FTP_PASSWORD"
-          echo "  APP_KEY, APP_URL"
-          echo "  DB_HOST, DB_DATABASE, DB_USERNAME, DB_PASSWORD"
-          echo "  SANCTUM_DOMAINS"
-          echo "  DEPLOY_HOOK_SECRET (for automated migrations)"

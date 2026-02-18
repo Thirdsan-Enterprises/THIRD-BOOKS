@@ -5,12 +5,11 @@ on:
     branches:
       - master
       - main
-      - 'claude/thirdbooks-accounting-system-*'
+      - 'claude/**'
   pull_request:
     branches:
       - master
       - main
-      - 'claude/thirdbooks-accounting-system-*'
     types: [ closed ]
   workflow_dispatch:
     inputs:
