@@ -78,6 +78,7 @@ jobs:
       - name: Install dependencies
         working-directory: backend
         run: |
+          mkdir -p bootstrap/cache
           composer update \
             --no-dev \
             --no-scripts \
