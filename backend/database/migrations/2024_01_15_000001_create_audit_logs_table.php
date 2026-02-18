@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('audit_logs', function (Blueprint $table) {
             $table->id();
-            $table->uuid('user_id')->nullable()->index();
+            $table->unsignedBigInteger('user_id')->nullable()->index();
             $table->uuid('tenant_id')->nullable()->index();
             $table->string('action'); // tenant.created, tenant.suspended, user.updated, etc
             $table->string('entity_type')->nullable(); // Tenant, User, etc
