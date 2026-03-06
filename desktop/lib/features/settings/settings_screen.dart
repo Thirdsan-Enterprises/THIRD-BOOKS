@@ -279,9 +279,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _buildUsersPermissions(BuildContext context) {
     final users = [
-      {'name': 'John Doe', 'email': 'john@thirdbooks.com', 'role': 'Administrator', 'status': 'Active'},
-      {'name': 'Jane Smith', 'email': 'jane@thirdbooks.com', 'role': 'Accountant', 'status': 'Active'},
-      {'name': 'Bob Wilson', 'email': 'bob@thirdbooks.com', 'role': 'Viewer', 'status': 'Invited'},
+      {'name': 'Admin', 'email': 'admin@magicbet.ug', 'role': 'Administrator', 'status': 'Active'},
     ];
 
     return SingleChildScrollView(
