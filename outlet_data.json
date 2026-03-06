@@ -1,0 +1,742 @@
+[
+  {
+    "outlet_id":23101138,
+    "new id":3000,
+    "outlet_name":"MAGIC BET YUMBE",
+    "Address":"YUMBE",
+    "City":"YUMBE TOWN",
+    "Postal code":null,
+    "Region":"WEST NILE",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101150,
+    "new id":3001,
+    "outlet_name":"MAGIC BET ELEGU",
+    "Address":"ELUGU",
+    "City":"AMURU",
+    "Postal code":null,
+    "Region":"NORTH",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101196,
+    "new id":3002,
+    "outlet_name":"MAGIC BET GALAXY LIRA",
+    "Address":"LIRA",
+    "City":"LIRA",
+    "Postal code":null,
+    "Region":"NORTH",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101107,
+    "new id":3005,
+    "outlet_name":"MAGIC BET KASENSERO",
+    "Address":"KASENSERO",
+    "City":"RAKAI",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101184,
+    "new id":3006,
+    "outlet_name":"MAGIC BET MUTUKULA",
+    "Address":"MUTUKULA",
+    "City":"KYOTERA",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101165,
+    "new id":3003,
+    "outlet_name":"MAGIC BET APA SLOTS",
+    "Address":"ELUGU",
+    "City":"AMURU",
+    "Postal code":null,
+    "Region":"NORTH",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103153,
+    "new id":3004,
+    "outlet_name":"MAGIC BET LIRA BAR",
+    "Address":"LIRA",
+    "City":"LIRA",
+    "Postal code":null,
+    "Region":"NORTH",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23191166,
+    "new id":3007,
+    "outlet_name":"MAGIC BET ROIIKO",
+    "Address":"ELUGU",
+    "City":"AMURU",
+    "Postal code":null,
+    "Region":"NORTH",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103155,
+    "new id":3008,
+    "outlet_name":"MAGIC BET DOWN TOWN",
+    "Address":"ELUGU",
+    "City":"AMURU",
+    "Postal code":null,
+    "Region":"NORTH",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101144,
+    "new id":3009,
+    "outlet_name":"MAGIC BET NEBI SLOTS",
+    "Address":"GORI",
+    "City":"NEBBI",
+    "Postal code":null,
+    "Region":"WEST NILE",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101179,
+    "new id":3010,
+    "outlet_name":"MAGIC BET LYAKAHUNGU",
+    "Address":"LYAKAHUNGU",
+    "City":"KAMWENGE",
+    "Postal code":null,
+    "Region":"WEST ",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101152,
+    "new id":3011,
+    "outlet_name":"MAGIC BET KANYARUGIRI",
+    "Address":"BIHANGA",
+    "City":"IBANDA",
+    "Postal code":null,
+    "Region":"WEST ",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103122,
+    "new id":3012,
+    "outlet_name":"MAGIC BET LWEMIYAGA",
+    "Address":"LWEMIYAGA",
+    "City":"SEMBABULE",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103108,
+    "new id":3013,
+    "outlet_name":"MAGIC BET NYABITANGA",
+    "Address":"NYABITANGA",
+    "City":"SEMBABULE",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101134,
+    "new id":3014,
+    "outlet_name":"MAGIC BET NTUUSI",
+    "Address":"NTUUSI",
+    "City":"SEMBABULE",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103159,
+    "new id":3015,
+    "outlet_name":"MAGIC BET BUKASA",
+    "Address":"BUKASA",
+    "City":"KAMPALA",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103133,
+    "new id":3016,
+    "outlet_name":"MAGIC BET BAKKA SLOTS",
+    "Address":"MENDE",
+    "City":"WAKISO",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101184,
+    "new id":3017,
+    "outlet_name":"MAGIC BET MPERERWE",
+    "Address":"MPERERWE",
+    "City":"KAMPALA",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103186,
+    "new id":3018,
+    "outlet_name":"MAGIC BET KATWE",
+    "Address":"KATWE",
+    "City":"KAMPALA",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103192,
+    "new id":3019,
+    "outlet_name":"MAGIC BET KIBUYE",
+    "Address":"KIBUYE",
+    "City":"KAMPALA",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103191,
+    "new id":3020,
+    "outlet_name":"MAGIC BET NAMASOLE",
+    "Address":"MAKINDYE",
+    "City":"KAMPALA",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101131,
+    "new id":3021,
+    "outlet_name":"MAGIC BET NANSANA",
+    "Address":"NANSANA",
+    "City":"WAKISO",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103189,
+    "new id":3022,
+    "outlet_name":"MAGIC BET KASENYI ",
+    "Address":"KASENYI",
+    "City":"WAKISO",
+    "Postal code":null,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101154,
+    "new id":3023,
+    "outlet_name":"MAGIC BET RUKUNGIRI ",
+    "Address":"RUKUNGIRI",
+    "City":"RUKUNGIRI",
+    "Postal code":null,
+    "Region":"WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103127,
+    "new id":3024,
+    "outlet_name":"MAGIC BET KISORO ",
+    "Address":"KISORO",
+    "City":"KISORO",
+    "Postal code":null,
+    "Region":"SOUTH WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103130,
+    "new id":3025,
+    "outlet_name":"MAGIC BET TAX PARK ",
+    "Address":"RUKUNGIRI",
+    "City":"RUKUNGIRI",
+    "Postal code":null,
+    "Region":"WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103146,
+    "new id":3026,
+    "outlet_name":"  MAGIC BET KISORO BAR",
+    "Address":"KISORO",
+    "City":"KISORO",
+    "Postal code":null,
+    "Region":"SOUTH WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101146,
+    "new id":3028,
+    "outlet_name":"MAGIC BET GAYAZA",
+    "Address":"GAYAZA",
+    "City":"WAKISO",
+    "Postal code":" ",
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103102,
+    "new id":3027,
+    "outlet_name":"MAGIC BET KITI",
+    "Address":"KITI",
+    "City":"KALUNGU",
+    "Postal code":" ",
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103177,
+    "new id":3029,
+    "outlet_name":"MAGIC BET MATUGA",
+    "Address":"MATUGA",
+    "City":"WAKISO",
+    "Postal code":" ",
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103148,
+    "new id":3030,
+    "outlet_name":"MAGIC BET KAMULI",
+    "Address":"KASAMBILA",
+    "City":"KAMULI",
+    "Postal code":256,
+    "Region":"EAST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":"231 03178",
+    "new id":3031,
+    "outlet_name":"    MAGIC BET KITORO",
+    "Address":"ENTEBBE",
+    "City":"ENTEBBE",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103170,
+    "new id":3032,
+    "outlet_name":"MAGIC BET GARUGA",
+    "Address":"GARUGA",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103100,
+    "new id":3033,
+    "outlet_name":"MAGIC ABAYITA ",
+    "Address":"ABAYITA",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103194,
+    "new id":3034,
+    "outlet_name":"MAGIC BET BUSABALA",
+    "Address":"BUSABALA",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101167,
+    "new id":3035,
+    "outlet_name":"MAGIC BET MASITOWA",
+    "Address":"NANSANA",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":"23101199??",
+    "new id":3036,
+    "outlet_name":"MAGIC BET NAKULABYE 2",
+    "Address":"NAKULABYE",
+    "City":"KAMPALA",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103169,
+    "new id":3037,
+    "outlet_name":"MAGIC BET KAWUKU",
+    "Address":"KAWUKU",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103152,
+    "new id":3038,
+    "outlet_name":"MAGIC BET KASANDA",
+    "Address":"KASANDA",
+    "City":"KASANDA",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101113,
+    "new id":3039,
+    "outlet_name":"MAGIC BET MPERERWE NEW",
+    "Address":"MPERERWE",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103103,
+    "new id":3040,
+    "outlet_name":"MAGIC BET MUKONO",
+    "Address":"MUKONO",
+    "City":"MUKONO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101122,
+    "new id":3041,
+    "outlet_name":"MAGIC BET  NEW SLOT",
+    "Address":"KAMPALA",
+    "City":"KAMPALA",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103107,
+    "new id":3042,
+    "outlet_name":"MAGIC BET ENTEBBE NEW(kitala)",
+    "Address":"ENTEBBE",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103111,
+    "new id":3043,
+    "outlet_name":"ABAYITA ABAIRI 2",
+    "Address":"ABAYITA ABAIRI 2",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101177,
+    "new id":3044,
+    "outlet_name":"MAGIC BET BULINDO",
+    "Address":"BULINDO",
+    "City":"KIRA",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103135,
+    "new id":3045,
+    "outlet_name":"MAGIC BET  NAGULU",
+    "Address":"NAGULU",
+    "City":"KAMPALA",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103179,
+    "new id":3046,
+    "outlet_name":"MAGIC BET TRUST INN",
+    "Address":"BWERA",
+    "City":"KASESE",
+    "Postal code":256,
+    "Region":"WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103114,
+    "new id":3047,
+    "outlet_name":"MAGIC BET ANOTHER LIFE",
+    "Address":"KASESE",
+    "City":"KASESE",
+    "Postal code":256,
+    "Region":"WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103123,
+    "new id":3048,
+    "outlet_name":"MAGIC BET SILVER SPRINGS",
+    "Address":"KASESE",
+    "City":"KASESE",
+    "Postal code":256,
+    "Region":"WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103117,
+    "new id":3049,
+    "outlet_name":"MAGIC BET  MARIBA",
+    "Address":"KASESE",
+    "City":"KASESE",
+    "Postal code":256,
+    "Region":"WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103188,
+    "new id":3050,
+    "outlet_name":"MAGIC BET TROPICAL INN",
+    "Address":"KASESE",
+    "City":"KASESE",
+    "Postal code":256,
+    "Region":"WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101176,
+    "new id":3051,
+    "outlet_name":"MAGIC BET KIWALA",
+    "Address":"MUKONO",
+    "City":"MUKONO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101143,
+    "new id":3052,
+    "outlet_name":"MAGIC BET NAMAYIBA",
+    "Address":"KAMPALA",
+    "City":"KAMPALA",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101164,
+    "new id":3053,
+    "outlet_name":"MAGIC BET KITUKUTWE",
+    "Address":"KIRA",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101191,
+    "new id":3054,
+    "outlet_name":"MAGIC BET PLAN B",
+    "Address":"GULU",
+    "City":"GULU",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101187,
+    "new id":3055,
+    "outlet_name":"MAGIC BET B PUB",
+    "Address":"MASINDI",
+    "City":"MASINDI",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103171,
+    "new id":3056,
+    "outlet_name":"MAGIC BET NAMAWOJOLO",
+    "Address":"NAMAWOJOLO",
+    "City":"MUKONO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103110,
+    "new id":3057,
+    "outlet_name":"MAGIC BET KOSOVO",
+    "Address":"KOSOVO",
+    "City":"KAMPALA",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101172,
+    "new id":3058,
+    "outlet_name":"MAGIC BET KITEZI",
+    "Address":"KITEZI",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103142,
+    "new id":3059,
+    "outlet_name":"MAGIC BET MANAFWA",
+    "Address":"MANAFWA",
+    "City":"MANAFWA",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103180,
+    "new id":3060,
+    "outlet_name":"MAGIC BET TRIPOLI BAR",
+    "Address":"KASESE",
+    "City":"KASESE",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101194,
+    "new id":3061,
+    "outlet_name":"MAGIC BET ENTEBBE 3",
+    "Address":"ENTEBBE",
+    "City":"ENTEBBE",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103181,
+    "new id":3062,
+    "outlet_name":"MAGIC BET NANSANA 3",
+    "Address":"NANSANA",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103182,
+    "new id":3063,
+    "outlet_name":"MAGIC BET NKUMBA",
+    "Address":"NKUMBA",
+    "City":"ENTEBBE",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101188,
+    "new id":3064,
+    "outlet_name":"MAGIC BET MPALA",
+    "Address":"MPALA",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103143,
+    "new id":3065,
+    "outlet_name":"MAGIC BET KAMULI 2",
+    "Address":"KAMULI",
+    "City":"KAMULI",
+    "Postal code":256,
+    "Region":"EAST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103109,
+    "new id":3066,
+    "outlet_name":"MAGIC BET KAWUKU 2",
+    "Address":"KAWUKU",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103158,
+    "new id":3067,
+    "outlet_name":"MMAGIC BET APONYE",
+    "Address":"KAMPALA",
+    "City":"KAMPALA",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103144,
+    "new id":3068,
+    "outlet_name":"MAGGIC BET KASESE",
+    "Address":"KASESE",
+    "City":"KASESE",
+    "Postal code":256,
+    "Region":"WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101199,
+    "new id":3069,
+    "outlet_name":"MAGIC BET NABINGO",
+    "Address":"NABINGO",
+    "City":"WAKISO",
+    "Postal code":256,
+    "Region":"CENTRAL",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103146,
+    "new id":3070,
+    "outlet_name":"MAGIF BET KISORO",
+    "Address":"KISORO",
+    "City":"KISORO",
+    "Postal code":256,
+    "Region":"WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103128,
+    "new id":3071,
+    "outlet_name":"MAGIC BET KAMWENGE",
+    "Address":"KAMWENGE",
+    "City":"KAMWENGE",
+    "Postal code":256,
+    "Region":"WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23103173,
+    "new id":3072,
+    "outlet_name":"MAGIC BET RWAMWANJA",
+    "Address":"RWAMWANJA",
+    "City":"RWAMWANJA",
+    "Postal code":256,
+    "Region":"WEST",
+    "Venue_type":"OUTLET"
+  },
+  {
+    "outlet_id":23101155,
+    "new id":3073,
+    "outlet_name":"MAGIC BET KAHENDERO",
+    "Address":"KASESE",
+    "City":"KASESE",
+    "Postal code":256,
+    "Region":"WEST",
+    "Venue_type":"OUTLET"
+  }
+]

@@ -102,35 +102,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         // Logo
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
+                        Center(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              padding: const EdgeInsets.all(24),
                               decoration: BoxDecoration(
-                                color: AppColors.secondary,
-                                borderRadius: BorderRadius.circular(12),
+                                color: const Color(0xFF1a2744),
+                                borderRadius: BorderRadius.circular(16),
                               ),
-                              child: const Icon(
-                                Icons.account_balance,
-                                color: Colors.white,
-                                size: 32,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            const Text(
-                              'ThirdBooks',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 28,
-                                fontWeight: FontWeight.bold,
+                              child: Image.asset(
+                                'assets/images/magic_bet_logo.jpeg',
+                                width: 300,
+                                fit: BoxFit.contain,
                               ),
                             ),
-                          ],
+                          ),
                         ),
                         const Spacer(),
-                        // Tagline
+                        // Company Name
                         const Text(
-                          'Professional\nAccounting\nSoftware',
+                          'MAGIC BET LTD',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 48,
@@ -140,7 +132,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                         const SizedBox(height: 24),
                         Text(
-                          'Streamline your financial operations with powerful\noffline-first accounting designed for MSMEs.',
+                          'Professional Betting & Gaming Accounting System\nManage outlets, track revenue, and streamline operations.',
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.8),
                             fontSize: 16,
@@ -149,15 +141,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                         const SizedBox(height: 48),
                         // Features
-                        _buildFeature(Icons.offline_bolt_outlined, 'Work Offline, Sync Anytime'),
+                        _buildFeature(Icons.store_outlined, 'Multi-Outlet Management'),
                         const SizedBox(height: 16),
-                        _buildFeature(Icons.security_outlined, 'Bank-Grade Security'),
+                        _buildFeature(Icons.account_balance_wallet_outlined, 'Revenue & Commission Tracking'),
                         const SizedBox(height: 16),
-                        _buildFeature(Icons.analytics_outlined, 'Real-Time Reports'),
+                        _buildFeature(Icons.analytics_outlined, 'Real-Time Performance Reports'),
                         const Spacer(),
                         // Footer
                         Text(
-                          '© 2026 ThirdBooks. All rights reserved.',
+                          '© 2026 Magic Bet LTD. All rights reserved.',
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.5),
                             fontSize: 13,
