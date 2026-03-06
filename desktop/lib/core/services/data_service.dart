@@ -614,16 +614,6 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
     );
   }
 
-  List<models.Invoice> _getDemoInvoices() {
-    final now = DateTime.now();
-    return [
-      models.Invoice(id: '1', invoiceNumber: 'INV-2026-0001', customerId: '1', customerName: 'Kampala Traders Ltd', date: DateTime(2026, 1, 15), dueDate: DateTime(2026, 2, 14), subtotal: 5000000, taxAmount: 900000, total: 5900000, amountPaid: 5900000, status: models.InvoiceStatus.paid, lines: [], createdAt: now, updatedAt: now),
-      models.Invoice(id: '2', invoiceNumber: 'INV-2026-0002', customerId: '2', customerName: 'Jinja Hardware Supplies', date: DateTime(2026, 1, 18), dueDate: DateTime(2026, 2, 17), subtotal: 3200000, taxAmount: 576000, total: 3776000, amountPaid: 2000000, status: models.InvoiceStatus.partial, lines: [], createdAt: now, updatedAt: now),
-      models.Invoice(id: '3', invoiceNumber: 'INV-2026-0003', customerId: '4', customerName: 'Mbarara Beverages Co', date: DateTime(2026, 1, 20), dueDate: DateTime(2026, 2, 19), subtotal: 8500000, taxAmount: 1530000, total: 10030000, amountPaid: 0, status: models.InvoiceStatus.pending, lines: [], createdAt: now, updatedAt: now),
-      models.Invoice(id: '4', invoiceNumber: 'INV-2026-0004', customerId: '1', customerName: 'Kampala Traders Ltd', date: DateTime(2026, 1, 22), dueDate: DateTime(2026, 2, 21), subtotal: 2450000, taxAmount: 441000, total: 2891000, amountPaid: 0, status: models.InvoiceStatus.pending, lines: [], createdAt: now, updatedAt: now),
-      models.Invoice(id: '5', invoiceNumber: 'INV-2026-0005', customerId: '5', customerName: 'Gulu Construction Works', date: DateTime(2025, 12, 1), dueDate: DateTime(2025, 12, 31), subtotal: 15000000, taxAmount: 2700000, total: 17700000, amountPaid: 0, status: models.InvoiceStatus.overdue, lines: [], createdAt: now, updatedAt: now),
-    ];
-  }
 }
 
 final invoicesProvider = StateNotifierProvider<InvoicesNotifier, InvoicesState>((ref) {
@@ -762,16 +752,6 @@ class BillsNotifier extends StateNotifier<BillsState> {
     );
   }
 
-  List<models.Bill> _getDemoBills() {
-    final now = DateTime.now();
-    return [
-      models.Bill(id: '1', billNumber: 'BILL-2026-0001', vendorId: '1', vendorName: 'Uganda Office Supplies', date: DateTime(2026, 1, 10), dueDate: DateTime(2026, 2, 9), subtotal: 1200000, taxAmount: 216000, total: 1416000, amountPaid: 1416000, status: models.BillStatus.paid, lines: [], createdAt: now, updatedAt: now),
-      models.Bill(id: '2', billNumber: 'BILL-2026-0002', vendorId: '2', vendorName: 'East African Paper Mills', date: DateTime(2026, 1, 12), dueDate: DateTime(2026, 2, 26), subtotal: 3500000, taxAmount: 630000, total: 4130000, amountPaid: 0, status: models.BillStatus.pending, lines: [], createdAt: now, updatedAt: now),
-      models.Bill(id: '3', billNumber: 'BILL-2026-0003', vendorId: '4', vendorName: 'Uganda Petroleum Ltd', date: DateTime(2026, 1, 15), dueDate: DateTime(2026, 2, 14), subtotal: 5800000, taxAmount: 1044000, total: 6844000, amountPaid: 3000000, status: models.BillStatus.partial, lines: [], createdAt: now, updatedAt: now),
-      models.Bill(id: '4', billNumber: 'BILL-2026-0004', vendorId: '3', vendorName: 'Kampala Tech Solutions', date: DateTime(2026, 1, 18), dueDate: DateTime(2026, 2, 2), subtotal: 2100000, taxAmount: 378000, total: 2478000, amountPaid: 0, status: models.BillStatus.pending, lines: [], createdAt: now, updatedAt: now),
-      models.Bill(id: '5', billNumber: 'BILL-2026-0005', vendorId: '5', vendorName: 'Mbarara Construction Materials', date: DateTime(2025, 11, 15), dueDate: DateTime(2026, 1, 14), subtotal: 8500000, taxAmount: 1530000, total: 10030000, amountPaid: 0, status: models.BillStatus.overdue, lines: [], createdAt: now, updatedAt: now),
-    ];
-  }
 }
 
 final billsProvider = StateNotifierProvider<BillsNotifier, BillsState>((ref) {
@@ -889,86 +869,6 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
     );
   }
 
-  List<models.JournalEntry> _getDemoJournals() {
-    final now = DateTime.now();
-    return [
-      models.JournalEntry(
-        id: '1',
-        entryNumber: 'JE-2026-0001',
-        date: DateTime(2026, 1, 15),
-        description: 'Record sales revenue',
-        reference: 'INV-2026-0001',
-        status: models.JournalEntryStatus.posted,
-        lines: [
-          models.JournalLine(id: '1', journalEntryId: '1', accountId: '5', accountCode: '1200', accountName: 'Accounts Receivable', debit: 5900000, credit: 0),
-          models.JournalLine(id: '2', journalEntryId: '1', accountId: '13', accountCode: '4000', accountName: 'Sales Revenue', debit: 0, credit: 5000000),
-          models.JournalLine(id: '3', journalEntryId: '1', accountId: '9', accountCode: '2100', accountName: 'VAT Payable', debit: 0, credit: 900000),
-        ],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'Admin',
-      ),
-      models.JournalEntry(
-        id: '2',
-        entryNumber: 'JE-2026-0002',
-        date: DateTime(2026, 1, 18),
-        description: 'models.Payment received from customer',
-        reference: 'REC-2026-0001',
-        status: models.JournalEntryStatus.posted,
-        lines: [
-          models.JournalLine(id: '4', journalEntryId: '2', accountId: '3', accountCode: '1100', accountName: 'Bank Account - UGX', debit: 5900000, credit: 0),
-          models.JournalLine(id: '5', journalEntryId: '2', accountId: '5', accountCode: '1200', accountName: 'Accounts Receivable', debit: 0, credit: 5900000),
-        ],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'Admin',
-      ),
-      models.JournalEntry(
-        id: '3',
-        entryNumber: 'JE-2026-0003',
-        date: DateTime(2026, 1, 20),
-        description: 'Office supplies purchase',
-        reference: 'BILL-2026-0001',
-        status: models.JournalEntryStatus.posted,
-        lines: [
-          models.JournalLine(id: '6', journalEntryId: '3', accountId: '19', accountCode: '6300', accountName: 'Office Supplies', debit: 1200000, credit: 0),
-          models.JournalLine(id: '7', journalEntryId: '3', accountId: '8', accountCode: '2000', accountName: 'Accounts Payable', debit: 0, credit: 1200000),
-        ],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'Admin',
-      ),
-      models.JournalEntry(
-        id: '4',
-        entryNumber: 'JE-2026-0004',
-        date: DateTime(2026, 1, 25),
-        description: 'Monthly rent payment',
-        reference: 'CHQ-2026-0015',
-        status: models.JournalEntryStatus.posted,
-        lines: [
-          models.JournalLine(id: '8', journalEntryId: '4', accountId: '17', accountCode: '6100', accountName: 'Rent Expense', debit: 3000000, credit: 0),
-          models.JournalLine(id: '9', journalEntryId: '4', accountId: '3', accountCode: '1100', accountName: 'Bank Account - UGX', debit: 0, credit: 3000000),
-        ],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'Admin',
-      ),
-      models.JournalEntry(
-        id: '5',
-        entryNumber: 'JE-2026-0005',
-        date: DateTime(2026, 1, 28),
-        description: 'Salary accrual',
-        reference: 'PAY-2026-01',
-        status: models.JournalEntryStatus.draft,
-        lines: [
-          models.JournalLine(id: '10', journalEntryId: '5', accountId: '16', accountCode: '6000', accountName: 'Salaries & Wages', debit: 8500000, credit: 0),
-          models.JournalLine(id: '11', journalEntryId: '5', accountId: '10', accountCode: '2200', accountName: 'Salaries Payable', debit: 0, credit: 8500000),
-        ],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'Admin',
-      ),
-    ];
   }
 }
 
