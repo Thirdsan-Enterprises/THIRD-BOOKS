@@ -109,18 +109,38 @@ class DashboardData {
 }
 
 final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
-  final apiClient = ref.read(apiClientProvider);
+  final db = ref.watch(databaseProvider);
 
   try {
-    final response = await apiClient.get('/dashboard');
-    if (response.statusCode == 200) {
-      return DashboardData.fromJson(response.data['data'] ?? response.data);
-    }
-  } catch (e) {
-    // Return empty data on error (no demo data)
-  }
+    // Calculate totals from database
+    final revenues = await db.getAllOutletRevenues();
+    final expenditures = await db.getAllOutletExpenditures();
 
-  return DashboardData.empty();
+    final totalCashIn = revenues.fold<double>(0, (sum, rev) => sum + rev.amount);
+    final totalCashOut = expenditures.fold<double>(0, (sum, exp) => sum + exp.amount);
+    final ggr = totalCashIn - totalCashOut;
+
+    return DashboardData(
+      totalRevenue: totalCashIn,
+      totalExpenses: totalCashOut,
+      netIncome: ggr,
+      outstandingInvoices: 0,
+      invoiceCount: 0,
+      revenueChange: 0,
+      expenseChange: 0,
+      incomeChange: 0,
+      cashIn: totalCashIn,
+      cashOut: totalCashOut,
+      netCash: ggr,
+      revenueData: [],
+      expenseData: [],
+      receivableAging: [],
+      recentTransactions: [],
+    );
+  } catch (e) {
+    debugPrint('Error loading dashboard data from database: $e');
+    return DashboardData.empty();
+  }
 });
 
 // ============================================================================
