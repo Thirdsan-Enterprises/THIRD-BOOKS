@@ -1,14 +1,15 @@
-name: 🚀 Deploy Landing Page to Production
+name: Deploy Landing Page & Admin Panel to Production
 
 on:
   push:
     branches:
+      - master
       - main
-      - 'claude/thirdbooks-accounting-system-*'
+      - 'claude/**'
   pull_request:
     branches:
+      - master
       - main
-      - 'claude/thirdbooks-accounting-system-*'
     types: [ closed ]
   workflow_dispatch:
     inputs:
@@ -22,80 +23,121 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  deploy-landing:
     runs-on: ubuntu-latest
     environment: production
-    # Run on push to main OR when PR is merged to main (not just closed)
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
 
     steps:
-      - name: 🚀 Starting Landing Page Deployment
+      - name: Starting Landing Page & Admin Panel Deployment
         run: |
           echo "============================================"
-          echo "  🌐 DEPLOYING THIRDBOOKS LANDING PAGE"
+          echo "  DEPLOYING LANDING PAGE + ADMIN PANEL"
           echo "============================================"
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
           echo "Triggered by: ${{ github.actor }}"
-          echo "Reason: ${{ github.event.inputs.reason || 'Automatic deployment' }}"
-          echo ""
 
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 📂 List files to deploy
+      - name: List landing page files
         run: |
-          echo "Files in landing-page directory:"
+          echo "Landing page files:"
           ls -laR landing-page/
           echo ""
-          echo "Total size:"
           du -sh landing-page/
 
-      - name: 📤 Deploy to thirdbooks.digital via FTP
+      - name: Deploy Landing Page via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./landing-page/
-          server-dir: /domains/thirdbooks.digital/public_html/
+          server-dir: /thirdbooks.digital/public_html/
           dangerous-clean-slate: false
-          log-level: verbose
           exclude: |
             **/.git*
             **/.DS_Store
             **/README.md
 
-      - name: 🔍 Verify deployment
+      - name: Prepare Admin Panel for deployment
         run: |
-          echo "Deployment completed. Checking accessibility..."
-          echo ""
-          echo "Expected URL: https://thirdbooks.digital"
-          echo "Expected files uploaded:"
-          echo "  - index.html"
-          echo "  - css/style.css"
-          echo "  - js/main.js"
-          echo "  - images/favicon.svg"
-          echo ""
-          echo "If site doesn't load, check:"
-          echo "  1. FTP path is correct: /domains/thirdbooks.digital/public_html/"
-          echo "  2. Files have proper permissions (644 for files, 755 for folders)"
-          echo "  3. index.html is in the root of public_html/"
+          # Inject database credentials from secrets into admin panel config
+          sed -i "s|'your_database_name'|'${{ secrets.DB_DATABASE }}'|g" admin-panel/config/config.php
+          sed -i "s|'your_database_user'|'${{ secrets.DB_USERNAME }}'|g" admin-panel/config/config.php
+          sed -i "s|'your_database_password'|'${{ secrets.DB_PASSWORD }}'|g" admin-panel/config/config.php
 
-      - name: ✅ Deployment Summary
-        if: success()
+          # Ensure logs and uploads directories exist
+          mkdir -p admin-panel/logs
+          mkdir -p admin-panel/uploads
+          touch admin-panel/logs/.gitkeep
+          touch admin-panel/uploads/.gitkeep
+
+          # Create .htaccess to protect sensitive admin panel files
+          cat > admin-panel/.htaccess <<'EOF'
+          <IfModule mod_rewrite.c>
+              RewriteEngine On
+
+              # Block direct access to config directory
+              RewriteRule ^config/ - [F,L]
+
+              # Block direct access to src directory
+              RewriteRule ^src/ - [F,L]
+
+              # Block direct access to logs
+              RewriteRule ^logs/ - [F,L]
+          </IfModule>
+
+          # Protect sensitive files
+          <FilesMatch "(\.json|\.lock|\.md)$">
+              Order allow,deny
+              Deny from all
+          </FilesMatch>
+
+          Options -Indexes
+          EOF
+
+      - name: Deploy Admin Panel via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./admin-panel/
+          server-dir: /thirdbooks.digital/public_html/admin/
+          dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.DS_Store
+            **/README.md
+            **/composer.json
+            **/composer.lock
+
+      - name: Verify Landing Page
+        run: |
+          echo "Checking landing page..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://thirdbooks.digital" \
+            --max-time 30 || echo "000")
+
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "Landing page check PASSED (HTTP $HTTP_STATUS)"
+          else
+            echo "WARNING: Landing page returned HTTP $HTTP_STATUS"
+            echo "Check: https://thirdbooks.digital"
+          fi
+
+      - name: Deployment Summary
+        if: always()
         run: |
           echo "============================================"
-          echo "  ✅ LANDING PAGE DEPLOYED SUCCESSFULLY!"
+          echo "  DEPLOYMENT COMPLETE"
           echo "============================================"
           echo ""
-          echo "🌐 URL: https://thirdbooks.digital"
-          echo "📦 Branch: ${{ github.ref_name }}"
-          echo "📝 Commit: ${{ github.sha }}"
-          echo "⏰ Time: $(date -u)"
-          echo ""
-          echo "Next steps:"
-          echo "  1. Visit https://thirdbooks.digital"
-          echo "  2. Verify landing page loads correctly"
-          echo "  3. Test all sections and links"
-          echo ""
+          echo "Landing Page: https://thirdbooks.digital"
+          echo "Admin Panel:  https://thirdbooks.digital/admin/"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Time: $(date -u)"

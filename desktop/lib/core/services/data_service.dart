@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api_client.dart';
+import 'auth_service.dart';
 import 'local_storage_service.dart';
 import 'sync_service.dart';
 import '../models/models.dart';
@@ -176,8 +177,18 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
     _initializeData();
   }
 
+  bool get _isDemoMode => _ref.read(isDemoModeProvider);
+
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
+
+    // In demo mode, load demo data immediately
+    if (_isDemoMode) {
+      final demoAccounts = _getDemoAccounts();
+      await _localStorage.saveAccounts(demoAccounts);
+      state = state.copyWith(accounts: demoAccounts, isLoading: false);
+      return;
+    }
 
     // 1. First, load from local storage (instant offline data)
     try {
@@ -195,6 +206,12 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
   }
 
   Future<void> loadAccounts() async {
+    if (_isDemoMode) {
+      final demoAccounts = _getDemoAccounts();
+      state = state.copyWith(accounts: demoAccounts, isLoading: false);
+      return;
+    }
+
     try {
       final response = await _apiClient.get('/accounts');
       if (response.statusCode == 200) {
@@ -323,8 +340,17 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
     _initializeData();
   }
 
+  bool get _isDemoMode => _ref.read(isDemoModeProvider);
+
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
+
+    if (_isDemoMode) {
+      final demoCustomers = _getDemoCustomers();
+      await _localStorage.saveCustomers(demoCustomers);
+      state = state.copyWith(customers: demoCustomers, isLoading: false);
+      return;
+    }
 
     try {
       final localCustomers = await _localStorage.loadCustomers();
@@ -340,6 +366,12 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
   }
 
   Future<void> loadCustomers() async {
+    if (_isDemoMode) {
+      final demoCustomers = _getDemoCustomers();
+      state = state.copyWith(customers: demoCustomers, isLoading: false);
+      return;
+    }
+
     try {
       final response = await _apiClient.get('/customers');
       if (response.statusCode == 200) {
@@ -448,8 +480,17 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
     _initializeData();
   }
 
+  bool get _isDemoMode => _ref.read(isDemoModeProvider);
+
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
+
+    if (_isDemoMode) {
+      final demoVendors = _getDemoVendors();
+      await _localStorage.saveVendors(demoVendors);
+      state = state.copyWith(vendors: demoVendors, isLoading: false);
+      return;
+    }
 
     try {
       final localVendors = await _localStorage.loadVendors();
@@ -465,6 +506,12 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
   }
 
   Future<void> loadVendors() async {
+    if (_isDemoMode) {
+      final demoVendors = _getDemoVendors();
+      state = state.copyWith(vendors: demoVendors, isLoading: false);
+      return;
+    }
+
     try {
       final response = await _apiClient.get('/vendors');
       if (response.statusCode == 200) {
@@ -572,8 +619,17 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
     _initializeData();
   }
 
+  bool get _isDemoMode => _ref.read(isDemoModeProvider);
+
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
+
+    if (_isDemoMode) {
+      final demoInvoices = _getDemoInvoices();
+      await _localStorage.saveInvoices(demoInvoices);
+      state = state.copyWith(invoices: demoInvoices, isLoading: false);
+      return;
+    }
 
     try {
       final localInvoices = await _localStorage.loadInvoices();
@@ -589,6 +645,12 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
   }
 
   Future<void> loadInvoices() async {
+    if (_isDemoMode) {
+      final demoInvoices = _getDemoInvoices();
+      state = state.copyWith(invoices: demoInvoices, isLoading: false);
+      return;
+    }
+
     try {
       final response = await _apiClient.get('/invoices');
       if (response.statusCode == 200) {
@@ -724,8 +786,17 @@ class BillsNotifier extends StateNotifier<BillsState> {
     _initializeData();
   }
 
+  bool get _isDemoMode => _ref.read(isDemoModeProvider);
+
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
+
+    if (_isDemoMode) {
+      final demoBills = _getDemoBills();
+      await _localStorage.saveBills(demoBills);
+      state = state.copyWith(bills: demoBills, isLoading: false);
+      return;
+    }
 
     try {
       final localBills = await _localStorage.loadBills();
@@ -741,6 +812,12 @@ class BillsNotifier extends StateNotifier<BillsState> {
   }
 
   Future<void> loadBills() async {
+    if (_isDemoMode) {
+      final demoBills = _getDemoBills();
+      state = state.copyWith(bills: demoBills, isLoading: false);
+      return;
+    }
+
     try {
       final response = await _apiClient.get('/bills');
       if (response.statusCode == 200) {
@@ -876,8 +953,17 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
     _initializeData();
   }
 
+  bool get _isDemoMode => _ref.read(isDemoModeProvider);
+
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
+
+    if (_isDemoMode) {
+      final demoJournals = _getDemoJournals();
+      await _localStorage.saveJournalEntries(demoJournals);
+      state = state.copyWith(entries: demoJournals, isLoading: false);
+      return;
+    }
 
     try {
       final localEntries = await _localStorage.loadJournalEntries();
@@ -893,6 +979,12 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
   }
 
   Future<void> loadJournals() async {
+    if (_isDemoMode) {
+      final demoJournals = _getDemoJournals();
+      state = state.copyWith(entries: demoJournals, isLoading: false);
+      return;
+    }
+
     try {
       final response = await _apiClient.get('/journals');
       if (response.statusCode == 200) {
@@ -1078,8 +1170,17 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
     _initializeData();
   }
 
+  bool get _isDemoMode => _ref.read(isDemoModeProvider);
+
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
+
+    if (_isDemoMode) {
+      final demoPayments = _getDemoPayments();
+      await _localStorage.savePayments(demoPayments);
+      state = state.copyWith(payments: demoPayments, isLoading: false);
+      return;
+    }
 
     try {
       final localPayments = await _localStorage.loadPayments();
@@ -1095,6 +1196,12 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
   }
 
   Future<void> loadPayments() async {
+    if (_isDemoMode) {
+      final demoPayments = _getDemoPayments();
+      state = state.copyWith(payments: demoPayments, isLoading: false);
+      return;
+    }
+
     try {
       final response = await _apiClient.get('/payments');
       if (response.statusCode == 200) {

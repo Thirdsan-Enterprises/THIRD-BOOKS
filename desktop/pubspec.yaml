@@ -1,5 +1,5 @@
 name: thirdbooks
-description: ThirdBooks - Professional Accounting Software for Small Businesses
+description: ThirdBooks - Professional Accounting Software for MSMEs
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -89,5 +89,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  # Using google_fonts package instead of bundled fonts
-  # This avoids needing to bundle font files and reduces app size
+  assets:
+    - assets/images/

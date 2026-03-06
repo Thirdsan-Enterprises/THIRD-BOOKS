@@ -66,33 +66,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  void _handleOfflineMode() {
-    // For offline mode, we skip authentication
-    // In a real app, you might load cached data
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Offline Mode'),
-        content: const Text(
-          'Offline mode allows you to work without an internet connection. '
-          'Your data will be synced when you go online.\n\n'
-          'Note: Some features may be limited in offline mode.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(context);
-              context.go('/');
-            },
-            child: const Text('Continue Offline'),
-          ),
-        ],
-      ),
-    );
+  Future<void> _handleViewDemo() async {
+    // Enter demo mode directly - no login required
+    // Set up a demo user session so the router allows access
+    final authNotifier = ref.read(authStateProvider.notifier);
+    await authNotifier.loginAsDemo();
+
+    if (mounted) {
+      context.go('/');
+    }
   }
 
   @override
@@ -158,7 +140,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                         const SizedBox(height: 24),
                         Text(
-                          'Streamline your financial operations with powerful\noffline-first accounting designed for small businesses.',
+                          'Streamline your financial operations with powerful\noffline-first accounting designed for MSMEs.',
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.8),
                             fontSize: 16,
@@ -358,14 +340,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ),
                           const SizedBox(height: 24),
 
-                          // Offline mode button
+                          // View Demo button
                           OutlinedButton.icon(
-                            onPressed: _handleOfflineMode,
+                            onPressed: _handleViewDemo,
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 16),
                             ),
-                            icon: const Icon(Icons.offline_bolt_outlined),
-                            label: const Text('Continue Offline'),
+                            icon: const Icon(Icons.play_circle_outline),
+                            label: const Text('View Demo'),
                           ),
                           const SizedBox(height: 48),
 

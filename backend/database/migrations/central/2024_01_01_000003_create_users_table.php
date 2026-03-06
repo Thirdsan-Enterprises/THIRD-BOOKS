@@ -13,12 +13,12 @@ return new class extends Migration
     {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
-            $table->uuid('tenant_id');
+            $table->uuid('tenant_id')->nullable(); // Nullable for super_admin users
             $table->string('name');
             $table->string('email');
             $table->string('password');
             $table->string('phone')->nullable();
-            $table->string('role')->default('user'); // admin, accountant, manager, user, viewer
+            $table->string('role')->default('user'); // super_admin, admin, accountant, manager, user, viewer
             $table->boolean('is_active')->default(true);
             $table->timestamp('email_verified_at')->nullable();
             $table->rememberToken();
@@ -31,7 +31,6 @@ return new class extends Migration
                   ->onDelete('cascade')
                   ->onUpdate('cascade');
 
-            $table->unique(['tenant_id', 'email']);
             $table->index('email');
             $table->index(['tenant_id', 'role']);
         });
