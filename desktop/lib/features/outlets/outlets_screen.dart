@@ -31,8 +31,8 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Watch outlets from database
-    final outletsAsync = ref.watch(outletsStreamProvider);
+    // Watch sorted outlets from database (sorted by outlet code/ID)
+    final outletsAsync = ref.watch(sortedOutletsStreamProvider);
     final numberFormat = NumberFormat('#,##0', 'en_US');
 
     return Column(

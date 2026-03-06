@@ -1104,11 +1104,12 @@ final outletsByRegionProvider = Provider.family<List<Outlet>, String>((ref, regi
 });
 
 /// Sorted outlets stream (by outlet code/ID)
-final sortedOutletsStreamProvider = Provider<Stream<List<Outlet>>>((ref) {
+final sortedOutletsStreamProvider = StreamProvider<List<Outlet>>((ref) {
   final db = ref.watch(databaseProvider);
   return db.watchAllOutlets().map((outlets) {
     // Sort by outlet code (ID) in ascending order
-    outlets.sort((a, b) => a.outletCode.compareTo(b.outletCode));
-    return outlets;
+    final sortedOutlets = List<Outlet>.from(outlets);
+    sortedOutlets.sort((a, b) => a.outletCode.compareTo(b.outletCode));
+    return sortedOutlets;
   });
 });
