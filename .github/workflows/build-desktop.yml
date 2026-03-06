@@ -136,25 +136,65 @@ jobs:
         run: dart run build_runner build --delete-conflicting-outputs
         continue-on-error: true
 
+      - name: Generate app icon
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          # Install Magick for SVG to ICO conversion
+          choco install imagemagick -y --no-progress
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+          # Convert SVG to ICO with multiple sizes for Windows
+          $svgPath = "assets/images/icon.svg"
+          $icoPath = "assets/images/app_icon.ico"
+          $pngPath = "assets/images/app_icon.png"
+
+          # Generate PNG first (256x256)
+          magick convert -background none -resize 256x256 $svgPath $pngPath
+
+          # Generate ICO with multiple sizes
+          magick convert $pngPath -define icon:auto-resize=256,128,64,48,32,16 $icoPath
+
+          Write-Host "Generated app_icon.ico and app_icon.png"
+
+          # Replace the default Flutter icon in the windows runner
+          if (Test-Path "windows/runner/resources") {
+            Copy-Item $icoPath "windows/runner/resources/app_icon.ico" -Force
+            Write-Host "Replaced windows runner icon"
+          }
+
       - name: Build Windows
         working-directory: desktop
         run: |
           flutter build windows --release `
             --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
 
-      - name: Package Windows build
-        shell: bash
+      - name: Create installer with Inno Setup
+        working-directory: desktop
+        shell: pwsh
         run: |
-          mkdir -p artifacts
-          cd desktop/build/windows/x64/runner/Release
-          7z a -tzip $GITHUB_WORKSPACE/artifacts/thirdbooks-windows-x64.zip .
+          # Install Inno Setup
+          choco install innosetup -y --no-progress
+          $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 
-      - name: Upload Windows artifact
+          Write-Host "Using Inno Setup at: $innoPath"
+
+          # Create output directory
+          New-Item -ItemType Directory -Path "build/installer" -Force
+
+          # Run Inno Setup compiler
+          & $innoPath "installer/thirdbooks_setup.iss"
+
+          Write-Host "Installer created:"
+          Get-ChildItem "build/installer"
+
+      - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
-          name: thirdbooks-windows
-          path: artifacts/thirdbooks-windows-x64.zip
+          name: ThirdBooks-Setup-Windows-x64
+          path: desktop/build/installer/ThirdBooks-Setup-*.exe
           retention-days: 30
+          if-no-files-found: error
 
   build-macos:
     name: Build macOS
@@ -254,7 +294,7 @@ jobs:
             | Platform | File | Size |
             |----------|------|------|
             | Linux x64 | `thirdbooks-linux-x64.tar.gz` | ~25MB |
-            | Windows x64 | `thirdbooks-windows-x64.zip` | ~30MB |
+            | Windows x64 | `ThirdBooks-Setup-1.0.0-x64.exe` | ~30MB |
             | macOS | `thirdbooks-macos.zip` | ~35MB |
 
             ## Features
@@ -276,8 +316,9 @@ jobs:
             ```
 
             ### Windows
-            1. Extract ZIP file
-            2. Run `thirdbooks.exe`
+            1. Download `ThirdBooks-Setup-1.0.0-x64.exe`
+            2. Run the installer
+            3. Launch ThirdBooks from Start Menu or Desktop
 
             ### macOS
             1. Extract ZIP file

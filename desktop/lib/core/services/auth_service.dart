@@ -110,10 +110,10 @@ final currentUserProvider = Provider<User?>((ref) {
   return ref.watch(authStateProvider).user;
 });
 
-// Demo mode provider - true when using demo token
-final isDemoModeProvider = Provider<bool>((ref) {
+// Offline mode provider - true when using offline token
+final isOfflineModeProvider = Provider<bool>((ref) {
   final token = ref.watch(authStateProvider).token;
-  return token != null && token.startsWith('demo-token');
+  return token != null && token.startsWith('magicbet-admin-token');
 });
 
 // Auth notifier
@@ -167,18 +167,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  Future<void> loginAsDemo() async {
-    state = state.copyWith(isLoading: true, error: null);
-    final result = await _authService.loginDemo();
-    state = AuthState(
-      isAuthenticated: true,
-      user: result['user'],
-      token: result['token'],
-    );
-
-    // Run initialization if needed (background task)
-    _runInitializationIfNeeded();
-  }
 
   /// Run MagicBet initialization if this is the first login
   Future<void> _runInitializationIfNeeded() async {
@@ -334,65 +322,9 @@ class AuthService {
     }
   }
 
-  // Demo mode login for offline testing
+  // Offline login for MagicBet system (when API is unavailable)
   Future<Map<String, dynamic>> _tryDemoLogin(String email, String password) async {
-    // Check demo credentials
-    if (email == 'admin@thirdbooks.digital' && password == 'Admin@123') {
-      final demoUser = {
-        'id': 1,
-        'tenant_id': '1',
-        'name': 'Admin User',
-        'email': 'admin@thirdbooks.digital',
-        'phone': '+256 700 000000',
-        'role': 'admin',
-        'is_active': true,
-        'created_at': DateTime.now().toIso8601String(),
-      };
-
-      const demoToken = 'demo-token-thirdbooks-2026';
-
-      // Store demo token and user
-      await _storage.write(key: _tokenKey, value: demoToken);
-      await _storage.write(key: _userKey, value: jsonEncode(demoUser));
-
-      // Set token expiry (24 hours from now)
-      final expiry = DateTime.now().add(const Duration(hours: 24));
-      await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
-
-      return {
-        'token': demoToken,
-        'user': User.fromJson(demoUser),
-      };
-    }
-
-    // Also allow demo/demo for quick testing
-    if (email == 'demo@thirdbooks.digital' && password == 'Demo@123') {
-      final demoUser = {
-        'id': 2,
-        'tenant_id': '1',
-        'name': 'Demo User',
-        'email': 'demo@thirdbooks.digital',
-        'phone': '+256 700 111111',
-        'role': 'accountant',
-        'is_active': true,
-        'created_at': DateTime.now().toIso8601String(),
-      };
-
-      const demoToken = 'demo-token-user-2026';
-
-      await _storage.write(key: _tokenKey, value: demoToken);
-      await _storage.write(key: _userKey, value: jsonEncode(demoUser));
-
-      final expiry = DateTime.now().add(const Duration(hours: 24));
-      await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
-
-      return {
-        'token': demoToken,
-        'user': User.fromJson(demoUser),
-      };
-    }
-
-    // Marion's MagicBet Admin Account
+    // Marion's MagicBet Admin Account (only valid offline login)
     if (email == 'marion@magicbet.ug' && password == 'MagicBet@2026') {
       final marionUser = {
         'id': 100,
@@ -419,35 +351,9 @@ class AuthService {
       };
     }
 
-    throw Exception('Invalid email or password. Use demo credentials:\nmarion@magicbet.ug / MagicBet@2026\nadmin@thirdbooks.digital / Admin@123');
+    throw Exception('Invalid email or password');
   }
 
-  // Direct demo login - no credentials required
-  Future<Map<String, dynamic>> loginDemo() async {
-    final demoUser = {
-      'id': 1,
-      'tenant_id': '1',
-      'name': 'Demo User',
-      'email': 'demo@thirdbooks.digital',
-      'phone': '+256 700 000000',
-      'role': 'admin',
-      'is_active': true,
-      'created_at': DateTime.now().toIso8601String(),
-    };
-
-    const demoToken = 'demo-token-thirdbooks-2026';
-
-    await _storage.write(key: _tokenKey, value: demoToken);
-    await _storage.write(key: _userKey, value: jsonEncode(demoUser));
-
-    final expiry = DateTime.now().add(const Duration(hours: 24));
-    await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
-
-    return {
-      'token': demoToken,
-      'user': User.fromJson(demoUser),
-    };
-  }
 
   // Register
   Future<Map<String, dynamic>> register({
