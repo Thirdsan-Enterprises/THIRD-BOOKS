@@ -5,108 +5,134 @@ import 'package:drift/drift.dart' hide JsonKey;
 
 import '../database/app_database.dart';
 
-/// CSV Import Service for Betting Machine Data
+/// CSV Import Service for MagicBet Outlet Data
 ///
-/// Imports outlet transaction data and calculates:
-/// - Cash In (Total bets placed)
-/// - Cash Out (Total winnings paid)  
-/// - GGR (Gross Gaming Revenue = Cash In - Cash Out)
+/// Imports AccountingTotalsInOut.csv with format:
+/// Outlet, Business Day, Total In, Total Out, Total GGR
+///
+/// CSV outlet codes are prefixed with '2310' (e.g. 23103000 -> outlet code 3000)
+/// Date format is m/d/yyyy (e.g. 1/1/2026)
+/// Amounts may contain commas and spaces (e.g. " 746,000 ")
 class CSVImportService {
   final AppDatabase database;
   final Uuid _uuid = const Uuid();
 
   CSVImportService(this.database);
 
-  /// Import CSV data and populate all relevant tables
-  /// 
-  /// CSV Format: Date(MM/DD/YYYY), OutletID, TotalIn, TotalOut, NetAmount, TransactionCount, Currency
+  /// Parse a number string like " 746,000 " or " 1,585,000 " to double
+  double _parseAmount(String raw) {
+    final cleaned = raw.trim().replaceAll(',', '').replaceAll(' ', '').replaceAll('"', '');
+    return double.tryParse(cleaned) ?? 0.0;
+  }
+
+  /// Parse date in m/d/yyyy format
+  DateTime? _parseDate(String raw) {
+    try {
+      final trimmed = raw.trim();
+      final parts = trimmed.split('/');
+      if (parts.length == 3) {
+        final month = int.parse(parts[0]);
+        final day = int.parse(parts[1]);
+        final year = int.parse(parts[2]);
+        return DateTime(year, month, day);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Map CSV outlet code (e.g. "23103000") to DB outlet code (e.g. "3000")
+  String _mapOutletCode(String csvCode) {
+    final trimmed = csvCode.trim().replaceAll('"', '');
+    if (trimmed.startsWith('2310')) {
+      return trimmed.substring(4);
+    }
+    return trimmed;
+  }
+
+  /// Import CSV data from parsed rows (List<List<dynamic>> from csv package)
+  ///
+  /// Expected columns: Outlet, Business Day, Total In, Total Out, Total GGR
   Future<CSVImportResult> importCSVData(List<List<dynamic>> csvData) async {
     if (csvData.length < 2) {
       throw Exception('CSV file must have at least a header row and one data row');
     }
 
-    // Skip header row
     final dataRows = csvData.skip(1);
-    
+
     int successCount = 0;
     int errorCount = 0;
     final errors = <String>[];
-    
-    // Statistics
+
     double totalCashIn = 0;
     double totalCashOut = 0;
     double totalGGR = 0;
 
+    // Cache outlets for lookup
+    final outlets = await database.getAllOutlets();
+    final outletMap = <String, Outlet>{};
+    for (final outlet in outlets) {
+      outletMap[outlet.outletCode] = outlet;
+    }
+
+    int rowNum = 1;
     for (var row in dataRows) {
+      rowNum++;
       try {
-        // Parse CSV row
-        final dateStr = row[0]?.toString() ?? '';
-        final outletCode = row[1]?.toString() ?? '';
-        final cashIn = double.parse(row[2]?.toString() ?? '0');
-        final cashOut = double.parse(row[3]?.toString() ?? '0');
-        final netAmount = double.parse(row[4]?.toString() ?? '0');
-        final transactionCount = int.parse(row[5]?.toString() ?? '0');
-        final currency = row[6]?.toString() ?? 'UGX';
-
-        // Parse date (MM/DD/YYYY format)
-        final dateFormat = DateFormat('MM/dd/yyyy');
-        final date = dateFormat.parse(dateStr);
-
-        // Calculate GGR (Gross Gaming Revenue)
-        final ggr = cashIn - cashOut;
-
-        // Find outlet by code
-        final outlet = await database.getOutletByCode(outletCode);
-        if (outlet == null) {
-          errors.add('Outlet not found: $outletCode');
+        if (row.isEmpty || row.length < 5) {
+          errors.add('Row $rowNum: Not enough columns');
           errorCount++;
           continue;
         }
 
-        // Create revenue entry for Cash In (TotalIn)
-        if (cashIn > 0) {
-          final revenueId = _uuid.v4();
-          await database.into(database.outletRevenues).insert(
-            OutletRevenuesCompanion.insert(
-              id: revenueId,
-              outletId: outlet.id,
-              date: date,
-              amount: cashIn,
-              description: Value('Betting Revenue - $transactionCount transactions'),
-              category: const Value('Betting Revenue'),
-              notes: Value('Imported from CSV - Cash In'),
-              createdAt: DateTime.now(),
-              updatedAt: DateTime.now(),
-            ),
-          );
+        final csvOutletCode = row[0]?.toString() ?? '';
+        final dateStr = row[1]?.toString() ?? '';
+        final cashIn = _parseAmount(row[2]?.toString() ?? '0');
+        final cashOut = _parseAmount(row[3]?.toString() ?? '0');
+        final ggr = _parseAmount(row[4]?.toString() ?? '0');
+
+        // Map outlet code
+        final outletCode = _mapOutletCode(csvOutletCode);
+        final outlet = outletMap[outletCode];
+
+        if (outlet == null) {
+          errors.add('Row $rowNum: Outlet $outletCode not found');
+          errorCount++;
+          continue;
         }
 
-        // Create expenditure entry for Cash Out (TotalOut)
-        if (cashOut > 0) {
-          final expenditureId = _uuid.v4();
-          await database.into(database.outletExpenditures).insert(
-            OutletExpendituresCompanion.insert(
-              id: expenditureId,
-              outletId: outlet.id,
-              date: date,
-              amount: cashOut,
-              description: Value('Winnings Paid - $transactionCount transactions'),
-              category: const Value('Winnings/Payouts'),
-              notes: Value('Imported from CSV - Cash Out'),
-              createdAt: DateTime.now(),
-              updatedAt: DateTime.now(),
-            ),
-          );
+        // Parse date
+        final date = _parseDate(dateStr);
+        if (date == null) {
+          errors.add('Row $rowNum: Invalid date "$dateStr"');
+          errorCount++;
+          continue;
         }
 
-        // Accumulate totals
+        // Create revenue entry
+        // amount = Total In, commissionAmount = Total Out, netAmount = GGR
+        final revenueId = _uuid.v4();
+        await database.insertOutletRevenue(
+          OutletRevenuesCompanion.insert(
+            id: revenueId,
+            outletId: outlet.id,
+            date: date,
+            amount: cashIn,
+            commissionAmount: cashOut,
+            netAmount: ggr,
+            description: Value('${outlet.name} - ${DateFormat('MMM d, yyyy').format(date)}'),
+            reference: Value('CSV-$csvOutletCode-${DateFormat('yyyyMMdd').format(date)}'),
+            status: const Value('recorded'),
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          ),
+        );
+
         totalCashIn += cashIn;
         totalCashOut += cashOut;
         totalGGR += ggr;
-
         successCount++;
       } catch (e) {
-        errors.add('Row error: $e');
+        errors.add('Row $rowNum: $e');
         errorCount++;
       }
     }
@@ -142,16 +168,16 @@ class CSVImportResult {
 
   bool get hasErrors => errorCount > 0;
   bool get isSuccess => successCount > 0 && errorCount == 0;
-  
+
   String get summary {
     return '''
-✅ Successfully imported: $successCount rows
-${errorCount > 0 ? '❌ Errors: $errorCount rows' : ''}
+Successfully imported: $successCount rows
+${errorCount > 0 ? 'Errors: $errorCount rows' : ''}
 
-📊 Summary:
-  • Total Cash In:  UGX ${_formatNumber(totalCashIn)}
-  • Total Cash Out: UGX ${_formatNumber(totalCashOut)}
-  • Total GGR:      UGX ${_formatNumber(totalGGR)}
+Summary:
+  Total Cash In (Stakes):  UGX ${_formatNumber(totalCashIn)}
+  Total Cash Out (Payouts): UGX ${_formatNumber(totalCashOut)}
+  Total GGR:               UGX ${_formatNumber(totalGGR)}
 ''';
   }
 

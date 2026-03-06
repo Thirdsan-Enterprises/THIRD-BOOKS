@@ -1,9 +1,14 @@
-// Data Service for ThirdBooks Desktop App
+// Data Service for MagicBet Accounting Desktop App
 // Offline-First Architecture with Local Storage and Sync Queue
-// © 2026 ThirdBooks. All rights reserved.
+// © 2026 Magic Bet Ltd. All rights reserved.
+
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
+import 'package:drift/drift.dart' hide Column;
 
 import 'api_client.dart';
 import 'auth_service.dart';
@@ -14,6 +19,7 @@ import '../database/app_database.dart';
 
 // Global local storage instance
 final _localStorage = LocalStorageService.instance;
+const _uuid = Uuid();
 
 // Database provider
 final databaseProvider = Provider<AppDatabase>((ref) {
@@ -21,7 +27,48 @@ final databaseProvider = Provider<AppDatabase>((ref) {
 });
 
 // ============================================================================
-// Dashboard Service
+// MagicBet Default Chart of Accounts
+// ============================================================================
+
+List<Account> _magicBetDefaultAccounts() {
+  final now = DateTime.now();
+  return [
+    // Assets
+    Account(id: 'acct-1000', code: '1000', name: 'Cash on Hand', type: AccountType.asset, subType: AccountSubType.cash, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-1100', code: '1100', name: 'Bank Account - UGX', type: AccountType.asset, subType: AccountSubType.bank, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-1200', code: '1200', name: 'Outlet Cash Collections', description: 'Total cash collected from all outlets (Total In)', type: AccountType.asset, subType: AccountSubType.cash, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-1300', code: '1300', name: 'Accounts Receivable', type: AccountType.asset, subType: AccountSubType.accountsReceivable, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-1500', code: '1500', name: 'Betting Equipment', description: 'Machines, terminals, and betting equipment', type: AccountType.asset, subType: AccountSubType.fixedAsset, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-1600', code: '1600', name: 'Office Equipment', type: AccountType.asset, subType: AccountSubType.fixedAsset, isSystemAccount: true, createdAt: now, updatedAt: now),
+    // Liabilities
+    Account(id: 'acct-2000', code: '2000', name: 'Customer Payouts Payable', description: 'Winnings owed to customers (Total Out)', type: AccountType.liability, subType: AccountSubType.currentLiability, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-2100', code: '2100', name: 'Betting Tax Payable', description: 'Tax on GGR per URA regulations', type: AccountType.liability, subType: AccountSubType.currentLiability, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-2200', code: '2200', name: 'VAT Payable', type: AccountType.liability, subType: AccountSubType.currentLiability, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-2300', code: '2300', name: 'Commission Payable', description: 'Commission owed to outlet owners', type: AccountType.liability, subType: AccountSubType.currentLiability, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-2400', code: '2400', name: 'Accounts Payable', type: AccountType.liability, subType: AccountSubType.accountsPayable, isSystemAccount: true, createdAt: now, updatedAt: now),
+    // Equity
+    Account(id: 'acct-3000', code: '3000', name: "Owner's Equity", type: AccountType.equity, subType: AccountSubType.ownersEquity, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-3100', code: '3100', name: 'Retained Earnings', type: AccountType.equity, subType: AccountSubType.retainedEarnings, isSystemAccount: true, createdAt: now, updatedAt: now),
+    // Revenue
+    Account(id: 'acct-4000', code: '4000', name: 'Gross Gaming Revenue (GGR)', description: 'Total In minus Total Out from all outlets', type: AccountType.revenue, subType: AccountSubType.salesRevenue, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-4100', code: '4100', name: 'Total Stakes (Cash In)', description: 'Total money wagered by customers', type: AccountType.revenue, subType: AccountSubType.salesRevenue, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-4200', code: '4200', name: 'Other Income', type: AccountType.revenue, subType: AccountSubType.otherIncome, isSystemAccount: true, createdAt: now, updatedAt: now),
+    // Expenses
+    Account(id: 'acct-5000', code: '5000', name: 'Customer Winnings (Payouts)', description: 'Total paid out to winning customers', type: AccountType.expense, subType: AccountSubType.costOfGoodsSold, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-5100', code: '5100', name: 'Outlet Commission Expense', description: '40% commission to location owners', type: AccountType.expense, subType: AccountSubType.operatingExpense, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-6000', code: '6000', name: 'Salaries & Wages', type: AccountType.expense, subType: AccountSubType.payrollExpense, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-6100', code: '6100', name: 'Rent Expense', type: AccountType.expense, subType: AccountSubType.operatingExpense, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-6200', code: '6200', name: 'Utilities Expense', type: AccountType.expense, subType: AccountSubType.operatingExpense, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-6300', code: '6300', name: 'Betting Tax Expense', description: 'Tax paid on GGR', type: AccountType.expense, subType: AccountSubType.operatingExpense, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-6400', code: '6400', name: 'Equipment Maintenance', type: AccountType.expense, subType: AccountSubType.operatingExpense, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-6500', code: '6500', name: 'Office Supplies', type: AccountType.expense, subType: AccountSubType.operatingExpense, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-6600', code: '6600', name: 'Security Expense', type: AccountType.expense, subType: AccountSubType.operatingExpense, isSystemAccount: true, createdAt: now, updatedAt: now),
+    Account(id: 'acct-6900', code: '6900', name: 'Other Operating Expenses', type: AccountType.expense, subType: AccountSubType.otherExpense, isSystemAccount: true, createdAt: now, updatedAt: now),
+  ];
+}
+
+// ============================================================================
+// Dashboard Service - Computed from real database data
 // ============================================================================
 
 class DashboardData {
@@ -108,23 +155,108 @@ class DashboardData {
   }
 }
 
+/// Dashboard data computed from real outlet revenue data in the database
 final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
-  final apiClient = ref.read(apiClientProvider);
+  final db = ref.read(databaseProvider);
 
   try {
-    final response = await apiClient.get('/dashboard');
-    if (response.statusCode == 200) {
-      return DashboardData.fromJson(response.data['data'] ?? response.data);
-    }
-  } catch (e) {
-    // Return empty data on error (no demo data)
-  }
+    final allRevenues = await db.getAllOutletRevenues();
+    final outlets = await db.getAllOutlets();
 
-  return DashboardData.empty();
+    if (allRevenues.isEmpty) {
+      return DashboardData.empty();
+    }
+
+    // amount = Total In (cash in / stakes)
+    // commissionAmount = Total Out (payouts)
+    // netAmount = GGR (Gross Gaming Revenue)
+    double totalCashIn = 0;
+    double totalCashOut = 0;
+    double totalGGR = 0;
+
+    // Monthly aggregation for chart data
+    final Map<int, double> monthlyGGR = {};
+    final Map<int, double> monthlyPayouts = {};
+
+    // Recent transactions
+    final List<Map<String, dynamic>> recentTx = [];
+
+    // Sort by date descending for recent transactions
+    final sortedRevenues = List<OutletRevenue>.from(allRevenues)
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    for (final rev in allRevenues) {
+      totalCashIn += rev.amount;
+      totalCashOut += rev.commissionAmount;
+      totalGGR += rev.netAmount;
+
+      final month = rev.date.month.toDouble();
+      monthlyGGR[rev.date.month] = (monthlyGGR[rev.date.month] ?? 0) + rev.netAmount;
+      monthlyPayouts[rev.date.month] = (monthlyPayouts[rev.date.month] ?? 0) + rev.commissionAmount;
+    }
+
+    // Build recent transactions (last 10)
+    for (var i = 0; i < sortedRevenues.length && i < 10; i++) {
+      final rev = sortedRevenues[i];
+      final outlet = outlets.where((o) => o.id == rev.outletId).firstOrNull;
+      recentTx.add({
+        'description': outlet?.name ?? 'Outlet',
+        'date': DateFormat('MMM d, yyyy').format(rev.date),
+        'amount': rev.netAmount,
+        'type': rev.netAmount >= 0 ? 'income' : 'expense',
+      });
+    }
+
+    // Build monthly data for charts
+    final revenueData = monthlyGGR.entries
+        .map((e) => {'month': e.key.toDouble(), 'value': e.value})
+        .toList()
+      ..sort((a, b) => a['month']!.compareTo(b['month']!));
+
+    final expenseData = monthlyPayouts.entries
+        .map((e) => {'month': e.key.toDouble(), 'value': e.value})
+        .toList()
+      ..sort((a, b) => a['month']!.compareTo(b['month']!));
+
+    // Outlet performance as "aging" (top outlets by GGR)
+    final Map<String, double> outletGGR = {};
+    for (final rev in allRevenues) {
+      outletGGR[rev.outletId] = (outletGGR[rev.outletId] ?? 0) + rev.netAmount;
+    }
+
+    final receivableAging = outletGGR.entries.take(5).map((e) {
+      final outlet = outlets.where((o) => o.id == e.key).firstOrNull;
+      return {
+        'name': outlet?.name ?? 'Unknown',
+        'amount': e.value,
+      };
+    }).toList();
+
+    return DashboardData(
+      totalRevenue: totalGGR,
+      totalExpenses: totalCashOut,
+      netIncome: totalGGR,
+      outstandingInvoices: 0,
+      invoiceCount: outlets.length,
+      revenueChange: 0,
+      expenseChange: 0,
+      incomeChange: 0,
+      cashIn: totalCashIn,
+      cashOut: totalCashOut,
+      netCash: totalGGR,
+      revenueData: revenueData,
+      expenseData: expenseData,
+      receivableAging: receivableAging,
+      recentTransactions: recentTx,
+    );
+  } catch (e) {
+    debugPrint('Error computing dashboard data: $e');
+    return DashboardData.empty();
+  }
 });
 
 // ============================================================================
-// Accounts Service - OFFLINE-FIRST
+// Accounts Service - OFFLINE-FIRST with MagicBet defaults
 // ============================================================================
 
 class AccountsState {
@@ -159,14 +291,8 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
     _initializeData();
   }
 
-  bool get _isDemoMode => _ref.read(isOfflineModeProvider);
-
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
-
-    // Removed demo data - load from database only
-      return;
-    }
 
     // 1. First, load from local storage (instant offline data)
     try {
@@ -174,19 +300,25 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
       if (localAccounts.isNotEmpty) {
         state = state.copyWith(accounts: localAccounts, isLoading: false);
         debugPrint('Loaded ${localAccounts.length} accounts from local storage');
+        return;
       }
     } catch (e) {
       debugPrint('Error loading accounts from local storage: $e');
     }
 
-    // 2. Then try to fetch fresh data from API (background refresh)
+    // 2. If no local data, try API
     await loadAccounts();
+
+    // 3. If still empty, seed with MagicBet defaults
+    if (state.accounts.isEmpty) {
+      final defaults = _magicBetDefaultAccounts();
+      state = state.copyWith(accounts: defaults, isLoading: false);
+      await _localStorage.saveAccounts(defaults);
+      debugPrint('Initialized ${defaults.length} MagicBet default accounts');
+    }
   }
 
   Future<void> loadAccounts() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/accounts');
       if (response.statusCode == 200) {
@@ -195,31 +327,23 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
             .map((json) => Account.fromJson(json as Map<String, dynamic>))
             .toList();
 
-        // Save to local storage for offline access
         await _localStorage.saveAccounts(accounts);
-
         state = state.copyWith(accounts: accounts, isLoading: false);
         return;
       }
     } catch (e) {
-      debugPrint('API fetch failed, using cached/demo data: $e');
+      debugPrint('API fetch failed, using local data: $e');
     }
 
-    // Only use demo data if we have nothing cached
-    if (state.accounts.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addAccount(Account account) {
     final updatedAccounts = [...state.accounts, account];
     state = state.copyWith(accounts: updatedAccounts);
 
-    // Save locally immediately
     _localStorage.saveAccounts(updatedAccounts);
 
-    // Queue for sync
     _ref.read(syncServiceProvider.notifier).queueChange(
       action: SyncAction.create,
       entityType: SyncEntityType.account,
@@ -234,10 +358,8 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
     }).toList();
     state = state.copyWith(accounts: updatedAccounts);
 
-    // Save locally immediately
     _localStorage.saveAccounts(updatedAccounts);
 
-    // Queue for sync
     _ref.read(syncServiceProvider.notifier).queueChange(
       action: SyncAction.update,
       entityType: SyncEntityType.account,
@@ -245,7 +367,6 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
       data: account.toJson(),
     );
   }
-
 }
 
 final accountsProvider = StateNotifierProvider<AccountsNotifier, AccountsState>((ref) {
@@ -288,19 +409,15 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
     _initializeData();
   }
 
-  bool get _isDemoMode => _ref.read(isOfflineModeProvider);
-
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
-
-      return;
-    }
 
     try {
       final localCustomers = await _localStorage.loadCustomers();
       if (localCustomers.isNotEmpty) {
         state = state.copyWith(customers: localCustomers, isLoading: false);
         debugPrint('Loaded ${localCustomers.length} customers from local storage');
+        return;
       }
     } catch (e) {
       debugPrint('Error loading customers from local storage: $e');
@@ -310,9 +427,6 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
   }
 
   Future<void> loadCustomers() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/customers');
       if (response.statusCode == 200) {
@@ -329,10 +443,7 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
       debugPrint('API fetch failed for customers: $e');
     }
 
-    if (state.customers.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addCustomer(Customer customer) {
@@ -364,7 +475,6 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
       data: customer.toJson(),
     );
   }
-
 }
 
 final customersProvider = StateNotifierProvider<CustomersNotifier, CustomersState>((ref) {
@@ -407,19 +517,15 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
     _initializeData();
   }
 
-  bool get _isDemoMode => _ref.read(isOfflineModeProvider);
-
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
-
-      return;
-    }
 
     try {
       final localVendors = await _localStorage.loadVendors();
       if (localVendors.isNotEmpty) {
         state = state.copyWith(vendors: localVendors, isLoading: false);
         debugPrint('Loaded ${localVendors.length} vendors from local storage');
+        return;
       }
     } catch (e) {
       debugPrint('Error loading vendors from local storage: $e');
@@ -429,9 +535,6 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
   }
 
   Future<void> loadVendors() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/vendors');
       if (response.statusCode == 200) {
@@ -448,10 +551,7 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
       debugPrint('API fetch failed for vendors: $e');
     }
 
-    if (state.vendors.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addVendor(Vendor vendor) {
@@ -483,7 +583,6 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
       data: vendor.toJson(),
     );
   }
-
 }
 
 final vendorsProvider = StateNotifierProvider<VendorsNotifier, VendorsState>((ref) {
@@ -526,19 +625,15 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
     _initializeData();
   }
 
-  bool get _isDemoMode => _ref.read(isOfflineModeProvider);
-
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
-
-      return;
-    }
 
     try {
       final localInvoices = await _localStorage.loadInvoices();
       if (localInvoices.isNotEmpty) {
         state = state.copyWith(invoices: localInvoices, isLoading: false);
         debugPrint('Loaded ${localInvoices.length} invoices from local storage');
+        return;
       }
     } catch (e) {
       debugPrint('Error loading invoices from local storage: $e');
@@ -548,9 +643,6 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
   }
 
   Future<void> loadInvoices() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/invoices');
       if (response.statusCode == 200) {
@@ -567,10 +659,7 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
       debugPrint('API fetch failed for invoices: $e');
     }
 
-    if (state.invoices.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addInvoice(Invoice invoice) {
@@ -630,17 +719,6 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
       data: invoice.toJson(),
     );
   }
-
-  List<Invoice> _getDemoInvoices() {
-    final now = DateTime.now();
-    return [
-      Invoice(id: '1', invoiceNumber: 'INV-2026-0001', customerId: '1', customerName: 'Kampala Traders Ltd', date: DateTime(2026, 1, 15), dueDate: DateTime(2026, 2, 14), subtotal: 5000000, taxAmount: 900000, total: 5900000, amountPaid: 5900000, status: InvoiceStatus.paid, lines: [], createdAt: now, updatedAt: now),
-      Invoice(id: '2', invoiceNumber: 'INV-2026-0002', customerId: '2', customerName: 'Jinja Hardware Supplies', date: DateTime(2026, 1, 18), dueDate: DateTime(2026, 2, 17), subtotal: 3200000, taxAmount: 576000, total: 3776000, amountPaid: 2000000, status: InvoiceStatus.partial, lines: [], createdAt: now, updatedAt: now),
-      Invoice(id: '3', invoiceNumber: 'INV-2026-0003', customerId: '4', customerName: 'Mbarara Beverages Co', date: DateTime(2026, 1, 20), dueDate: DateTime(2026, 2, 19), subtotal: 8500000, taxAmount: 1530000, total: 10030000, amountPaid: 0, status: InvoiceStatus.pending, lines: [], createdAt: now, updatedAt: now),
-      Invoice(id: '4', invoiceNumber: 'INV-2026-0004', customerId: '1', customerName: 'Kampala Traders Ltd', date: DateTime(2026, 1, 22), dueDate: DateTime(2026, 2, 21), subtotal: 2450000, taxAmount: 441000, total: 2891000, amountPaid: 0, status: InvoiceStatus.pending, lines: [], createdAt: now, updatedAt: now),
-      Invoice(id: '5', invoiceNumber: 'INV-2026-0005', customerId: '5', customerName: 'Gulu Construction Works', date: DateTime(2025, 12, 1), dueDate: DateTime(2025, 12, 31), subtotal: 15000000, taxAmount: 2700000, total: 17700000, amountPaid: 0, status: InvoiceStatus.overdue, lines: [], createdAt: now, updatedAt: now),
-    ];
-  }
 }
 
 final invoicesProvider = StateNotifierProvider<InvoicesNotifier, InvoicesState>((ref) {
@@ -683,19 +761,15 @@ class BillsNotifier extends StateNotifier<BillsState> {
     _initializeData();
   }
 
-  bool get _isDemoMode => _ref.read(isOfflineModeProvider);
-
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
-
-      return;
-    }
 
     try {
       final localBills = await _localStorage.loadBills();
       if (localBills.isNotEmpty) {
         state = state.copyWith(bills: localBills, isLoading: false);
         debugPrint('Loaded ${localBills.length} bills from local storage');
+        return;
       }
     } catch (e) {
       debugPrint('Error loading bills from local storage: $e');
@@ -705,9 +779,6 @@ class BillsNotifier extends StateNotifier<BillsState> {
   }
 
   Future<void> loadBills() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/bills');
       if (response.statusCode == 200) {
@@ -724,10 +795,7 @@ class BillsNotifier extends StateNotifier<BillsState> {
       debugPrint('API fetch failed for bills: $e');
     }
 
-    if (state.bills.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addBill(Bill bill) {
@@ -787,17 +855,6 @@ class BillsNotifier extends StateNotifier<BillsState> {
       data: bill.toJson(),
     );
   }
-
-  List<Bill> _getDemoBills() {
-    final now = DateTime.now();
-    return [
-      Bill(id: '1', billNumber: 'BILL-2026-0001', vendorId: '1', vendorName: 'Uganda Office Supplies', date: DateTime(2026, 1, 10), dueDate: DateTime(2026, 2, 9), subtotal: 1200000, taxAmount: 216000, total: 1416000, amountPaid: 1416000, status: BillStatus.paid, lines: [], createdAt: now, updatedAt: now),
-      Bill(id: '2', billNumber: 'BILL-2026-0002', vendorId: '2', vendorName: 'East African Paper Mills', date: DateTime(2026, 1, 12), dueDate: DateTime(2026, 2, 26), subtotal: 3500000, taxAmount: 630000, total: 4130000, amountPaid: 0, status: BillStatus.pending, lines: [], createdAt: now, updatedAt: now),
-      Bill(id: '3', billNumber: 'BILL-2026-0003', vendorId: '4', vendorName: 'Uganda Petroleum Ltd', date: DateTime(2026, 1, 15), dueDate: DateTime(2026, 2, 14), subtotal: 5800000, taxAmount: 1044000, total: 6844000, amountPaid: 3000000, status: BillStatus.partial, lines: [], createdAt: now, updatedAt: now),
-      Bill(id: '4', billNumber: 'BILL-2026-0004', vendorId: '3', vendorName: 'Kampala Tech Solutions', date: DateTime(2026, 1, 18), dueDate: DateTime(2026, 2, 2), subtotal: 2100000, taxAmount: 378000, total: 2478000, amountPaid: 0, status: BillStatus.pending, lines: [], createdAt: now, updatedAt: now),
-      Bill(id: '5', billNumber: 'BILL-2026-0005', vendorId: '5', vendorName: 'Mbarara Construction Materials', date: DateTime(2025, 11, 15), dueDate: DateTime(2026, 1, 14), subtotal: 8500000, taxAmount: 1530000, total: 10030000, amountPaid: 0, status: BillStatus.overdue, lines: [], createdAt: now, updatedAt: now),
-    ];
-  }
 }
 
 final billsProvider = StateNotifierProvider<BillsNotifier, BillsState>((ref) {
@@ -840,19 +897,15 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
     _initializeData();
   }
 
-  bool get _isDemoMode => _ref.read(isOfflineModeProvider);
-
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
-
-      return;
-    }
 
     try {
       final localEntries = await _localStorage.loadJournalEntries();
       if (localEntries.isNotEmpty) {
         state = state.copyWith(entries: localEntries, isLoading: false);
         debugPrint('Loaded ${localEntries.length} journal entries from local storage');
+        return;
       }
     } catch (e) {
       debugPrint('Error loading journals from local storage: $e');
@@ -862,9 +915,6 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
   }
 
   Future<void> loadJournals() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/journals');
       if (response.statusCode == 200) {
@@ -881,10 +931,7 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
       debugPrint('API fetch failed for journals: $e');
     }
 
-    if (state.entries.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addEntry(JournalEntry entry) {
@@ -922,88 +969,6 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
       entityId: entryId,
       data: entry.toJson(),
     );
-  }
-
-  List<JournalEntry> _getDemoJournals() {
-    final now = DateTime.now();
-    return [
-      JournalEntry(
-        id: '1',
-        entryNumber: 'JE-2026-0001',
-        date: DateTime(2026, 1, 15),
-        description: 'Record sales revenue',
-        reference: 'INV-2026-0001',
-        status: JournalEntryStatus.posted,
-        lines: [
-          JournalLine(id: '1', journalEntryId: '1', accountId: '5', accountCode: '1200', accountName: 'Accounts Receivable', debit: 5900000, credit: 0),
-          JournalLine(id: '2', journalEntryId: '1', accountId: '13', accountCode: '4000', accountName: 'Sales Revenue', debit: 0, credit: 5000000),
-          JournalLine(id: '3', journalEntryId: '1', accountId: '9', accountCode: '2100', accountName: 'VAT Payable', debit: 0, credit: 900000),
-        ],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'Admin',
-      ),
-      JournalEntry(
-        id: '2',
-        entryNumber: 'JE-2026-0002',
-        date: DateTime(2026, 1, 18),
-        description: 'Payment received from customer',
-        reference: 'REC-2026-0001',
-        status: JournalEntryStatus.posted,
-        lines: [
-          JournalLine(id: '4', journalEntryId: '2', accountId: '3', accountCode: '1100', accountName: 'Bank Account - UGX', debit: 5900000, credit: 0),
-          JournalLine(id: '5', journalEntryId: '2', accountId: '5', accountCode: '1200', accountName: 'Accounts Receivable', debit: 0, credit: 5900000),
-        ],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'Admin',
-      ),
-      JournalEntry(
-        id: '3',
-        entryNumber: 'JE-2026-0003',
-        date: DateTime(2026, 1, 20),
-        description: 'Office supplies purchase',
-        reference: 'BILL-2026-0001',
-        status: JournalEntryStatus.posted,
-        lines: [
-          JournalLine(id: '6', journalEntryId: '3', accountId: '19', accountCode: '6300', accountName: 'Office Supplies', debit: 1200000, credit: 0),
-          JournalLine(id: '7', journalEntryId: '3', accountId: '8', accountCode: '2000', accountName: 'Accounts Payable', debit: 0, credit: 1200000),
-        ],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'Admin',
-      ),
-      JournalEntry(
-        id: '4',
-        entryNumber: 'JE-2026-0004',
-        date: DateTime(2026, 1, 25),
-        description: 'Monthly rent payment',
-        reference: 'CHQ-2026-0015',
-        status: JournalEntryStatus.posted,
-        lines: [
-          JournalLine(id: '8', journalEntryId: '4', accountId: '17', accountCode: '6100', accountName: 'Rent Expense', debit: 3000000, credit: 0),
-          JournalLine(id: '9', journalEntryId: '4', accountId: '3', accountCode: '1100', accountName: 'Bank Account - UGX', debit: 0, credit: 3000000),
-        ],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'Admin',
-      ),
-      JournalEntry(
-        id: '5',
-        entryNumber: 'JE-2026-0005',
-        date: DateTime(2026, 1, 28),
-        description: 'Salary accrual',
-        reference: 'PAY-2026-01',
-        status: JournalEntryStatus.draft,
-        lines: [
-          JournalLine(id: '10', journalEntryId: '5', accountId: '16', accountCode: '6000', accountName: 'Salaries & Wages', debit: 8500000, credit: 0),
-          JournalLine(id: '11', journalEntryId: '5', accountId: '10', accountCode: '2200', accountName: 'Salaries Payable', debit: 0, credit: 8500000),
-        ],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'Admin',
-      ),
-    ];
   }
 }
 
@@ -1047,19 +1012,15 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
     _initializeData();
   }
 
-  bool get _isDemoMode => _ref.read(isOfflineModeProvider);
-
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
-
-      return;
-    }
 
     try {
       final localPayments = await _localStorage.loadPayments();
       if (localPayments.isNotEmpty) {
         state = state.copyWith(payments: localPayments, isLoading: false);
         debugPrint('Loaded ${localPayments.length} payments from local storage');
+        return;
       }
     } catch (e) {
       debugPrint('Error loading payments from local storage: $e');
@@ -1069,9 +1030,6 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
   }
 
   Future<void> loadPayments() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/payments');
       if (response.statusCode == 200) {
@@ -1088,10 +1046,7 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
       debugPrint('API fetch failed for payments: $e');
     }
 
-    if (state.payments.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addPayment(Payment payment) {
@@ -1107,7 +1062,6 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
       data: payment.toJson(),
     );
   }
-
 }
 
 final paymentsProvider = StateNotifierProvider<PaymentsNotifier, PaymentsState>((ref) {
@@ -1151,8 +1105,335 @@ final outletsByRegionProvider = Provider.family<List<Outlet>, String>((ref, regi
 final sortedOutletsStreamProvider = Provider<Stream<List<Outlet>>>((ref) {
   final db = ref.watch(databaseProvider);
   return db.watchAllOutlets().map((outlets) {
-    // Sort by outlet code (ID) in ascending order
     outlets.sort((a, b) => a.outletCode.compareTo(b.outletCode));
     return outlets;
   });
+});
+
+// ============================================================================
+// CSV Import Service - Import AccountingTotalsInOut.csv
+// ============================================================================
+
+class CsvImportResult {
+  final int totalRows;
+  final int importedRows;
+  final int skippedRows;
+  final int journalEntriesCreated;
+  final List<String> errors;
+
+  CsvImportResult({
+    required this.totalRows,
+    required this.importedRows,
+    required this.skippedRows,
+    required this.journalEntriesCreated,
+    required this.errors,
+  });
+}
+
+/// CSV Import state
+class CsvImportState {
+  final bool isImporting;
+  final CsvImportResult? lastResult;
+  final String? error;
+  final double progress;
+
+  CsvImportState({
+    this.isImporting = false,
+    this.lastResult,
+    this.error,
+    this.progress = 0,
+  });
+
+  CsvImportState copyWith({
+    bool? isImporting,
+    CsvImportResult? lastResult,
+    String? error,
+    double? progress,
+  }) {
+    return CsvImportState(
+      isImporting: isImporting ?? this.isImporting,
+      lastResult: lastResult ?? this.lastResult,
+      error: error,
+      progress: progress ?? this.progress,
+    );
+  }
+}
+
+class CsvImportNotifier extends StateNotifier<CsvImportState> {
+  final AppDatabase _db;
+  final Ref _ref;
+
+  CsvImportNotifier(this._db, this._ref) : super(CsvImportState());
+
+  /// Parse a number string like " 746,000 " or " 1,585,000 " to double
+  double _parseAmount(String raw) {
+    final cleaned = raw.trim().replaceAll(',', '').replaceAll(' ', '');
+    return double.tryParse(cleaned) ?? 0.0;
+  }
+
+  /// Parse date in m/d/yyyy format
+  DateTime? _parseDate(String raw) {
+    try {
+      final trimmed = raw.trim();
+      final parts = trimmed.split('/');
+      if (parts.length == 3) {
+        final month = int.parse(parts[0]);
+        final day = int.parse(parts[1]);
+        final year = int.parse(parts[2]);
+        return DateTime(year, month, day);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Map CSV outlet code (e.g. "23103000") to DB outlet code (e.g. "3000")
+  String _mapOutletCode(String csvCode) {
+    final trimmed = csvCode.trim();
+    if (trimmed.startsWith('2310')) {
+      return trimmed.substring(4);
+    }
+    return trimmed;
+  }
+
+  /// Import CSV file and create outlet revenue entries + journal entries
+  Future<CsvImportResult> importCsvFile(String filePath) async {
+    state = state.copyWith(isImporting: true, progress: 0, error: null);
+
+    int totalRows = 0;
+    int importedRows = 0;
+    int skippedRows = 0;
+    int journalEntriesCreated = 0;
+    final errors = <String>[];
+
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        throw Exception('File not found: $filePath');
+      }
+
+      final lines = await file.readAsLines();
+      if (lines.isEmpty) {
+        throw Exception('CSV file is empty');
+      }
+
+      // Skip header row
+      totalRows = lines.length - 1;
+
+      // Get all outlets for mapping
+      final outlets = await _db.getAllOutlets();
+      final outletMap = <String, Outlet>{};
+      for (final outlet in outlets) {
+        outletMap[outlet.outletCode] = outlet;
+      }
+
+      // Track journal entries to create
+      final journalEntries = <JournalEntry>[];
+      int jeCounter = 0;
+
+      for (var i = 1; i < lines.length; i++) {
+        final line = lines[i].trim();
+        if (line.isEmpty) {
+          skippedRows++;
+          continue;
+        }
+
+        try {
+          // Parse CSV line (handle quoted fields with commas)
+          final fields = _parseCsvLine(line);
+          if (fields.length < 5) {
+            errors.add('Row ${i + 1}: Not enough columns (${fields.length})');
+            skippedRows++;
+            continue;
+          }
+
+          final csvOutletCode = fields[0].trim();
+          final dateStr = fields[1].trim();
+          final totalIn = _parseAmount(fields[2]);
+          final totalOut = _parseAmount(fields[3]);
+          final totalGGR = _parseAmount(fields[4]);
+
+          // Map outlet code
+          final outletCode = _mapOutletCode(csvOutletCode);
+          final outlet = outletMap[outletCode];
+
+          if (outlet == null) {
+            errors.add('Row ${i + 1}: Outlet $outletCode not found');
+            skippedRows++;
+            continue;
+          }
+
+          // Parse date
+          final date = _parseDate(dateStr);
+          if (date == null) {
+            errors.add('Row ${i + 1}: Invalid date "$dateStr"');
+            skippedRows++;
+            continue;
+          }
+
+          // Create OutletRevenue entry
+          // amount = Total In, commissionAmount = Total Out, netAmount = GGR
+          final revenueId = _uuid.v4();
+          final revenue = OutletRevenuesCompanion.insert(
+            id: revenueId,
+            outletId: outlet.id,
+            date: date,
+            amount: totalIn,
+            commissionAmount: totalOut,
+            netAmount: totalGGR,
+            description: Value('CSV Import: ${outlet.name} - ${DateFormat('MMM d, yyyy').format(date)}'),
+            reference: Value('CSV-$csvOutletCode-${DateFormat('yyyyMMdd').format(date)}'),
+            status: const Value('recorded'),
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          );
+
+          await _db.insertOutletRevenue(revenue);
+          importedRows++;
+
+          // Create journal entry for this revenue record
+          jeCounter++;
+          final jeId = _uuid.v4();
+          final jeNumber = 'JE-CSV-${DateFormat('yyyyMMdd').format(date)}-${jeCounter.toString().padLeft(4, '0')}';
+
+          journalEntries.add(JournalEntry(
+            id: jeId,
+            entryNumber: jeNumber,
+            date: date,
+            description: '${outlet.name} (${outlet.outletCode}) - Daily GGR',
+            reference: 'CSV-$csvOutletCode-${DateFormat('yyyyMMdd').format(date)}',
+            status: JournalEntryStatus.posted,
+            lines: [
+              // Debit: Outlet Cash Collections (Total In)
+              JournalLine(id: '${jeId}-1', journalEntryId: jeId, accountId: 'acct-1200', accountCode: '1200', accountName: 'Outlet Cash Collections', debit: totalIn, credit: 0),
+              // Credit: Customer Winnings / Payouts (Total Out)
+              JournalLine(id: '${jeId}-2', journalEntryId: jeId, accountId: 'acct-5000', accountCode: '5000', accountName: 'Customer Winnings (Payouts)', debit: 0, credit: totalOut),
+              // Credit: Gross Gaming Revenue (GGR)
+              JournalLine(id: '${jeId}-3', journalEntryId: jeId, accountId: 'acct-4000', accountCode: '4000', accountName: 'Gross Gaming Revenue (GGR)', debit: 0, credit: totalGGR),
+            ],
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            createdBy: 'CSV Import',
+          ));
+
+          // Update progress
+          state = state.copyWith(progress: i / totalRows);
+
+        } catch (e) {
+          errors.add('Row ${i + 1}: $e');
+          skippedRows++;
+        }
+      }
+
+      // Save journal entries to local storage
+      if (journalEntries.isNotEmpty) {
+        try {
+          final existingEntries = await _localStorage.loadJournalEntries();
+          final allEntries = [...existingEntries, ...journalEntries];
+          await _localStorage.saveJournalEntries(allEntries);
+          journalEntriesCreated = journalEntries.length;
+
+          // Update the journals provider state
+          _ref.read(journalsProvider.notifier).state = JournalsState(
+            entries: allEntries,
+            isLoading: false,
+          );
+        } catch (e) {
+          errors.add('Failed to save journal entries: $e');
+        }
+      }
+
+      // Refresh dashboard data
+      _ref.invalidate(dashboardDataProvider);
+
+    } catch (e) {
+      state = state.copyWith(isImporting: false, error: e.toString());
+      return CsvImportResult(
+        totalRows: totalRows,
+        importedRows: importedRows,
+        skippedRows: skippedRows,
+        journalEntriesCreated: journalEntriesCreated,
+        errors: [e.toString()],
+      );
+    }
+
+    final result = CsvImportResult(
+      totalRows: totalRows,
+      importedRows: importedRows,
+      skippedRows: skippedRows,
+      journalEntriesCreated: journalEntriesCreated,
+      errors: errors,
+    );
+
+    state = state.copyWith(
+      isImporting: false,
+      lastResult: result,
+      progress: 1.0,
+    );
+
+    return result;
+  }
+
+  /// Parse a CSV line handling quoted fields with commas
+  List<String> _parseCsvLine(String line) {
+    final fields = <String>[];
+    var current = StringBuffer();
+    var inQuotes = false;
+
+    for (var i = 0; i < line.length; i++) {
+      final char = line[i];
+      if (char == '"') {
+        inQuotes = !inQuotes;
+      } else if (char == ',' && !inQuotes) {
+        fields.add(current.toString());
+        current = StringBuffer();
+      } else {
+        current.write(char);
+      }
+    }
+    fields.add(current.toString());
+
+    return fields;
+  }
+}
+
+final csvImportProvider = StateNotifierProvider<CsvImportNotifier, CsvImportState>((ref) {
+  final db = ref.read(databaseProvider);
+  return CsvImportNotifier(db, ref);
+});
+
+// ============================================================================
+// Outlet Revenue Aggregation Providers
+// ============================================================================
+
+/// All outlet revenues stream
+final allOutletRevenuesProvider = FutureProvider<List<OutletRevenue>>((ref) async {
+  final db = ref.read(databaseProvider);
+  return db.getAllOutletRevenues();
+});
+
+/// Revenue summary per outlet
+final outletRevenueSummaryProvider = FutureProvider<Map<String, Map<String, double>>>((ref) async {
+  final db = ref.read(databaseProvider);
+  final revenues = await db.getAllOutletRevenues();
+  final outlets = await db.getAllOutlets();
+
+  final summary = <String, Map<String, double>>{};
+
+  for (final outlet in outlets) {
+    final outletRevs = revenues.where((r) => r.outletId == outlet.id);
+    double totalIn = 0, totalOut = 0, totalGGR = 0;
+    for (final rev in outletRevs) {
+      totalIn += rev.amount;
+      totalOut += rev.commissionAmount;
+      totalGGR += rev.netAmount;
+    }
+    summary[outlet.outletCode] = {
+      'totalIn': totalIn,
+      'totalOut': totalOut,
+      'totalGGR': totalGGR,
+      'days': outletRevs.length.toDouble(),
+    };
+  }
+
+  return summary;
 });

@@ -11,8 +11,8 @@ import '../../core/services/data_service.dart';
 
 /// CSV Upload Widget for Outlet Machine Data
 ///
-/// Expected CSV format:
-/// Date (MM/DD/YYYY), OutletID, TotalIn, TotalOut, NetAmount, TransactionCount, Currency
+/// Expected CSV format (AccountingTotalsInOut.csv):
+/// Outlet, Business Day, Total In, Total Out, Total GGR
 class CSVUploadWidget extends ConsumerStatefulWidget {
   const CSVUploadWidget({super.key});
 
@@ -280,7 +280,7 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'CSV Format: Date(MM/DD/YYYY), OutletID, TotalIn, TotalOut, NetAmount, TransactionCount, Currency',
+                      'CSV Format: Outlet, Business Day (m/d/yyyy), Total In, Total Out, Total GGR',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: Theme.of(context).colorScheme.outline,
                           ),
