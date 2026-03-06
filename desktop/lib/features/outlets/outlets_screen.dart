@@ -33,26 +33,40 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
     // final outletsStream = ref.watch(outletsProvider);
 
     return AppShell(
-      title: 'Outlet Management',
-      body: Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header with actions
-          Padding(
+          // Page Title Bar
+          Container(
             padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              border: Border(
+                bottom: BorderSide(
+                  color: Theme.of(context).dividerColor,
+                ),
+              ),
+            ),
             child: Row(
               children: [
+                Icon(
+                  Icons.store_mall_directory,
+                  size: 32,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Betting Outlets',
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        'Outlet Management',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                               fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
                             ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       Text(
                         'Manage all betting machine locations',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(

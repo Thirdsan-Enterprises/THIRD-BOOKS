@@ -4,6 +4,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:dio/dio.dart';
 
 import 'api_client.dart';
+import 'init_service.dart';
+import '../database/app_database.dart';
 
 // Auth state
 class AuthState {
@@ -151,6 +153,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
         user: result['user'],
         token: result['token'],
       );
+
+      // Run initialization if needed (background task)
+      _runInitializationIfNeeded();
+
       return true;
     } catch (e) {
       state = state.copyWith(
@@ -169,6 +175,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
       user: result['user'],
       token: result['token'],
     );
+
+    // Run initialization if needed (background task)
+    _runInitializationIfNeeded();
+  }
+
+  /// Run MagicBet initialization if this is the first login
+  Future<void> _runInitializationIfNeeded() async {
+    try {
+      final db = AppDatabase();
+      await InitializationService.checkAndRunSetup(db);
+    } catch (e) {
+      print('Initialization check failed: $e');
+      // Don't throw - initialization is a background task
+    }
   }
 
   Future<void> logout() async {
@@ -372,7 +392,34 @@ class AuthService {
       };
     }
 
-    throw Exception('Invalid email or password. Use demo credentials:\nadmin@thirdbooks.digital / Admin@123');
+    // Marion's MagicBet Admin Account
+    if (email == 'marion@magicbet.ug' && password == 'MagicBet@2026') {
+      final marionUser = {
+        'id': 100,
+        'tenant_id': 'magicbet',
+        'name': 'Marion',
+        'email': 'marion@magicbet.ug',
+        'phone': '+256 700 000000',
+        'role': 'super_admin',
+        'is_active': true,
+        'created_at': DateTime.now().toIso8601String(),
+      };
+
+      const marionToken = 'magicbet-admin-token-marion-2026';
+
+      await _storage.write(key: _tokenKey, value: marionToken);
+      await _storage.write(key: _userKey, value: jsonEncode(marionUser));
+
+      final expiry = DateTime.now().add(const Duration(days: 365)); // 1 year
+      await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
+
+      return {
+        'token': marionToken,
+        'user': User.fromJson(marionUser),
+      };
+    }
+
+    throw Exception('Invalid email or password. Use demo credentials:\nmarion@magicbet.ug / MagicBet@2026\nadmin@thirdbooks.digital / Admin@123');
   }
 
   // Direct demo login - no credentials required
