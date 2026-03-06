@@ -157,7 +157,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           children: [
                             TextFormField(
                               decoration: const InputDecoration(labelText: 'Company Name'),
-                              initialValue: 'ThirdBooks Demo Company',
+                              initialValue: 'MAGIC BET LTD',
                             ),
                             const SizedBox(height: 16),
                             Row(

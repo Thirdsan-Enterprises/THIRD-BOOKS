@@ -466,11 +466,17 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ),
         Expanded(
           child: ListView(
-            children: [
-              _AgingRow('Kampala Traders Ltd', [3500000, 5000000, 2500000, 1500000, 0]),
-              _AgingRow('Jinja Hardware Supplies', [2000000, 3450000, 3000000, 0, 0]),
-              _AgingRow('Mbarara Beverages Co', [10000000, 15000000, 12000000, 8000000, 0]),
-              _AgingRow('Gulu Construction Works', [5000000, 12500000, 25000000, 15000000, 10000000]),
+            children: const [
+              // Aging data will be populated from database after CSV import
+              Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24.0),
+                  child: Text(
+                    'No aging data available. Import CSV data to see receivables aging.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
