@@ -21,12 +21,19 @@ part 'app_database.g.dart';
   BillLines,
   SyncEvents,
   SyncState,
+  Outlets,
+  OutletRevenues,
+  OutletExpenditures,
+  CommissionPayments,
+  Assets,
+  AssetDepreciation,
+  DepreciationEntries,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration {
@@ -37,7 +44,16 @@ class AppDatabase extends _$AppDatabase {
         await into(syncState).insert(SyncStateCompanion.insert());
       },
       onUpgrade: (Migrator m, int from, int to) async {
-        // Handle future migrations here
+        // Migration from v1 to v2 - add new tables for MAGIC BET LTD
+        if (from == 1 && to == 2) {
+          await m.createTable(outlets);
+          await m.createTable(outletRevenues);
+          await m.createTable(outletExpenditures);
+          await m.createTable(commissionPayments);
+          await m.createTable(assets);
+          await m.createTable(assetDepreciation);
+          await m.createTable(depreciationEntries);
+        }
       },
     );
   }
@@ -159,6 +175,114 @@ class AppDatabase extends _$AppDatabase {
       ),
     );
   }
+
+  // ========== OUTLET OPERATIONS ==========
+  Future<List<Outlet>> getAllOutlets() => select(outlets).get();
+
+  Stream<List<Outlet>> watchAllOutlets() => select(outlets).watch();
+
+  Future<List<Outlet>> getActiveOutlets() =>
+      (select(outlets)..where((o) => o.isActive.equals(true))).get();
+
+  Future<Outlet?> getOutletById(String id) =>
+      (select(outlets)..where((o) => o.id.equals(id))).getSingleOrNull();
+
+  Future<Outlet?> getOutletByCode(String code) =>
+      (select(outlets)..where((o) => o.outletCode.equals(code))).getSingleOrNull();
+
+  Future<int> insertOutlet(OutletsCompanion outlet) =>
+      into(outlets).insert(outlet);
+
+  Future<bool> updateOutlet(OutletsCompanion outlet) =>
+      update(outlets).replace(outlet);
+
+  Future<int> deleteOutlet(String id) =>
+      (delete(outlets)..where((o) => o.id.equals(id))).go();
+
+  // ========== OUTLET REVENUE OPERATIONS ==========
+  Future<List<OutletRevenue>> getAllOutletRevenues() =>
+      select(outletRevenues).get();
+
+  Stream<List<OutletRevenue>> watchOutletRevenues(String outletId) =>
+      (select(outletRevenues)..where((r) => r.outletId.equals(outletId))).watch();
+
+  Future<List<OutletRevenue>> getOutletRevenuesByPeriod(
+      String outletId, DateTime start, DateTime end) =>
+      (select(outletRevenues)
+            ..where((r) =>
+                r.outletId.equals(outletId) &
+                r.date.isBiggerOrEqualValue(start) &
+                r.date.isSmallerOrEqualValue(end)))
+          .get();
+
+  Future<int> insertOutletRevenue(OutletRevenuesCompanion revenue) =>
+      into(outletRevenues).insert(revenue);
+
+  Future<bool> updateOutletRevenue(OutletRevenuesCompanion revenue) =>
+      update(outletRevenues).replace(revenue);
+
+  // ========== OUTLET EXPENDITURE OPERATIONS ==========
+  Future<List<OutletExpenditure>> getAllOutletExpenditures() =>
+      select(outletExpenditures).get();
+
+  Stream<List<OutletExpenditure>> watchOutletExpenditures(String outletId) =>
+      (select(outletExpenditures)..where((e) => e.outletId.equals(outletId))).watch();
+
+  Future<int> insertOutletExpenditure(OutletExpendituresCompanion expenditure) =>
+      into(outletExpenditures).insert(expenditure);
+
+  Future<bool> updateOutletExpenditure(OutletExpendituresCompanion expenditure) =>
+      update(outletExpenditures).replace(expenditure);
+
+  // ========== COMMISSION PAYMENT OPERATIONS ==========
+  Future<List<CommissionPayment>> getAllCommissionPayments() =>
+      select(commissionPayments).get();
+
+  Stream<List<CommissionPayment>> watchPendingCommissions() =>
+      (select(commissionPayments)..where((c) => c.status.equals('pending'))).watch();
+
+  Future<int> insertCommissionPayment(CommissionPaymentsCompanion payment) =>
+      into(commissionPayments).insert(payment);
+
+  Future<bool> updateCommissionPayment(CommissionPaymentsCompanion payment) =>
+      update(commissionPayments).replace(payment);
+
+  // ========== ASSET OPERATIONS ==========
+  Future<List<Asset>> getAllAssets() => select(assets).get();
+
+  Stream<List<Asset>> watchAllAssets() => select(assets).watch();
+
+  Future<List<Asset>> getActiveAssets() =>
+      (select(assets)..where((a) => a.isActive.equals(true))).get();
+
+  Future<Asset?> getAssetById(String id) =>
+      (select(assets)..where((a) => a.id.equals(id))).getSingleOrNull();
+
+  Future<int> insertAsset(AssetsCompanion asset) =>
+      into(assets).insert(asset);
+
+  Future<bool> updateAsset(AssetsCompanion asset) =>
+      update(assets).replace(asset);
+
+  // ========== ASSET DEPRECIATION OPERATIONS ==========
+  Future<List<AssetDepreciationData>> getAssetDepreciationSchedules(String assetId) =>
+      (select(assetDepreciation)..where((d) => d.assetId.equals(assetId))).get();
+
+  Future<int> insertAssetDepreciation(AssetDepreciationCompanion depreciation) =>
+      into(assetDepreciation).insert(depreciation);
+
+  Future<bool> updateAssetDepreciation(AssetDepreciationCompanion depreciation) =>
+      update(assetDepreciation).replace(depreciation);
+
+  // ========== DEPRECIATION ENTRY OPERATIONS ==========
+  Future<List<DepreciationEntry>> getDepreciationEntries(String assetId) =>
+      (select(depreciationEntries)..where((e) => e.assetId.equals(assetId))).get();
+
+  Future<int> insertDepreciationEntry(DepreciationEntriesCompanion entry) =>
+      into(depreciationEntries).insert(entry);
+
+  Stream<List<DepreciationEntry>> watchPendingDepreciationEntries() =>
+      (select(depreciationEntries)..where((e) => e.status.equals('draft'))).watch();
 }
 
 LazyDatabase _openConnection() {

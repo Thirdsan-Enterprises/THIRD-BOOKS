@@ -197,3 +197,148 @@ class SyncState extends Table {
   @override
   Set<Column> get primaryKey => {id};
 }
+
+// Outlets table - for betting outlet locations
+class Outlets extends Table {
+  TextColumn get id => text()();
+  TextColumn get outletCode => text().withLength(min: 1, max: 50).unique()();
+  TextColumn get name => text().withLength(min: 1, max: 255)();
+  TextColumn get address => text().nullable()();
+  TextColumn get city => text().nullable()();
+  TextColumn get postalCode => text().nullable()();
+  TextColumn get region => text().nullable()();
+  TextColumn get venueType => text().withDefault(const Constant('OUTLET'))();
+  TextColumn get ownerName => text().nullable()();
+  TextColumn get ownerContact => text().nullable()();
+  RealColumn get commissionRate => real().withDefault(const Constant(40.0))(); // Default 40%
+  BoolColumn get isActive => boolean().withDefault(const Constant(true))();
+  TextColumn get notes => text().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  IntColumn get syncSequence => integer().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+// Outlet Revenues table - track revenue from each outlet
+class OutletRevenues extends Table {
+  TextColumn get id => text()();
+  TextColumn get outletId => text().references(Outlets, #id)();
+  DateTimeColumn get date => dateTime()();
+  RealColumn get amount => real().withDefault(const Constant(0.0))();
+  RealColumn get commissionAmount => real().withDefault(const Constant(0.0))();
+  RealColumn get netAmount => real().withDefault(const Constant(0.0))();
+  TextColumn get description => text().nullable()();
+  TextColumn get reference => text().nullable()();
+  TextColumn get status => text().withDefault(const Constant('recorded'))(); // recorded, verified, paid
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  IntColumn get syncSequence => integer().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+// Outlet Expenditures table - track expenses per outlet
+class OutletExpenditures extends Table {
+  TextColumn get id => text()();
+  TextColumn get outletId => text().references(Outlets, #id)();
+  DateTimeColumn get date => dateTime()();
+  TextColumn get expenseType => text()(); // maintenance, repairs, supplies, etc.
+  RealColumn get amount => real().withDefault(const Constant(0.0))();
+  TextColumn get description => text()();
+  TextColumn get reference => text().nullable()();
+  TextColumn get paidTo => text().nullable()();
+  TextColumn get status => text().withDefault(const Constant('pending'))(); // pending, approved, paid
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  IntColumn get syncSequence => integer().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+// Commission Payments table - track commission payments to location owners
+class CommissionPayments extends Table {
+  TextColumn get id => text()();
+  TextColumn get outletId => text().references(Outlets, #id)();
+  DateTimeColumn get periodStart => dateTime()();
+  DateTimeColumn get periodEnd => dateTime()();
+  RealColumn get totalRevenue => real().withDefault(const Constant(0.0))();
+  RealColumn get commissionRate => real()();
+  RealColumn get commissionAmount => real().withDefault(const Constant(0.0))();
+  TextColumn get status => text().withDefault(const Constant('pending'))(); // pending, paid
+  DateTimeColumn get paidDate => dateTime().nullable()();
+  TextColumn get paymentMethod => text().nullable()();
+  TextColumn get paymentReference => text().nullable()();
+  TextColumn get notes => text().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  IntColumn get syncSequence => integer().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+// Assets table - for fixed assets (office equipment, vehicles, etc.)
+class Assets extends Table {
+  TextColumn get id => text()();
+  TextColumn get assetCode => text().withLength(min: 1, max: 50).unique()();
+  TextColumn get name => text().withLength(min: 1, max: 255)();
+  TextColumn get description => text().nullable()();
+  TextColumn get category => text()(); // Vehicle, Equipment, Furniture, Electronics, etc.
+  RealColumn get purchasePrice => real().withDefault(const Constant(0.0))();
+  RealColumn get currentValue => real().withDefault(const Constant(0.0))();
+  RealColumn get accumulatedDepreciation => real().withDefault(const Constant(0.0))();
+  DateTimeColumn get purchaseDate => dateTime()();
+  TextColumn get supplier => text().nullable()();
+  TextColumn get location => text().nullable()();
+  TextColumn get outletId => text().nullable().references(Outlets, #id)();
+  BoolColumn get isActive => boolean().withDefault(const Constant(true))();
+  TextColumn get notes => text().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  IntColumn get syncSequence => integer().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+// Asset Depreciation table - track depreciation schedules
+class AssetDepreciation extends Table {
+  TextColumn get id => text()();
+  TextColumn get assetId => text().references(Assets, #id)();
+  TextColumn get method => text().withDefault(const Constant('declining_balance'))(); // declining_balance, straight_line
+  RealColumn get rate => real()(); // Percentage rate (e.g., 20 for 20%)
+  TextColumn get period => text().withDefault(const Constant('yearly'))(); // monthly, yearly
+  DateTimeColumn get startDate => dateTime()();
+  DateTimeColumn get endDate => dateTime().nullable()();
+  BoolColumn get isActive => boolean().withDefault(const Constant(true))();
+  TextColumn get notes => text().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  IntColumn get syncSequence => integer().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+// Depreciation Entries table - individual depreciation journal entries
+class DepreciationEntries extends Table {
+  TextColumn get id => text()();
+  TextColumn get assetId => text().references(Assets, #id)();
+  TextColumn get assetDepreciationId => text().references(AssetDepreciation, #id)();
+  TextColumn get journalEntryId => text().nullable().references(JournalEntries, #id)();
+  DateTimeColumn get date => dateTime()();
+  RealColumn get depreciationAmount => real().withDefault(const Constant(0.0))();
+  RealColumn get bookValueBefore => real().withDefault(const Constant(0.0))();
+  RealColumn get bookValueAfter => real().withDefault(const Constant(0.0))();
+  TextColumn get status => text().withDefault(const Constant('draft'))(); // draft, posted
+  TextColumn get notes => text().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+  IntColumn get syncSequence => integer().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
