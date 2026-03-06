@@ -22,7 +22,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
 
   List<JournalEntry> get _filteredEntries {
     final journalsState = ref.watch(journalsProvider);
-    return journalsState.entries.where((entry) {
+    return journalsState.entries.where((JournalEntry entry) {
       final matchesSearch = _searchQuery.isEmpty ||
           entry.description.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           entry.entryNumber.toLowerCase().contains(_searchQuery.toLowerCase()) ||

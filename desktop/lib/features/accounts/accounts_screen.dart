@@ -285,7 +285,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
               DataColumn(label: Text('Status')),
               DataColumn(label: Text('Actions')),
             ],
-            rows: accounts.map((account) {
+            rows: accounts.map((Account account) {
               final isDebitNormal = account.type == AccountType.asset || account.type == AccountType.expense;
 
               return DataRow(

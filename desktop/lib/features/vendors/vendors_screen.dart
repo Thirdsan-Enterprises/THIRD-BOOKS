@@ -26,7 +26,7 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
 
   List<Vendor> get _filteredVendors {
     final vendorsState = ref.watch(vendorsProvider);
-    return vendorsState.vendors.where((vendor) {
+    return vendorsState.vendors.where((Vendor vendor) {
       final matchesSearch = _searchQuery.isEmpty ||
           vendor.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           (vendor.email?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
@@ -275,7 +275,7 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
               DataColumn(label: Text('Status')),
               DataColumn(label: Text('Actions')),
             ],
-            rows: vendors.map((vendor) {
+            rows: vendors.map((Vendor vendor) {
               return DataRow(
                 cells: [
                   DataCell(

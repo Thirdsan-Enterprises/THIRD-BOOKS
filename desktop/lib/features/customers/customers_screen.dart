@@ -26,7 +26,7 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
 
   List<Customer> get _filteredCustomers {
     final customersState = ref.watch(customersProvider);
-    return customersState.customers.where((customer) {
+    return customersState.customers.where((Customer customer) {
       final matchesSearch = _searchQuery.isEmpty ||
           customer.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           (customer.email?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
@@ -276,7 +276,7 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
               DataColumn(label: Text('Status')),
               DataColumn(label: Text('Actions')),
             ],
-            rows: customers.map((customer) {
+            rows: customers.map((Customer customer) {
               final utilizationPercent = customer.creditLimit > 0
                   ? (customer.balance / customer.creditLimit * 100)
                   : 0;

@@ -27,7 +27,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
 
   List<Invoice> get _filteredInvoices {
     final invoicesState = ref.watch(invoicesProvider);
-    return invoicesState.invoices.where((invoice) {
+    return invoicesState.invoices.where((Invoice invoice) {
       final matchesSearch = _searchQuery.isEmpty ||
           (invoice.customerName?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
           invoice.invoiceNumber.toLowerCase().contains(_searchQuery.toLowerCase());

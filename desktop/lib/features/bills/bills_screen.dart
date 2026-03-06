@@ -27,7 +27,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
 
   List<Bill> get _filteredBills {
     final billsState = ref.watch(billsProvider);
-    return billsState.bills.where((bill) {
+    return billsState.bills.where((Bill bill) {
       final matchesSearch = _searchQuery.isEmpty ||
           (bill.vendorName?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
           bill.billNumber.toLowerCase().contains(_searchQuery.toLowerCase());
