@@ -157,7 +157,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           children: [
                             TextFormField(
                               decoration: const InputDecoration(labelText: 'Company Name'),
-                              initialValue: 'ThirdBooks Demo Company',
+                              initialValue: 'Magic Bet Ltd',
                             ),
                             const SizedBox(height: 16),
                             Row(
@@ -165,14 +165,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 Expanded(
                                   child: TextFormField(
                                     decoration: const InputDecoration(labelText: 'Registration Number'),
-                                    initialValue: 'UG-2024-123456',
+                                    initialValue: '',
                                   ),
                                 ),
                                 const SizedBox(width: 16),
                                 Expanded(
                                   child: TextFormField(
                                     decoration: const InputDecoration(labelText: 'Tax ID (TIN)'),
-                                    initialValue: '1001234567',
+                                    initialValue: '',
                                   ),
                                 ),
                               ],
@@ -190,21 +190,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       Expanded(
                         child: TextFormField(
                           decoration: const InputDecoration(labelText: 'Email'),
-                          initialValue: 'info@thirdbooks.com',
+                          initialValue: 'info@magicbet.ug',
                         ),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
                         child: TextFormField(
                           decoration: const InputDecoration(labelText: 'Phone'),
-                          initialValue: '+256 414 123456',
+                          initialValue: '',
                         ),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
                         child: TextFormField(
                           decoration: const InputDecoration(labelText: 'Website'),
-                          initialValue: 'www.thirdbooks.com',
+                          initialValue: 'www.magicbet.ug',
                         ),
                       ),
                     ],
@@ -212,7 +212,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   const SizedBox(height: 16),
                   TextFormField(
                     decoration: const InputDecoration(labelText: 'Address'),
-                    initialValue: 'Plot 45, Kampala Road, Kampala, Uganda',
+                    initialValue: 'Kampala, Uganda',
                     maxLines: 2,
                   ),
                   const SizedBox(height: 24),

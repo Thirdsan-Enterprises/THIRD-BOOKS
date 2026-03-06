@@ -794,21 +794,12 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
               Text('Recent Transactions', style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 8),
               Expanded(
-                child: ListView(
-                  children: [
-                    ListTile(
-                      leading: const CircleAvatar(child: Icon(Icons.arrow_upward, color: Colors.green)),
-                      title: const Text('Sales Revenue - INV-2026-0001'),
-                      subtitle: const Text('Jan 15, 2026'),
-                      trailing: const Text('+UGX 5,900,000', style: TextStyle(color: Colors.green)),
-                    ),
-                    ListTile(
-                      leading: const CircleAvatar(child: Icon(Icons.arrow_downward, color: Colors.red)),
-                      title: const Text('Payment Received'),
-                      subtitle: const Text('Jan 18, 2026'),
-                      trailing: const Text('-UGX 5,900,000', style: TextStyle(color: Colors.red)),
-                    ),
-                  ],
+                child: Center(
+                  child: Text(
+                    'No transactions yet.\nImport CSV data to see transactions.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Theme.of(context).colorScheme.outline),
+                  ),
                 ),
               ),
             ],

@@ -4,6 +4,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/data_service.dart';
+import '../../core/database/app_database.dart';
 
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({super.key});
@@ -15,6 +17,7 @@ class ReportsScreen extends ConsumerStatefulWidget {
 class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   String _selectedPeriod = 'This Month';
   String _selectedReportType = 'all';
+  final _currencyFormat = NumberFormat.currency(symbol: 'UGX ', decimalDigits: 0);
 
   final List<Map<String, dynamic>> _reportCategories = [
     {
@@ -29,25 +32,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       ],
     },
     {
-      'category': 'Accounts Receivable',
-      'icon': Icons.people,
+      'category': 'Outlet Performance',
+      'icon': Icons.store,
       'color': AppColors.debit,
       'reports': [
-        {'name': 'Aging Report', 'description': 'Outstanding invoices by age', 'icon': Icons.access_time},
-        {'name': 'Customer Statement', 'description': 'Transaction history by customer', 'icon': Icons.person},
-        {'name': 'Sales by Customer', 'description': 'Revenue breakdown by customer', 'icon': Icons.bar_chart},
-        {'name': 'Invoice List', 'description': 'All invoices with status', 'icon': Icons.receipt_long},
-      ],
-    },
-    {
-      'category': 'Accounts Payable',
-      'icon': Icons.store,
-      'color': AppColors.credit,
-      'reports': [
-        {'name': 'Aging Report', 'description': 'Outstanding bills by age', 'icon': Icons.access_time},
-        {'name': 'Vendor Statement', 'description': 'Transaction history by vendor', 'icon': Icons.storefront},
-        {'name': 'Purchases by Vendor', 'description': 'Expense breakdown by vendor', 'icon': Icons.bar_chart},
-        {'name': 'Bills List', 'description': 'All bills with status', 'icon': Icons.receipt},
+        {'name': 'GGR by Outlet', 'description': 'Gross Gaming Revenue per outlet', 'icon': Icons.bar_chart},
+        {'name': 'Outlet Revenue Summary', 'description': 'Total In / Out / GGR summary', 'icon': Icons.summarize},
+        {'name': 'Daily Performance', 'description': 'Day-by-day outlet performance', 'icon': Icons.calendar_month},
+        {'name': 'Top Performers', 'description': 'Highest revenue outlets', 'icon': Icons.emoji_events},
       ],
     },
     {
@@ -55,7 +47,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       'icon': Icons.calculate,
       'color': AppColors.warning,
       'reports': [
-        {'name': 'VAT Report', 'description': 'VAT collected and paid', 'icon': Icons.receipt},
+        {'name': 'GGR Tax Report', 'description': 'Gaming revenue tax summary', 'icon': Icons.receipt},
         {'name': 'Tax Summary', 'description': 'Tax obligations summary', 'icon': Icons.summarize},
         {'name': 'Withholding Tax', 'description': 'WHT deducted and remitted', 'icon': Icons.remove_circle_outline},
       ],
@@ -65,10 +57,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       'icon': Icons.insights,
       'color': AppColors.secondary,
       'reports': [
-        {'name': 'Profit & Loss by Month', 'description': 'Monthly performance comparison', 'icon': Icons.calendar_month},
-        {'name': 'Budget vs Actual', 'description': 'Performance against budget', 'icon': Icons.compare_arrows},
-        {'name': 'Expense Analysis', 'description': 'Expense breakdown by category', 'icon': Icons.pie_chart},
-        {'name': 'Revenue Analysis', 'description': 'Revenue breakdown by source', 'icon': Icons.show_chart},
+        {'name': 'GGR by Month', 'description': 'Monthly GGR comparison', 'icon': Icons.calendar_month},
+        {'name': 'Payout Ratio Analysis', 'description': 'Total Out vs Total In ratio', 'icon': Icons.pie_chart},
+        {'name': 'Revenue Trend', 'description': 'Revenue trend over time', 'icon': Icons.show_chart},
       ],
     },
   ];
@@ -147,52 +138,60 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   Widget _buildQuickStats(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _QuickStatCard(
-            title: 'Net Income',
-            value: 'UGX 16.9M',
-            change: '+12.5%',
-            isPositive: true,
-            icon: Icons.trending_up,
-            color: AppColors.income,
+    final dashboardAsync = ref.watch(dashboardDataProvider);
+
+    return dashboardAsync.when(
+      data: (data) => Row(
+        children: [
+          Expanded(
+            child: _QuickStatCard(
+              title: 'Gross Gaming Revenue',
+              value: _currencyFormat.format(data.totalRevenue),
+              change: 'Total GGR',
+              isPositive: true,
+              icon: Icons.trending_up,
+              color: AppColors.income,
+            ),
           ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _QuickStatCard(
-            title: 'Total Revenue',
-            value: 'UGX 64.8M',
-            change: '+8.3%',
-            isPositive: true,
-            icon: Icons.attach_money,
-            color: AppColors.secondary,
+          const SizedBox(width: 16),
+          Expanded(
+            child: _QuickStatCard(
+              title: 'Total Cash In (Stakes)',
+              value: _currencyFormat.format(data.cashIn),
+              change: 'All outlets',
+              isPositive: true,
+              icon: Icons.attach_money,
+              color: AppColors.secondary,
+            ),
           ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _QuickStatCard(
-            title: 'Total Expenses',
-            value: 'UGX 47.9M',
-            change: '+5.2%',
-            isPositive: false,
-            icon: Icons.money_off,
-            color: AppColors.expense,
+          const SizedBox(width: 16),
+          Expanded(
+            child: _QuickStatCard(
+              title: 'Total Payouts',
+              value: _currencyFormat.format(data.cashOut),
+              change: 'Customer winnings',
+              isPositive: false,
+              icon: Icons.money_off,
+              color: AppColors.expense,
+            ),
           ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _QuickStatCard(
-            title: 'Gross Margin',
-            value: '56.8%',
-            change: '+2.1%',
-            isPositive: true,
-            icon: Icons.pie_chart,
-            color: AppColors.primary,
+          const SizedBox(width: 16),
+          Expanded(
+            child: _QuickStatCard(
+              title: 'Payout Ratio',
+              value: data.cashIn > 0
+                  ? '${(data.cashOut / data.cashIn * 100).toStringAsFixed(1)}%'
+                  : '0%',
+              change: 'Out/In ratio',
+              isPositive: data.cashIn > 0 && (data.cashOut / data.cashIn) < 0.85,
+              icon: Icons.pie_chart,
+              color: AppColors.primary,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
+      loading: () => const SizedBox(height: 100, child: Center(child: CircularProgressIndicator())),
+      error: (_, __) => const SizedBox(height: 100, child: Center(child: Text('Error loading data'))),
     );
   }
 
@@ -212,15 +211,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ),
         const SizedBox(width: 8),
         FilterChip(
-          label: const Text('Receivables'),
-          selected: _selectedReportType == 'receivables',
-          onSelected: (selected) => setState(() => _selectedReportType = 'receivables'),
-        ),
-        const SizedBox(width: 8),
-        FilterChip(
-          label: const Text('Payables'),
-          selected: _selectedReportType == 'payables',
-          onSelected: (selected) => setState(() => _selectedReportType = 'payables'),
+          label: const Text('Outlet Performance'),
+          selected: _selectedReportType == 'outlets',
+          onSelected: (selected) => setState(() => _selectedReportType = 'outlets'),
         ),
         const SizedBox(width: 8),
         FilterChip(
@@ -313,12 +306,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   Widget _buildReportContent(BuildContext context, String reportName) {
-    if (reportName == 'Income Statement' || reportName == 'Profit & Loss by Month') {
+    if (reportName == 'Income Statement' || reportName == 'GGR by Month') {
       return _buildIncomeStatementPreview(context);
     } else if (reportName == 'Balance Sheet') {
       return _buildBalanceSheetPreview(context);
-    } else if (reportName.contains('Aging')) {
-      return _buildAgingReportPreview(context);
+    } else if (reportName == 'GGR by Outlet' || reportName == 'Top Performers' || reportName == 'Outlet Revenue Summary') {
+      return _buildOutletPerformancePreview(context);
     } else {
       return Center(
         child: Column(
@@ -337,159 +330,214 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   Widget _buildIncomeStatementPreview(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _ReportSection(
-            title: 'Revenue',
-            items: [
-              {'name': 'Sales Revenue', 'amount': 52340000.0},
-              {'name': 'Service Revenue', 'amount': 12500000.0},
+    final dashboardAsync = ref.watch(dashboardDataProvider);
+
+    return dashboardAsync.when(
+      data: (data) {
+        final totalIn = data.cashIn;
+        final totalOut = data.cashOut;
+        final ggr = data.totalRevenue;
+
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('MAGIC BET LTD - INCOME STATEMENT',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              _ReportSection(
+                title: 'Revenue',
+                items: [
+                  {'name': 'Total Stakes (Cash In)', 'amount': totalIn},
+                ],
+                total: totalIn,
+                isPositive: true,
+              ),
+              const SizedBox(height: 16),
+              _ReportSection(
+                title: 'Cost of Revenue',
+                items: [
+                  {'name': 'Customer Winnings (Payouts)', 'amount': totalOut},
+                ],
+                total: totalOut,
+                isPositive: false,
+              ),
+              const Divider(),
+              _ReportTotalRow(label: 'Gross Gaming Revenue (GGR)', amount: ggr, isHighlight: true),
+              if (ggr == 0)
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'No data yet. Import CSV data to see revenue.',
+                    style: TextStyle(color: Theme.of(context).colorScheme.outline, fontStyle: FontStyle.italic),
+                  ),
+                ),
+              const Divider(height: 32),
+              _ReportTotalRow(label: 'Net Income', amount: ggr, isHighlight: true, isFinal: true),
             ],
-            total: 64840000.0,
-            isPositive: true,
           ),
-          const SizedBox(height: 16),
-          _ReportSection(
-            title: 'Cost of Sales',
-            items: [
-              {'name': 'Cost of Goods Sold', 'amount': 28000000.0},
-            ],
-            total: 28000000.0,
-            isPositive: false,
-          ),
-          const Divider(),
-          _ReportTotalRow(label: 'Gross Profit', amount: 36840000.0, isHighlight: true),
-          const SizedBox(height: 16),
-          _ReportSection(
-            title: 'Operating Expenses',
-            items: [
-              {'name': 'Salaries & Wages', 'amount': 15000000.0},
-              {'name': 'Rent Expense', 'amount': 6000000.0},
-              {'name': 'Utilities Expense', 'amount': 1800000.0},
-              {'name': 'Office Supplies', 'amount': 450000.0},
-            ],
-            total: 23250000.0,
-            isPositive: false,
-          ),
-          const Divider(),
-          _ReportTotalRow(label: 'Operating Income', amount: 13590000.0, isHighlight: true),
-          const Divider(height: 32),
-          _ReportTotalRow(label: 'Net Income', amount: 13590000.0, isHighlight: true, isFinal: true),
-        ],
-      ),
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (_, __) => const Center(child: Text('Error loading data')),
     );
   }
 
   Widget _buildBalanceSheetPreview(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('ASSETS', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          _ReportSection(
-            title: 'Current Assets',
-            items: [
-              {'name': 'Cash on Hand', 'amount': 5250000.0},
-              {'name': 'Petty Cash', 'amount': 500000.0},
-              {'name': 'Bank Account - UGX', 'amount': 45000000.0},
-              {'name': 'Accounts Receivable', 'amount': 8450000.0},
+    final dashboardAsync = ref.watch(dashboardDataProvider);
+
+    return dashboardAsync.when(
+      data: (data) {
+        final cashCollections = data.cashIn;
+        final payoutsPayable = data.cashOut;
+        final ggr = data.totalRevenue;
+
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('MAGIC BET LTD - BALANCE SHEET',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              Text('ASSETS', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              _ReportSection(
+                title: 'Current Assets',
+                items: [
+                  {'name': 'Outlet Cash Collections', 'amount': cashCollections},
+                ],
+                total: cashCollections,
+                isPositive: true,
+              ),
+              _ReportTotalRow(label: 'Total Assets', amount: cashCollections, isHighlight: true),
+              const Divider(height: 32),
+              Text('LIABILITIES', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              _ReportSection(
+                title: 'Current Liabilities',
+                items: [
+                  {'name': 'Customer Payouts', 'amount': payoutsPayable},
+                ],
+                total: payoutsPayable,
+                isPositive: false,
+              ),
+              _ReportTotalRow(label: 'Total Liabilities', amount: payoutsPayable, isHighlight: true),
+              const Divider(height: 32),
+              Text('EQUITY', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              _ReportSection(
+                title: "Owner's Equity",
+                items: [
+                  {'name': 'Retained Earnings (GGR)', 'amount': ggr},
+                ],
+                total: ggr,
+                isPositive: true,
+              ),
+              const Divider(),
+              _ReportTotalRow(label: 'Total Liabilities & Equity', amount: payoutsPayable + ggr, isHighlight: true, isFinal: true),
+              if (data.cashIn == 0)
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'No data yet. Import CSV data to see balances.',
+                    style: TextStyle(color: Theme.of(context).colorScheme.outline, fontStyle: FontStyle.italic),
+                  ),
+                ),
             ],
-            total: 59200000.0,
-            isPositive: true,
           ),
-          _ReportSection(
-            title: 'Fixed Assets',
-            items: [
-              {'name': 'Office Equipment', 'amount': 15000000.0},
-              {'name': 'Computer Equipment', 'amount': 8500000.0},
-            ],
-            total: 23500000.0,
-            isPositive: true,
-          ),
-          _ReportTotalRow(label: 'Total Assets', amount: 82700000.0, isHighlight: true),
-          const Divider(height: 32),
-          Text('LIABILITIES', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          _ReportSection(
-            title: 'Current Liabilities',
-            items: [
-              {'name': 'Accounts Payable', 'amount': 6200000.0},
-              {'name': 'VAT Payable', 'amount': 2100000.0},
-              {'name': 'Salaries Payable', 'amount': 4500000.0},
-            ],
-            total: 12800000.0,
-            isPositive: false,
-          ),
-          _ReportTotalRow(label: 'Total Liabilities', amount: 12800000.0, isHighlight: true),
-          const Divider(height: 32),
-          Text('EQUITY', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          _ReportSection(
-            title: "Owner's Equity",
-            items: [
-              {'name': "Owner's Capital", 'amount': 50000000.0},
-              {'name': 'Retained Earnings', 'amount': 19900000.0},
-            ],
-            total: 69900000.0,
-            isPositive: true,
-          ),
-          const Divider(),
-          _ReportTotalRow(label: 'Total Liabilities & Equity', amount: 82700000.0, isHighlight: true, isFinal: true),
-        ],
-      ),
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (_, __) => const Center(child: Text('Error loading data')),
     );
   }
 
-  Widget _buildAgingReportPreview(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceVariant,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: const [
-              Expanded(flex: 2, child: Text('Customer/Vendor', style: TextStyle(fontWeight: FontWeight.w600))),
-              Expanded(child: Text('Current', style: TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.right)),
-              Expanded(child: Text('1-30 Days', style: TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.right)),
-              Expanded(child: Text('31-60 Days', style: TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.right)),
-              Expanded(child: Text('61-90 Days', style: TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.right)),
-              Expanded(child: Text('90+ Days', style: TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.right)),
-              Expanded(child: Text('Total', style: TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.right)),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListView(
+  Widget _buildOutletPerformancePreview(BuildContext context) {
+    final summaryAsync = ref.watch(outletRevenueSummaryProvider);
+    final outletsAsync = ref.watch(outletsStreamProvider);
+
+    return summaryAsync.when(
+      data: (summary) => outletsAsync.when(
+        data: (outlets) {
+          if (summary.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.store, size: 64, color: Theme.of(context).colorScheme.outline),
+                  const SizedBox(height: 16),
+                  Text('No outlet data yet', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  Text('Import CSV data to see outlet performance',
+                      style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+                ],
+              ),
+            );
+          }
+
+          // Sort by GGR descending
+          final sortedEntries = summary.entries.toList()
+            ..sort((a, b) => (b.value['totalGGR'] ?? 0).compareTo(a.value['totalGGR'] ?? 0));
+
+          return Column(
             children: [
-              _AgingRow('Kampala Traders Ltd', [3500000, 5000000, 2500000, 1500000, 0]),
-              _AgingRow('Jinja Hardware Supplies', [2000000, 3450000, 3000000, 0, 0]),
-              _AgingRow('Mbarara Beverages Co', [10000000, 15000000, 12000000, 8000000, 0]),
-              _AgingRow('Gulu Construction Works', [5000000, 12500000, 25000000, 15000000, 10000000]),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  children: [
+                    Expanded(flex: 2, child: Text('Outlet', style: TextStyle(fontWeight: FontWeight.w600))),
+                    Expanded(child: Text('Total In', style: TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.right)),
+                    Expanded(child: Text('Total Out', style: TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.right)),
+                    Expanded(child: Text('GGR', style: TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.right)),
+                    Expanded(child: Text('Days', style: TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.right)),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: sortedEntries.length,
+                  itemBuilder: (context, index) {
+                    final entry = sortedEntries[index];
+                    final outlet = outlets.where((o) => o.outletCode == entry.key).firstOrNull;
+                    final data = entry.value;
+                    return Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      decoration: BoxDecoration(
+                        border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(flex: 2, child: Text(outlet?.name ?? 'Outlet ${entry.key}')),
+                          Expanded(child: Text(_currencyFormat.format(data['totalIn']), textAlign: TextAlign.right, style: const TextStyle(fontFamily: 'monospace'))),
+                          Expanded(child: Text(_currencyFormat.format(data['totalOut']), textAlign: TextAlign.right, style: const TextStyle(fontFamily: 'monospace'))),
+                          Expanded(child: Text(
+                            _currencyFormat.format(data['totalGGR']),
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.w600,
+                              color: (data['totalGGR'] ?? 0) >= 0 ? AppColors.income : AppColors.expense,
+                            ),
+                          )),
+                          Expanded(child: Text('${(data['days'] ?? 0).toInt()}', textAlign: TextAlign.right)),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
             ],
-          ),
-        ),
-        const Divider(),
-        Container(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              const Expanded(flex: 2, child: Text('TOTAL', style: TextStyle(fontWeight: FontWeight.bold))),
-              Expanded(child: Text('UGX 20.5M', style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
-              Expanded(child: Text('UGX 35.9M', style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
-              Expanded(child: Text('UGX 42.5M', style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
-              Expanded(child: Text('UGX 24.5M', style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
-              Expanded(child: Text('UGX 10M', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.expense), textAlign: TextAlign.right)),
-              Expanded(child: Text('UGX 133.4M', style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
-            ],
-          ),
-        ),
-      ],
+          );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (_, __) => const Center(child: Text('Error loading outlets')),
+      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (_, __) => const Center(child: Text('Error loading data')),
     );
   }
 }
@@ -522,11 +570,14 @@ class _QuickStatCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 Container(
                   padding: const EdgeInsets.all(8),
@@ -546,28 +597,11 @@ class _QuickStatCard extends StatelessWidget {
                   ),
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(
-                  isPositive ? Icons.trending_up : Icons.trending_down,
-                  size: 16,
-                  color: isPositive ? AppColors.income : AppColors.expense,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  change,
-                  style: TextStyle(
-                    color: isPositive ? AppColors.income : AppColors.expense,
-                    fontWeight: FontWeight.w600,
+            Text(
+              change,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
                   ),
-                ),
-                Text(
-                  ' vs last period',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                ),
-              ],
             ),
           ],
         ),
@@ -749,55 +783,6 @@ class _ReportTotalRow extends StatelessWidget {
               fontFamily: 'monospace',
               fontSize: isFinal ? 16 : 14,
               color: isHighlight ? AppColors.primary : null,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AgingRow extends StatelessWidget {
-  final String name;
-  final List<int> amounts;
-
-  const _AgingRow(this.name, this.amounts);
-
-  String _formatAmount(int amount) {
-    if (amount >= 1000000) {
-      return '${(amount / 1000000).toStringAsFixed(1)}M';
-    } else if (amount >= 1000) {
-      return '${(amount / 1000).toStringAsFixed(0)}K';
-    }
-    return amount.toString();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final total = amounts.reduce((a, b) => a + b);
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
-      ),
-      child: Row(
-        children: [
-          Expanded(flex: 2, child: Text(name)),
-          ...amounts.map((a) => Expanded(
-                child: Text(
-                  a > 0 ? 'UGX ${_formatAmount(a)}' : '-',
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    color: amounts.indexOf(a) >= 3 && a > 0 ? AppColors.expense : null,
-                  ),
-                ),
-              )),
-          Expanded(
-            child: Text(
-              'UGX ${_formatAmount(total)}',
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontFamily: 'monospace'),
             ),
           ),
         ],
