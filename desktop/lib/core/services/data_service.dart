@@ -9,7 +9,7 @@ import 'api_client.dart';
 import 'auth_service.dart';
 import 'local_storage_service.dart';
 import 'sync_service.dart';
-import '../models/models.dart';
+import '../models/models.dart' as models;
 import '../database/app_database.dart';
 
 // Global local storage instance
@@ -148,7 +148,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
 // ============================================================================
 
 class AccountsState {
-  final List<Account> accounts;
+  final List<models.Account> accounts;
   final bool isLoading;
   final String? error;
 
@@ -159,7 +159,7 @@ class AccountsState {
   });
 
   AccountsState copyWith({
-    List<Account>? accounts,
+    List<models.Account>? accounts,
     bool? isLoading,
     String? error,
   }) {
@@ -205,7 +205,7 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
       if (response.statusCode == 200) {
         final data = response.data['data'] ?? response.data;
         final accounts = (data as List<dynamic>)
-            .map((json) => Account.fromJson(json as Map<String, dynamic>))
+            .map((json) => models.Account.fromJson(json as Map<String, dynamic>))
             .toList();
 
         // Save to local storage for offline access
@@ -222,7 +222,7 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
     state = state.copyWith(isLoading: false);
   }
 
-  void addAccount(Account account) {
+  void addAccount(models.Account account) {
     final updatedAccounts = [...state.accounts, account];
     state = state.copyWith(accounts: updatedAccounts);
 
@@ -238,7 +238,7 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
     );
   }
 
-  void updateAccount(Account account) {
+  void updateAccount(models.Account account) {
     final updatedAccounts = state.accounts.map((a) {
       return a.id == account.id ? account : a;
     }).toList();
@@ -267,7 +267,7 @@ final accountsProvider = StateNotifierProvider<AccountsNotifier, AccountsState>(
 // ============================================================================
 
 class CustomersState {
-  final List<Customer> customers;
+  final List<models.Customer> customers;
   final bool isLoading;
   final String? error;
 
@@ -278,7 +278,7 @@ class CustomersState {
   });
 
   CustomersState copyWith({
-    List<Customer>? customers,
+    List<models.Customer>? customers,
     bool? isLoading,
     String? error,
   }) {
@@ -322,7 +322,7 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
       if (response.statusCode == 200) {
         final data = response.data['data'] ?? response.data;
         final customers = (data as List<dynamic>)
-            .map((json) => Customer.fromJson(json as Map<String, dynamic>))
+            .map((json) => models.Customer.fromJson(json as Map<String, dynamic>))
             .toList();
 
         await _localStorage.saveCustomers(customers);
@@ -336,7 +336,7 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
     state = state.copyWith(isLoading: false);
   }
 
-  void addCustomer(Customer customer) {
+  void addCustomer(models.Customer customer) {
     final updatedCustomers = [...state.customers, customer];
     state = state.copyWith(customers: updatedCustomers);
 
@@ -350,7 +350,7 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
     );
   }
 
-  void updateCustomer(Customer customer) {
+  void updateCustomer(models.Customer customer) {
     final updatedCustomers = state.customers.map((c) {
       return c.id == customer.id ? customer : c;
     }).toList();
@@ -377,7 +377,7 @@ final customersProvider = StateNotifierProvider<CustomersNotifier, CustomersStat
 // ============================================================================
 
 class VendorsState {
-  final List<Vendor> vendors;
+  final List<models.Vendor> vendors;
   final bool isLoading;
   final String? error;
 
@@ -388,7 +388,7 @@ class VendorsState {
   });
 
   VendorsState copyWith({
-    List<Vendor>? vendors,
+    List<models.Vendor>? vendors,
     bool? isLoading,
     String? error,
   }) {
@@ -432,7 +432,7 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
       if (response.statusCode == 200) {
         final data = response.data['data'] ?? response.data;
         final vendors = (data as List<dynamic>)
-            .map((json) => Vendor.fromJson(json as Map<String, dynamic>))
+            .map((json) => models.Vendor.fromJson(json as Map<String, dynamic>))
             .toList();
 
         await _localStorage.saveVendors(vendors);
@@ -446,7 +446,7 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
     state = state.copyWith(isLoading: false);
   }
 
-  void addVendor(Vendor vendor) {
+  void addVendor(models.Vendor vendor) {
     final updatedVendors = [...state.vendors, vendor];
     state = state.copyWith(vendors: updatedVendors);
 
@@ -460,7 +460,7 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
     );
   }
 
-  void updateVendor(Vendor vendor) {
+  void updateVendor(models.Vendor vendor) {
     final updatedVendors = state.vendors.map((v) {
       return v.id == vendor.id ? vendor : v;
     }).toList();
@@ -487,7 +487,7 @@ final vendorsProvider = StateNotifierProvider<VendorsNotifier, VendorsState>((re
 // ============================================================================
 
 class InvoicesState {
-  final List<Invoice> invoices;
+  final List<models.Invoice> invoices;
   final bool isLoading;
   final String? error;
 
@@ -498,7 +498,7 @@ class InvoicesState {
   });
 
   InvoicesState copyWith({
-    List<Invoice>? invoices,
+    List<models.Invoice>? invoices,
     bool? isLoading,
     String? error,
   }) {
@@ -542,7 +542,7 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
       if (response.statusCode == 200) {
         final data = response.data['data'] ?? response.data;
         final invoices = (data as List<dynamic>)
-            .map((json) => Invoice.fromJson(json as Map<String, dynamic>))
+            .map((json) => models.Invoice.fromJson(json as Map<String, dynamic>))
             .toList();
 
         await _localStorage.saveInvoices(invoices);
@@ -556,7 +556,7 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
     state = state.copyWith(isLoading: false);
   }
 
-  void addInvoice(Invoice invoice) {
+  void addInvoice(models.Invoice invoice) {
     final updatedInvoices = [...state.invoices, invoice];
     state = state.copyWith(invoices: updatedInvoices);
 
@@ -570,7 +570,7 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
     );
   }
 
-  void updateInvoice(Invoice invoice) {
+  void updateInvoice(models.Invoice invoice) {
     final updatedInvoices = state.invoices.map((i) {
       return i.id == invoice.id ? invoice : i;
     }).toList();
@@ -591,8 +591,8 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
       if (invoice.id == invoiceId) {
         final newAmountPaid = invoice.amountPaid + amount;
         final newStatus = newAmountPaid >= invoice.total
-            ? InvoiceStatus.paid
-            : InvoiceStatus.partial;
+            ? models.InvoiceStatus.paid
+            : models.InvoiceStatus.partial;
         return invoice.copyWith(
           amountPaid: newAmountPaid,
           status: newStatus,
@@ -614,14 +614,14 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
     );
   }
 
-  List<Invoice> _getDemoInvoices() {
+  List<models.Invoice> _getDemoInvoices() {
     final now = DateTime.now();
     return [
-      Invoice(id: '1', invoiceNumber: 'INV-2026-0001', customerId: '1', customerName: 'Kampala Traders Ltd', date: DateTime(2026, 1, 15), dueDate: DateTime(2026, 2, 14), subtotal: 5000000, taxAmount: 900000, total: 5900000, amountPaid: 5900000, status: InvoiceStatus.paid, lines: [], createdAt: now, updatedAt: now),
-      Invoice(id: '2', invoiceNumber: 'INV-2026-0002', customerId: '2', customerName: 'Jinja Hardware Supplies', date: DateTime(2026, 1, 18), dueDate: DateTime(2026, 2, 17), subtotal: 3200000, taxAmount: 576000, total: 3776000, amountPaid: 2000000, status: InvoiceStatus.partial, lines: [], createdAt: now, updatedAt: now),
-      Invoice(id: '3', invoiceNumber: 'INV-2026-0003', customerId: '4', customerName: 'Mbarara Beverages Co', date: DateTime(2026, 1, 20), dueDate: DateTime(2026, 2, 19), subtotal: 8500000, taxAmount: 1530000, total: 10030000, amountPaid: 0, status: InvoiceStatus.pending, lines: [], createdAt: now, updatedAt: now),
-      Invoice(id: '4', invoiceNumber: 'INV-2026-0004', customerId: '1', customerName: 'Kampala Traders Ltd', date: DateTime(2026, 1, 22), dueDate: DateTime(2026, 2, 21), subtotal: 2450000, taxAmount: 441000, total: 2891000, amountPaid: 0, status: InvoiceStatus.pending, lines: [], createdAt: now, updatedAt: now),
-      Invoice(id: '5', invoiceNumber: 'INV-2026-0005', customerId: '5', customerName: 'Gulu Construction Works', date: DateTime(2025, 12, 1), dueDate: DateTime(2025, 12, 31), subtotal: 15000000, taxAmount: 2700000, total: 17700000, amountPaid: 0, status: InvoiceStatus.overdue, lines: [], createdAt: now, updatedAt: now),
+      models.Invoice(id: '1', invoiceNumber: 'INV-2026-0001', customerId: '1', customerName: 'Kampala Traders Ltd', date: DateTime(2026, 1, 15), dueDate: DateTime(2026, 2, 14), subtotal: 5000000, taxAmount: 900000, total: 5900000, amountPaid: 5900000, status: models.InvoiceStatus.paid, lines: [], createdAt: now, updatedAt: now),
+      models.Invoice(id: '2', invoiceNumber: 'INV-2026-0002', customerId: '2', customerName: 'Jinja Hardware Supplies', date: DateTime(2026, 1, 18), dueDate: DateTime(2026, 2, 17), subtotal: 3200000, taxAmount: 576000, total: 3776000, amountPaid: 2000000, status: models.InvoiceStatus.partial, lines: [], createdAt: now, updatedAt: now),
+      models.Invoice(id: '3', invoiceNumber: 'INV-2026-0003', customerId: '4', customerName: 'Mbarara Beverages Co', date: DateTime(2026, 1, 20), dueDate: DateTime(2026, 2, 19), subtotal: 8500000, taxAmount: 1530000, total: 10030000, amountPaid: 0, status: models.InvoiceStatus.pending, lines: [], createdAt: now, updatedAt: now),
+      models.Invoice(id: '4', invoiceNumber: 'INV-2026-0004', customerId: '1', customerName: 'Kampala Traders Ltd', date: DateTime(2026, 1, 22), dueDate: DateTime(2026, 2, 21), subtotal: 2450000, taxAmount: 441000, total: 2891000, amountPaid: 0, status: models.InvoiceStatus.pending, lines: [], createdAt: now, updatedAt: now),
+      models.Invoice(id: '5', invoiceNumber: 'INV-2026-0005', customerId: '5', customerName: 'Gulu Construction Works', date: DateTime(2025, 12, 1), dueDate: DateTime(2025, 12, 31), subtotal: 15000000, taxAmount: 2700000, total: 17700000, amountPaid: 0, status: models.InvoiceStatus.overdue, lines: [], createdAt: now, updatedAt: now),
     ];
   }
 }
@@ -635,7 +635,7 @@ final invoicesProvider = StateNotifierProvider<InvoicesNotifier, InvoicesState>(
 // ============================================================================
 
 class BillsState {
-  final List<Bill> bills;
+  final List<models.Bill> bills;
   final bool isLoading;
   final String? error;
 
@@ -646,7 +646,7 @@ class BillsState {
   });
 
   BillsState copyWith({
-    List<Bill>? bills,
+    List<models.Bill>? bills,
     bool? isLoading,
     String? error,
   }) {
@@ -690,7 +690,7 @@ class BillsNotifier extends StateNotifier<BillsState> {
       if (response.statusCode == 200) {
         final data = response.data['data'] ?? response.data;
         final bills = (data as List<dynamic>)
-            .map((json) => Bill.fromJson(json as Map<String, dynamic>))
+            .map((json) => models.Bill.fromJson(json as Map<String, dynamic>))
             .toList();
 
         await _localStorage.saveBills(bills);
@@ -704,7 +704,7 @@ class BillsNotifier extends StateNotifier<BillsState> {
     state = state.copyWith(isLoading: false);
   }
 
-  void addBill(Bill bill) {
+  void addBill(models.Bill bill) {
     final updatedBills = [...state.bills, bill];
     state = state.copyWith(bills: updatedBills);
 
@@ -718,7 +718,7 @@ class BillsNotifier extends StateNotifier<BillsState> {
     );
   }
 
-  void updateBill(Bill bill) {
+  void updateBill(models.Bill bill) {
     final updatedBills = state.bills.map((b) {
       return b.id == bill.id ? bill : b;
     }).toList();
@@ -739,8 +739,8 @@ class BillsNotifier extends StateNotifier<BillsState> {
       if (bill.id == billId) {
         final newAmountPaid = bill.amountPaid + amount;
         final newStatus = newAmountPaid >= bill.total
-            ? BillStatus.paid
-            : BillStatus.partial;
+            ? models.BillStatus.paid
+            : models.BillStatus.partial;
         return bill.copyWith(
           amountPaid: newAmountPaid,
           status: newStatus,
@@ -762,14 +762,14 @@ class BillsNotifier extends StateNotifier<BillsState> {
     );
   }
 
-  List<Bill> _getDemoBills() {
+  List<models.Bill> _getDemoBills() {
     final now = DateTime.now();
     return [
-      Bill(id: '1', billNumber: 'BILL-2026-0001', vendorId: '1', vendorName: 'Uganda Office Supplies', date: DateTime(2026, 1, 10), dueDate: DateTime(2026, 2, 9), subtotal: 1200000, taxAmount: 216000, total: 1416000, amountPaid: 1416000, status: BillStatus.paid, lines: [], createdAt: now, updatedAt: now),
-      Bill(id: '2', billNumber: 'BILL-2026-0002', vendorId: '2', vendorName: 'East African Paper Mills', date: DateTime(2026, 1, 12), dueDate: DateTime(2026, 2, 26), subtotal: 3500000, taxAmount: 630000, total: 4130000, amountPaid: 0, status: BillStatus.pending, lines: [], createdAt: now, updatedAt: now),
-      Bill(id: '3', billNumber: 'BILL-2026-0003', vendorId: '4', vendorName: 'Uganda Petroleum Ltd', date: DateTime(2026, 1, 15), dueDate: DateTime(2026, 2, 14), subtotal: 5800000, taxAmount: 1044000, total: 6844000, amountPaid: 3000000, status: BillStatus.partial, lines: [], createdAt: now, updatedAt: now),
-      Bill(id: '4', billNumber: 'BILL-2026-0004', vendorId: '3', vendorName: 'Kampala Tech Solutions', date: DateTime(2026, 1, 18), dueDate: DateTime(2026, 2, 2), subtotal: 2100000, taxAmount: 378000, total: 2478000, amountPaid: 0, status: BillStatus.pending, lines: [], createdAt: now, updatedAt: now),
-      Bill(id: '5', billNumber: 'BILL-2026-0005', vendorId: '5', vendorName: 'Mbarara Construction Materials', date: DateTime(2025, 11, 15), dueDate: DateTime(2026, 1, 14), subtotal: 8500000, taxAmount: 1530000, total: 10030000, amountPaid: 0, status: BillStatus.overdue, lines: [], createdAt: now, updatedAt: now),
+      models.Bill(id: '1', billNumber: 'BILL-2026-0001', vendorId: '1', vendorName: 'Uganda Office Supplies', date: DateTime(2026, 1, 10), dueDate: DateTime(2026, 2, 9), subtotal: 1200000, taxAmount: 216000, total: 1416000, amountPaid: 1416000, status: models.BillStatus.paid, lines: [], createdAt: now, updatedAt: now),
+      models.Bill(id: '2', billNumber: 'BILL-2026-0002', vendorId: '2', vendorName: 'East African Paper Mills', date: DateTime(2026, 1, 12), dueDate: DateTime(2026, 2, 26), subtotal: 3500000, taxAmount: 630000, total: 4130000, amountPaid: 0, status: models.BillStatus.pending, lines: [], createdAt: now, updatedAt: now),
+      models.Bill(id: '3', billNumber: 'BILL-2026-0003', vendorId: '4', vendorName: 'Uganda Petroleum Ltd', date: DateTime(2026, 1, 15), dueDate: DateTime(2026, 2, 14), subtotal: 5800000, taxAmount: 1044000, total: 6844000, amountPaid: 3000000, status: models.BillStatus.partial, lines: [], createdAt: now, updatedAt: now),
+      models.Bill(id: '4', billNumber: 'BILL-2026-0004', vendorId: '3', vendorName: 'Kampala Tech Solutions', date: DateTime(2026, 1, 18), dueDate: DateTime(2026, 2, 2), subtotal: 2100000, taxAmount: 378000, total: 2478000, amountPaid: 0, status: models.BillStatus.pending, lines: [], createdAt: now, updatedAt: now),
+      models.Bill(id: '5', billNumber: 'BILL-2026-0005', vendorId: '5', vendorName: 'Mbarara Construction Materials', date: DateTime(2025, 11, 15), dueDate: DateTime(2026, 1, 14), subtotal: 8500000, taxAmount: 1530000, total: 10030000, amountPaid: 0, status: models.BillStatus.overdue, lines: [], createdAt: now, updatedAt: now),
     ];
   }
 }
@@ -783,7 +783,7 @@ final billsProvider = StateNotifierProvider<BillsNotifier, BillsState>((ref) {
 // ============================================================================
 
 class JournalsState {
-  final List<JournalEntry> entries;
+  final List<models.JournalEntry> entries;
   final bool isLoading;
   final String? error;
 
@@ -794,7 +794,7 @@ class JournalsState {
   });
 
   JournalsState copyWith({
-    List<JournalEntry>? entries,
+    List<models.JournalEntry>? entries,
     bool? isLoading,
     String? error,
   }) {
@@ -838,7 +838,7 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
       if (response.statusCode == 200) {
         final data = response.data['data'] ?? response.data;
         final entries = (data as List<dynamic>)
-            .map((json) => JournalEntry.fromJson(json as Map<String, dynamic>))
+            .map((json) => models.JournalEntry.fromJson(json as Map<String, dynamic>))
             .toList();
 
         await _localStorage.saveJournalEntries(entries);
@@ -852,7 +852,7 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
     state = state.copyWith(isLoading: false);
   }
 
-  void addEntry(JournalEntry entry) {
+  void addEntry(models.JournalEntry entry) {
     final updatedEntries = [...state.entries, entry];
     state = state.copyWith(entries: updatedEntries);
 
@@ -889,10 +889,10 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
     );
   }
 
-  List<JournalEntry> _getDemoJournals() {
+  List<models.JournalEntry> _getDemoJournals() {
     final now = DateTime.now();
     return [
-      JournalEntry(
+      models.JournalEntry(
         id: '1',
         entryNumber: 'JE-2026-0001',
         date: DateTime(2026, 1, 15),
@@ -900,30 +900,30 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
         reference: 'INV-2026-0001',
         status: JournalEntryStatus.posted,
         lines: [
-          JournalLine(id: '1', journalEntryId: '1', accountId: '5', accountCode: '1200', accountName: 'Accounts Receivable', debit: 5900000, credit: 0),
-          JournalLine(id: '2', journalEntryId: '1', accountId: '13', accountCode: '4000', accountName: 'Sales Revenue', debit: 0, credit: 5000000),
-          JournalLine(id: '3', journalEntryId: '1', accountId: '9', accountCode: '2100', accountName: 'VAT Payable', debit: 0, credit: 900000),
+          models.JournalLine(id: '1', journalEntryId: '1', accountId: '5', accountCode: '1200', accountName: 'Accounts Receivable', debit: 5900000, credit: 0),
+          models.JournalLine(id: '2', journalEntryId: '1', accountId: '13', accountCode: '4000', accountName: 'Sales Revenue', debit: 0, credit: 5000000),
+          models.JournalLine(id: '3', journalEntryId: '1', accountId: '9', accountCode: '2100', accountName: 'VAT Payable', debit: 0, credit: 900000),
         ],
         createdAt: now,
         updatedAt: now,
         createdBy: 'Admin',
       ),
-      JournalEntry(
+      models.JournalEntry(
         id: '2',
         entryNumber: 'JE-2026-0002',
         date: DateTime(2026, 1, 18),
-        description: 'Payment received from customer',
+        description: 'models.Payment received from customer',
         reference: 'REC-2026-0001',
         status: JournalEntryStatus.posted,
         lines: [
-          JournalLine(id: '4', journalEntryId: '2', accountId: '3', accountCode: '1100', accountName: 'Bank Account - UGX', debit: 5900000, credit: 0),
-          JournalLine(id: '5', journalEntryId: '2', accountId: '5', accountCode: '1200', accountName: 'Accounts Receivable', debit: 0, credit: 5900000),
+          models.JournalLine(id: '4', journalEntryId: '2', accountId: '3', accountCode: '1100', accountName: 'Bank Account - UGX', debit: 5900000, credit: 0),
+          models.JournalLine(id: '5', journalEntryId: '2', accountId: '5', accountCode: '1200', accountName: 'Accounts Receivable', debit: 0, credit: 5900000),
         ],
         createdAt: now,
         updatedAt: now,
         createdBy: 'Admin',
       ),
-      JournalEntry(
+      models.JournalEntry(
         id: '3',
         entryNumber: 'JE-2026-0003',
         date: DateTime(2026, 1, 20),
@@ -931,14 +931,14 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
         reference: 'BILL-2026-0001',
         status: JournalEntryStatus.posted,
         lines: [
-          JournalLine(id: '6', journalEntryId: '3', accountId: '19', accountCode: '6300', accountName: 'Office Supplies', debit: 1200000, credit: 0),
-          JournalLine(id: '7', journalEntryId: '3', accountId: '8', accountCode: '2000', accountName: 'Accounts Payable', debit: 0, credit: 1200000),
+          models.JournalLine(id: '6', journalEntryId: '3', accountId: '19', accountCode: '6300', accountName: 'Office Supplies', debit: 1200000, credit: 0),
+          models.JournalLine(id: '7', journalEntryId: '3', accountId: '8', accountCode: '2000', accountName: 'Accounts Payable', debit: 0, credit: 1200000),
         ],
         createdAt: now,
         updatedAt: now,
         createdBy: 'Admin',
       ),
-      JournalEntry(
+      models.JournalEntry(
         id: '4',
         entryNumber: 'JE-2026-0004',
         date: DateTime(2026, 1, 25),
@@ -946,14 +946,14 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
         reference: 'CHQ-2026-0015',
         status: JournalEntryStatus.posted,
         lines: [
-          JournalLine(id: '8', journalEntryId: '4', accountId: '17', accountCode: '6100', accountName: 'Rent Expense', debit: 3000000, credit: 0),
-          JournalLine(id: '9', journalEntryId: '4', accountId: '3', accountCode: '1100', accountName: 'Bank Account - UGX', debit: 0, credit: 3000000),
+          models.JournalLine(id: '8', journalEntryId: '4', accountId: '17', accountCode: '6100', accountName: 'Rent Expense', debit: 3000000, credit: 0),
+          models.JournalLine(id: '9', journalEntryId: '4', accountId: '3', accountCode: '1100', accountName: 'Bank Account - UGX', debit: 0, credit: 3000000),
         ],
         createdAt: now,
         updatedAt: now,
         createdBy: 'Admin',
       ),
-      JournalEntry(
+      models.JournalEntry(
         id: '5',
         entryNumber: 'JE-2026-0005',
         date: DateTime(2026, 1, 28),
@@ -961,8 +961,8 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
         reference: 'PAY-2026-01',
         status: JournalEntryStatus.draft,
         lines: [
-          JournalLine(id: '10', journalEntryId: '5', accountId: '16', accountCode: '6000', accountName: 'Salaries & Wages', debit: 8500000, credit: 0),
-          JournalLine(id: '11', journalEntryId: '5', accountId: '10', accountCode: '2200', accountName: 'Salaries Payable', debit: 0, credit: 8500000),
+          models.JournalLine(id: '10', journalEntryId: '5', accountId: '16', accountCode: '6000', accountName: 'Salaries & Wages', debit: 8500000, credit: 0),
+          models.JournalLine(id: '11', journalEntryId: '5', accountId: '10', accountCode: '2200', accountName: 'Salaries Payable', debit: 0, credit: 8500000),
         ],
         createdAt: now,
         updatedAt: now,
@@ -981,7 +981,7 @@ final journalsProvider = StateNotifierProvider<JournalsNotifier, JournalsState>(
 // ============================================================================
 
 class PaymentsState {
-  final List<Payment> payments;
+  final List<models.Payment> payments;
   final bool isLoading;
   final String? error;
 
@@ -992,7 +992,7 @@ class PaymentsState {
   });
 
   PaymentsState copyWith({
-    List<Payment>? payments,
+    List<models.Payment>? payments,
     bool? isLoading,
     String? error,
   }) {
@@ -1036,7 +1036,7 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
       if (response.statusCode == 200) {
         final data = response.data['data'] ?? response.data;
         final payments = (data as List<dynamic>)
-            .map((json) => Payment.fromJson(json as Map<String, dynamic>))
+            .map((json) => models.Payment.fromJson(json as Map<String, dynamic>))
             .toList();
 
         await _localStorage.savePayments(payments);
@@ -1050,7 +1050,7 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
     state = state.copyWith(isLoading: false);
   }
 
-  void addPayment(Payment payment) {
+  void addPayment(models.Payment payment) {
     final updatedPayments = [...state.payments, payment];
     state = state.copyWith(payments: updatedPayments);
 
