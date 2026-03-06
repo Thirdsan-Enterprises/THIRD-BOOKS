@@ -1232,3 +1232,36 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
 final paymentsProvider = StateNotifierProvider<PaymentsNotifier, PaymentsState>((ref) {
   return PaymentsNotifier(ref.read(apiClientProvider), ref);
 });
+
+// ============================================================================
+// Outlets Service - Database Stream
+// ============================================================================
+
+/// Stream provider that watches outlets from database in real-time
+final outletsStreamProvider = StreamProvider<List<Outlet>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.watchAllOutlets();
+});
+
+/// Get active outlets count
+final activeOutletsCountProvider = Provider<int>((ref) {
+  final outletsAsync = ref.watch(outletsStreamProvider);
+  return outletsAsync.when(
+    data: (outlets) => outlets.where((o) => o.isActive).length,
+    loading: () => 0,
+    error: (_, __) => 0,
+  );
+});
+
+/// Get outlets by region
+final outletsByRegionProvider = Provider.family<List<Outlet>, String>((ref, region) {
+  final outletsAsync = ref.watch(outletsStreamProvider);
+  return outletsAsync.when(
+    data: (outlets) {
+      if (region == 'All') return outlets;
+      return outlets.where((o) => o.region == region).toList();
+    },
+    loading: () => [],
+    error: (_, __) => [],
+  );
+});

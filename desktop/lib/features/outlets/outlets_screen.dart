@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/services/data_service.dart';
 import 'csv_upload_widget.dart';
 
 class OutletsScreen extends ConsumerStatefulWidget {
@@ -29,8 +31,9 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // TODO: Replace with actual database provider
-    // final outletsStream = ref.watch(outletsProvider);
+    // Watch outlets from database
+    final outletsAsync = ref.watch(outletsStreamProvider);
+    final numberFormat = NumberFormat('#,##0', 'en_US');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -130,51 +133,63 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
           const SizedBox(height: 24),
 
           // Statistics Cards
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _buildStatCard(
-                    context,
-                    'Total Outlets',
-                    '74',
-                    Icons.store,
-                    AppColors.primary,
-                  ),
+          outletsAsync.when(
+            data: (outlets) {
+              final totalCount = outlets.length;
+              final activeCount = outlets.where((o) => o.isActive).length;
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildStatCard(
+                        context,
+                        'Total Outlets',
+                        totalCount.toString(),
+                        Icons.store,
+                        AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildStatCard(
+                        context,
+                        'Active',
+                        activeCount.toString(),
+                        Icons.check_circle,
+                        AppColors.success,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildStatCard(
+                        context,
+                        'This Month Revenue',
+                        'UGX 0',
+                        Icons.trending_up,
+                        AppColors.info,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildStatCard(
+                        context,
+                        'Pending Commissions',
+                        'UGX 0',
+                        Icons.payment,
+                        AppColors.warning,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildStatCard(
-                    context,
-                    'Active',
-                    '74',
-                    Icons.check_circle,
-                    AppColors.success,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildStatCard(
-                    context,
-                    'This Month Revenue',
-                    'UGX 0',
-                    Icons.trending_up,
-                    AppColors.info,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildStatCard(
-                    context,
-                    'Pending Commissions',
-                    'UGX 0',
-                    Icons.payment,
-                    AppColors.warning,
-                  ),
-                ),
-              ],
+              );
+            },
+            loading: () => const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
             ),
+            error: (error, stack) => const SizedBox.shrink(),
           ),
           const SizedBox(height: 24),
 
@@ -214,30 +229,127 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                     ),
                   ),
 
-                  // Table Body - will be populated with actual data
+                  // Table Body - Actual outlet data
                   Expanded(
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.store_outlined,
-                            size: 64,
-                            color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No outlets found',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  color: Theme.of(context).colorScheme.outline,
+                    child: outletsAsync.when(
+                      data: (allOutlets) {
+                        // Filter by search query and region
+                        var filteredOutlets = allOutlets.where((outlet) {
+                          final matchesSearch = _searchQuery.isEmpty ||
+                              outlet.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                              outlet.outletCode.toLowerCase().contains(_searchQuery.toLowerCase());
+                          final matchesRegion = _selectedRegion == 'All' || outlet.region == _selectedRegion;
+                          return matchesSearch && matchesRegion;
+                        }).toList();
+
+                        if (filteredOutlets.isEmpty) {
+                          return Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.search_off,
+                                  size: 64,
+                                  color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
                                 ),
-                          ),
-                          const SizedBox(height: 8),
-                          TextButton(
-                            onPressed: () => _showAddOutletDialog(),
-                            child: const Text('Add your first outlet'),
-                          ),
-                        ],
+                                const SizedBox(height: 16),
+                                Text(
+                                  'No outlets found',
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                        color: Theme.of(context).colorScheme.outline,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        return ListView.builder(
+                          itemCount: filteredOutlets.length,
+                          itemBuilder: (context, index) {
+                            final outlet = filteredOutlets[index];
+                            return Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  bottom: BorderSide(
+                                    color: Theme.of(context).dividerColor,
+                                  ),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    flex: 2,
+                                    child: Text(
+                                      outlet.name,
+                                      style: const TextStyle(fontWeight: FontWeight.w500),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Text(outlet.outletCode),
+                                  ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: Text(outlet.city ?? outlet.address ?? '-'),
+                                  ),
+                                  Expanded(
+                                    child: Text(outlet.region ?? '-'),
+                                  ),
+                                  Expanded(
+                                    child: Text('${outlet.commissionRate.toStringAsFixed(0)}%'),
+                                  ),
+                                  Expanded(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: outlet.isActive
+                                            ? AppColors.success.withOpacity(0.1)
+                                            : AppColors.error.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        outlet.isActive ? 'Active' : 'Inactive',
+                                        style: TextStyle(
+                                          color: outlet.isActive ? AppColors.success : AppColors.error,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 100,
+                                    child: Row(
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.edit, size: 18),
+                                          onPressed: () {
+                                            // TODO: Edit outlet
+                                          },
+                                          tooltip: 'Edit',
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.visibility, size: 18),
+                                          onPressed: () {
+                                            // TODO: View outlet details
+                                          },
+                                          tooltip: 'View',
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        );
+                      },
+                      loading: () => const Center(child: CircularProgressIndicator()),
+                      error: (error, stack) => Center(
+                        child: Text('Error: $error'),
                       ),
                     ),
                   ),
