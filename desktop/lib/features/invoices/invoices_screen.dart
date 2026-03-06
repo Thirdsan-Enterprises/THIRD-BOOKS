@@ -11,6 +11,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/models/invoice.dart';
+import '../../core/models/customer.dart';
 
 class InvoicesScreen extends ConsumerStatefulWidget {
   const InvoicesScreen({super.key});

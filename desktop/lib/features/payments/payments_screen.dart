@@ -7,6 +7,9 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/models/payment.dart';
+import '../../core/models/customer.dart';
+import '../../core/models/vendor.dart';
+import '../../core/models/account.dart';
 
 class PaymentsScreen extends ConsumerStatefulWidget {
   const PaymentsScreen({super.key});

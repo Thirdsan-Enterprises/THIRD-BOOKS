@@ -870,7 +870,7 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
     final updatedEntries = state.entries.map((e) {
       if (e.id == entryId) {
         return e.copyWith(
-          status: JournalEntryStatus.posted,
+          status: models.JournalEntryStatus.posted,
           updatedAt: DateTime.now(),
         );
       }
@@ -898,7 +898,7 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
         date: DateTime(2026, 1, 15),
         description: 'Record sales revenue',
         reference: 'INV-2026-0001',
-        status: JournalEntryStatus.posted,
+        status: models.JournalEntryStatus.posted,
         lines: [
           models.JournalLine(id: '1', journalEntryId: '1', accountId: '5', accountCode: '1200', accountName: 'Accounts Receivable', debit: 5900000, credit: 0),
           models.JournalLine(id: '2', journalEntryId: '1', accountId: '13', accountCode: '4000', accountName: 'Sales Revenue', debit: 0, credit: 5000000),
@@ -914,7 +914,7 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
         date: DateTime(2026, 1, 18),
         description: 'models.Payment received from customer',
         reference: 'REC-2026-0001',
-        status: JournalEntryStatus.posted,
+        status: models.JournalEntryStatus.posted,
         lines: [
           models.JournalLine(id: '4', journalEntryId: '2', accountId: '3', accountCode: '1100', accountName: 'Bank Account - UGX', debit: 5900000, credit: 0),
           models.JournalLine(id: '5', journalEntryId: '2', accountId: '5', accountCode: '1200', accountName: 'Accounts Receivable', debit: 0, credit: 5900000),
@@ -929,7 +929,7 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
         date: DateTime(2026, 1, 20),
         description: 'Office supplies purchase',
         reference: 'BILL-2026-0001',
-        status: JournalEntryStatus.posted,
+        status: models.JournalEntryStatus.posted,
         lines: [
           models.JournalLine(id: '6', journalEntryId: '3', accountId: '19', accountCode: '6300', accountName: 'Office Supplies', debit: 1200000, credit: 0),
           models.JournalLine(id: '7', journalEntryId: '3', accountId: '8', accountCode: '2000', accountName: 'Accounts Payable', debit: 0, credit: 1200000),
@@ -944,7 +944,7 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
         date: DateTime(2026, 1, 25),
         description: 'Monthly rent payment',
         reference: 'CHQ-2026-0015',
-        status: JournalEntryStatus.posted,
+        status: models.JournalEntryStatus.posted,
         lines: [
           models.JournalLine(id: '8', journalEntryId: '4', accountId: '17', accountCode: '6100', accountName: 'Rent Expense', debit: 3000000, credit: 0),
           models.JournalLine(id: '9', journalEntryId: '4', accountId: '3', accountCode: '1100', accountName: 'Bank Account - UGX', debit: 0, credit: 3000000),
@@ -959,7 +959,7 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
         date: DateTime(2026, 1, 28),
         description: 'Salary accrual',
         reference: 'PAY-2026-01',
-        status: JournalEntryStatus.draft,
+        status: models.JournalEntryStatus.draft,
         lines: [
           models.JournalLine(id: '10', journalEntryId: '5', accountId: '16', accountCode: '6000', accountName: 'Salaries & Wages', debit: 8500000, credit: 0),
           models.JournalLine(id: '11', journalEntryId: '5', accountId: '10', accountCode: '2200', accountName: 'Salaries Payable', debit: 0, credit: 8500000),

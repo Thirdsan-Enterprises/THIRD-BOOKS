@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/models/journal_entry.dart';
+import '../../core/models/account.dart';
 
 class JournalsScreen extends ConsumerStatefulWidget {
   const JournalsScreen({super.key});
