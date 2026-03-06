@@ -468,7 +468,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                     child: DropdownButtonFormField<String>(
                       decoration: const InputDecoration(labelText: 'Vendor'),
                       items: vendorsState.vendors
-                          .map((v) => DropdownMenuItem(value: v.id, child: Text(v.name)))
+                          .map((Vendor v) => DropdownMenuItem(value: v.id, child: Text(v.name)))
                           .toList(),
                       onChanged: (v) {},
                     ),
@@ -641,7 +641,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
   void _showRecordPaymentDialog(BuildContext context, Bill bill) {
     final balance = bill.total - bill.amountPaid;
     final accountsState = ref.read(accountsProvider);
-    final bankAccounts = accountsState.accounts.where((a) =>
+    final bankAccounts = accountsState.accounts.where((Account a) =>
         a.subType.toString().contains('bank') ||
         a.subType.toString().contains('cash')).toList();
 
@@ -672,9 +672,9 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(labelText: 'Pay From Account'),
                 items: bankAccounts.isNotEmpty
-                    ? bankAccounts.map((a) => DropdownMenuItem(value: a.id, child: Text(a.name))).toList()
+                    ? bankAccounts.map((Account a) => DropdownMenuItem(value: a.id, child: Text(a.name))).toList()
                     : ['Bank Account - UGX', 'Bank Account - USD', 'Cash on Hand', 'Petty Cash']
-                        .map((a) => DropdownMenuItem(value: a, child: Text(a)))
+                        .map((String a) => DropdownMenuItem(value: a, child: Text(a)))
                         .toList(),
                 onChanged: (v) {},
               ),

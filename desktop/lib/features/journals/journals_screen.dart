@@ -681,7 +681,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                                         isDense: true,
                                       ),
                                       items: accountsState.accounts
-                                          .map((a) => DropdownMenuItem(
+                                          .map((Account a) => DropdownMenuItem(
                                                 value: a.id,
                                                 child: Text('${a.code} - ${a.name}'),
                                               ))

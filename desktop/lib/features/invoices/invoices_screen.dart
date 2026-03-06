@@ -475,7 +475,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                     child: DropdownButtonFormField<String>(
                       decoration: const InputDecoration(labelText: 'Customer'),
                       items: customersState.customers
-                          .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
+                          .map((Customer c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
                           .toList(),
                       onChanged: (v) {},
                     ),

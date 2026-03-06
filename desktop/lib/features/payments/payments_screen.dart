@@ -366,7 +366,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
     final accountsState = ref.read(accountsProvider);
 
     // Filter to cash/bank accounts
-    final paymentAccounts = accountsState.accounts.where((a) {
+    final paymentAccounts = accountsState.accounts.where((Account a) {
       final subType = a.subType.toString().toLowerCase();
       return subType.contains('bank') || subType.contains('cash') || subType.contains('mobile');
     }).toList();
@@ -415,7 +415,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                         value: selectedCustomerId,
                         decoration: const InputDecoration(labelText: 'Customer *'),
                         items: customersState.customers
-                            .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
+                            .map((Customer c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
                             .toList(),
                         onChanged: (v) => setDialogState(() => selectedCustomerId = v),
                       )
@@ -424,7 +424,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                         value: selectedVendorId,
                         decoration: const InputDecoration(labelText: 'Vendor *'),
                         items: vendorsState.vendors
-                            .map((v) => DropdownMenuItem(value: v.id, child: Text(v.name)))
+                            .map((Vendor v) => DropdownMenuItem(value: v.id, child: Text(v.name)))
                             .toList(),
                         onChanged: (v) => setDialogState(() => selectedVendorId = v),
                       ),
@@ -486,7 +486,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                             value: selectedAccountId,
                             decoration: const InputDecoration(labelText: 'Account *'),
                             items: paymentAccounts
-                                .map((a) => DropdownMenuItem(
+                                .map((Account a) => DropdownMenuItem(
                                       value: a.id,
                                       child: Text(a.name),
                                     ))
@@ -556,14 +556,14 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                   String? vendorName;
                   if (selectedType == PaymentType.received) {
                     customerName = customersState.customers
-                        .firstWhere((c) => c.id == selectedCustomerId)
+                        .firstWhere((Customer c) => c.id == selectedCustomerId)
                         .name;
                   } else {
                     vendorName = vendorsState.vendors
-                        .firstWhere((v) => v.id == selectedVendorId)
+                        .firstWhere((Vendor v) => v.id == selectedVendorId)
                         .name;
                   }
-                  final account = paymentAccounts.firstWhere((a) => a.id == selectedAccountId);
+                  final account = paymentAccounts.firstWhere((Account a) => a.id == selectedAccountId);
 
                   final payment = Payment(
                     id: DateTime.now().millisecondsSinceEpoch.toString(),
