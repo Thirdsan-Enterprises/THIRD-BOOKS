@@ -65,8 +65,9 @@ dependencies:
   # Window Management (Desktop)
   window_manager: ^0.3.0
 
-  # File Picker
+  # File Picker & CSV
   file_picker: ^6.1.0
+  csv: ^6.0.0
 
   # Authentication
   jwt_decoder: ^2.0.1

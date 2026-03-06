@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
+import 'csv_upload_widget.dart';
 
 class OutletsScreen extends ConsumerStatefulWidget {
   const OutletsScreen({super.key});
@@ -244,6 +245,9 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
               ),
             ),
           ),
+
+          // CSV Upload Section
+          const CSVUploadWidget(),
         ],
       );
   }

@@ -24,18 +24,13 @@ class MagicBetSetup {
     print('');
 
     try {
-      // Step 1: Setup Chart of Accounts
-      print('📊 Step 1: Setting up Chart of Accounts...');
-      await setupChartOfAccounts();
-      print('✅ Chart of Accounts configured\n');
-
-      // Step 2: Import Outlets
-      print('🏪 Step 2: Importing 74 outlets...');
+      // Step 1: Import Outlets
+      print('🏪 Step 1: Importing 74 outlets...');
       await importOutlets();
       print('✅ Outlets imported\n');
 
-      // Step 3: Company Configuration Notes
-      print('ℹ️  Step 3: Company Configuration');
+      // Step 2: Company Configuration Notes
+      print('ℹ️  Step 2: Company Configuration');
       print('   Company: MAGIC BET LTD');
       print('   Admin: marion@magicbet.ug');
       print('   Phone: +256 788 160516');
@@ -48,142 +43,14 @@ class MagicBetSetup {
       print('═══════════════════════════════════════════════════');
       print('');
       print('Next steps:');
-      print('1. Run: flutter pub run build_runner build');
-      print('2. Test the application');
-      print('3. Start recording revenue and expenses');
+      print('1. Upload outlet CSV data to populate revenue/expenses');
+      print('2. System will create Chart of Accounts automatically');
+      print('3. Start recording transactions via CSV uploads');
       print('');
     } catch (e) {
       print('❌ Setup failed: $e');
       rethrow;
     }
-  }
-
-  /// Setup betting-specific Chart of Accounts
-  Future<void> setupChartOfAccounts() async {
-    final now = DateTime.now();
-
-    // Revenue Accounts
-    final revenueAccounts = [
-      AccountsCompanion.insert(
-        id: _uuid.v4(),
-        code: '4000',
-        name: 'Betting Machine Revenue',
-        type: 'revenue',
-        subType: const Value('operating_revenue'),
-        currencyCode: const Value('UGX'),
-        createdAt: now,
-        updatedAt: now,
-      ),
-      AccountsCompanion.insert(
-        id: _uuid.v4(),
-        code: '4010',
-        name: 'Gaming Income',
-        type: 'revenue',
-        subType: const Value('operating_revenue'),
-        currencyCode: const Value('UGX'),
-        createdAt: now,
-        updatedAt: now,
-      ),
-    ];
-
-    // Expense Accounts
-    final expenseAccounts = [
-      AccountsCompanion.insert(
-        id: _uuid.v4(),
-        code: '5000',
-        name: 'Location Commission Expense (40%)',
-        description: const Value('Commission paid to location owners'),
-        type: 'expense',
-        subType: const Value('cost_of_sales'),
-        currencyCode: const Value('UGX'),
-        createdAt: now,
-        updatedAt: now,
-      ),
-      AccountsCompanion.insert(
-        id: _uuid.v4(),
-        code: '5100',
-        name: 'Machine Maintenance & Repairs',
-        description: const Value('Outlet machine maintenance costs'),
-        type: 'expense',
-        subType: const Value('operating_expense'),
-        currencyCode: const Value('UGX'),
-        createdAt: now,
-        updatedAt: now,
-      ),
-      AccountsCompanion.insert(
-        id: _uuid.v4(),
-        code: '5200',
-        name: 'Outlet Operating Expenses',
-        description: const Value('General outlet operational costs'),
-        type: 'expense',
-        subType: const Value('operating_expense'),
-        currencyCode: const Value('UGX'),
-        createdAt: now,
-        updatedAt: now,
-      ),
-      AccountsCompanion.insert(
-        id: _uuid.v4(),
-        code: '5300',
-        name: 'Depreciation Expense',
-        description: const Value('Asset depreciation charges'),
-        type: 'expense',
-        subType: const Value('operating_expense'),
-        currencyCode: const Value('UGX'),
-        createdAt: now,
-        updatedAt: now,
-      ),
-    ];
-
-    // Asset Accounts
-    final assetAccounts = [
-      AccountsCompanion.insert(
-        id: _uuid.v4(),
-        code: '1500',
-        name: 'Fixed Assets',
-        description: const Value('Vehicles, equipment, furniture, etc.'),
-        type: 'asset',
-        subType: const Value('fixed_asset'),
-        currencyCode: const Value('UGX'),
-        createdAt: now,
-        updatedAt: now,
-      ),
-      AccountsCompanion.insert(
-        id: _uuid.v4(),
-        code: '1510',
-        name: 'Accumulated Depreciation',
-        description: const Value('Contra asset account for depreciation'),
-        type: 'asset',
-        subType: const Value('fixed_asset'),
-        currencyCode: const Value('UGX'),
-        createdAt: now,
-        updatedAt: now,
-      ),
-    ];
-
-    // Liability Accounts
-    final liabilityAccounts = [
-      AccountsCompanion.insert(
-        id: _uuid.v4(),
-        code: '2100',
-        name: 'Commission Payable',
-        description: const Value('Outstanding commission to location owners'),
-        type: 'liability',
-        subType: const Value('current_liability'),
-        currencyCode: const Value('UGX'),
-        createdAt: now,
-        updatedAt: now,
-      ),
-    ];
-
-    // Insert all accounts
-    for (var account in [...revenueAccounts, ...expenseAccounts, ...assetAccounts, ...liabilityAccounts]) {
-      await database.insertAccount(account);
-    }
-
-    print('   ✓ Added ${revenueAccounts.length} revenue accounts');
-    print('   ✓ Added ${expenseAccounts.length} expense accounts');
-    print('   ✓ Added ${assetAccounts.length} asset accounts');
-    print('   ✓ Added ${liabilityAccounts.length} liability accounts');
   }
 
   /// Import 74 outlets from JSON
