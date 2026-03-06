@@ -4,7 +4,6 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
-import '../../widgets/app_shell.dart';
 
 class OutletsScreen extends ConsumerStatefulWidget {
   const OutletsScreen({super.key});
@@ -32,10 +31,9 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
     // TODO: Replace with actual database provider
     // final outletsStream = ref.watch(outletsProvider);
 
-    return AppShell(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
           // Page Title Bar
           Container(
             padding: const EdgeInsets.all(24),
@@ -247,8 +245,7 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
             ),
           ),
         ],
-      ),
-    );
+      );
   }
 
   Widget _buildStatCard(
