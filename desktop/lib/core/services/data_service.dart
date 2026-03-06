@@ -868,8 +868,6 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
       data: entry.toJson(),
     );
   }
-
-  }
 }
 
 final journalsProvider = StateNotifierProvider<JournalsNotifier, JournalsState>((ref) {
