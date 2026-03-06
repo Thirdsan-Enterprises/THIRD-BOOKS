@@ -22,7 +22,7 @@ define('APP_VERSION', '1.0.0');
 // =====================================================
 // URL CONFIGURATION
 // =====================================================
-define('BASE_URL', 'https://thirdbooks.digital/admin');
+define('BASE_URL', 'https://admin.thirdbooks.digital');
 define('API_URL', 'https://api.thirdbooks.digital');
 define('ASSETS_URL', BASE_URL . '/assets');
 
