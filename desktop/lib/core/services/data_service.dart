@@ -164,10 +164,6 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-    // Removed demo data - load from database only
-      return;
-    }
-
     // 1. First, load from local storage (instant offline data)
     try {
       final localAccounts = await _localStorage.loadAccounts();
@@ -184,9 +180,6 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
   }
 
   Future<void> loadAccounts() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/accounts');
       if (response.statusCode == 200) {
@@ -202,14 +195,11 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
         return;
       }
     } catch (e) {
-      debugPrint('API fetch failed, using cached/demo data: $e');
+      debugPrint('API fetch failed, using cached data: $e');
     }
 
-    // Only use demo data if we have nothing cached
-    if (state.accounts.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    // Set loading to false with current accounts
+    state = state.copyWith(isLoading: false);
   }
 
   void addAccount(Account account) {
@@ -293,9 +283,6 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-      return;
-    }
-
     try {
       final localCustomers = await _localStorage.loadCustomers();
       if (localCustomers.isNotEmpty) {
@@ -310,9 +297,6 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
   }
 
   Future<void> loadCustomers() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/customers');
       if (response.statusCode == 200) {
@@ -329,10 +313,7 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
       debugPrint('API fetch failed for customers: $e');
     }
 
-    if (state.customers.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addCustomer(Customer customer) {
@@ -412,9 +393,6 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-      return;
-    }
-
     try {
       final localVendors = await _localStorage.loadVendors();
       if (localVendors.isNotEmpty) {
@@ -429,9 +407,6 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
   }
 
   Future<void> loadVendors() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/vendors');
       if (response.statusCode == 200) {
@@ -448,10 +423,7 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
       debugPrint('API fetch failed for vendors: $e');
     }
 
-    if (state.vendors.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addVendor(Vendor vendor) {
@@ -531,9 +503,6 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-      return;
-    }
-
     try {
       final localInvoices = await _localStorage.loadInvoices();
       if (localInvoices.isNotEmpty) {
@@ -548,9 +517,6 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
   }
 
   Future<void> loadInvoices() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/invoices');
       if (response.statusCode == 200) {
@@ -567,10 +533,7 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
       debugPrint('API fetch failed for invoices: $e');
     }
 
-    if (state.invoices.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addInvoice(Invoice invoice) {
@@ -688,9 +651,6 @@ class BillsNotifier extends StateNotifier<BillsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-      return;
-    }
-
     try {
       final localBills = await _localStorage.loadBills();
       if (localBills.isNotEmpty) {
@@ -705,9 +665,6 @@ class BillsNotifier extends StateNotifier<BillsState> {
   }
 
   Future<void> loadBills() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/bills');
       if (response.statusCode == 200) {
@@ -724,10 +681,7 @@ class BillsNotifier extends StateNotifier<BillsState> {
       debugPrint('API fetch failed for bills: $e');
     }
 
-    if (state.bills.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addBill(Bill bill) {
@@ -845,9 +799,6 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-      return;
-    }
-
     try {
       final localEntries = await _localStorage.loadJournalEntries();
       if (localEntries.isNotEmpty) {
@@ -862,9 +813,6 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
   }
 
   Future<void> loadJournals() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/journals');
       if (response.statusCode == 200) {
@@ -881,10 +829,7 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
       debugPrint('API fetch failed for journals: $e');
     }
 
-    if (state.entries.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addEntry(JournalEntry entry) {
@@ -1052,9 +997,6 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-      return;
-    }
-
     try {
       final localPayments = await _localStorage.loadPayments();
       if (localPayments.isNotEmpty) {
@@ -1069,9 +1011,6 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
   }
 
   Future<void> loadPayments() async {
-      return;
-    }
-
     try {
       final response = await _apiClient.get('/payments');
       if (response.statusCode == 200) {
@@ -1088,10 +1027,7 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
       debugPrint('API fetch failed for payments: $e');
     }
 
-    if (state.payments.isEmpty) {
-    } else {
-      state = state.copyWith(isLoading: false);
-    }
+    state = state.copyWith(isLoading: false);
   }
 
   void addPayment(Payment payment) {
