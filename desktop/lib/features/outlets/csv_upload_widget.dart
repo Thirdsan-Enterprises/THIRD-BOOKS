@@ -1,3 +1,4 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:csv/csv.dart';
@@ -5,19 +6,21 @@ import 'dart:io';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/csv_import_service.dart';
+import '../../core/services/data_service.dart';
 
 /// CSV Upload Widget for Outlet Machine Data
 ///
 /// Expected CSV format:
 /// Date (MM/DD/YYYY), OutletID, TotalIn, TotalOut, NetAmount, TransactionCount, Currency
-class CSVUploadWidget extends StatefulWidget {
+class CSVUploadWidget extends ConsumerStatefulWidget {
   const CSVUploadWidget({super.key});
 
   @override
-  State<CSVUploadWidget> createState() => _CSVUploadWidgetState();
+  ConsumerState<CSVUploadWidget> createState() => _CSVUploadWidgetState();
 }
 
-class _CSVUploadWidgetState extends State<CSVUploadWidget> {
+class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
   List<List<dynamic>>? _csvData;
   String? _fileName;
   bool _isLoading = false;
@@ -77,29 +80,51 @@ class _CSVUploadWidgetState extends State<CSVUploadWidget> {
     setState(() => _isLoading = true);
 
     try {
-      // TODO: Implement actual database import
-      // This should:
-      // 1. Parse each row
-      // 2. Create journal entries for revenue (TotalIn) and expenses (TotalOut)
-      // 3. Link to the correct outlet
-      // 4. Calculate 40% commission
-      // 5. Update outlet balances
+      // Get database instance
+      final db = ref.read(databaseProvider);
 
-      await Future.delayed(const Duration(seconds: 2)); // Simulated import
+      // Create import service
+      final importService = CSVImportService(db);
+
+      // Import CSV data with GGR calculations
+      final result = await importService.importCSVData(_csvData!);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Successfully imported ${_csvData!.length - 1} rows'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-
-        setState(() {
-          _csvData = null;
-          _fileName = null;
-          _isLoading = false;
-        });
+        if (result.isSuccess) {
+          // Show success dialog with statistics
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('✅ Import Successful!'),
+              content: SingleChildScrollView(
+                child: Text(result.summary),
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    setState(() {
+                      _csvData = null;
+                      _fileName = null;
+                      _isLoading = false;
+                    });
+                  },
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          // Show errors
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Import completed with ${result.errorCount} errors'),
+              backgroundColor: AppColors.warning,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+          setState(() => _isLoading = false);
+        }
       }
     } catch (e) {
       if (mounted) {
