@@ -42,12 +42,23 @@ CREATE TABLE IF NOT EXISTS `users` (
   `email` varchar(255) NOT NULL,
   `email_verified_at` timestamp NULL DEFAULT NULL,
   `password` varchar(255) NOT NULL,
+  `role` varchar(50) NOT NULL DEFAULT 'user',
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `remember_token` varchar(100) DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `users_email_unique` (`email`)
+  UNIQUE KEY `users_email_unique` (`email`),
+  KEY `users_role_index` (`role`),
+  KEY `users_is_active_index` (`is_active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Default Super Admin User
+-- Email: admin@thirdbooks.com
+-- Password: admin123
+INSERT INTO `users` (`name`, `email`, `email_verified_at`, `password`, `role`, `is_active`, `created_at`, `updated_at`) VALUES
+('Super Admin', 'admin@thirdbooks.com', NOW(), '$2y$12$kSSfiV7EaHgnItqDbqNsDOGi.3X7kmNlCr3Wndg5AIp04xM061KU6', 'super_admin', 1, NOW(), NOW());
 
 -- Table: audit_logs (Central)
 CREATE TABLE IF NOT EXISTS `audit_logs` (
