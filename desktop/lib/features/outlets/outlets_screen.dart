@@ -63,7 +63,6 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                         'Outlet Management',
                         style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                               fontWeight: FontWeight.bold,
-                              color: AppColors.textPrimary,
                             ),
                       ),
                       const SizedBox(height: 4),
