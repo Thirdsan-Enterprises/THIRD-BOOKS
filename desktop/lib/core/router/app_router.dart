@@ -14,6 +14,12 @@ import '../../features/bills/bills_screen.dart';
 import '../../features/payments/payments_screen.dart';
 import '../../features/reports/reports_screen.dart';
 import '../../features/settings/settings_screen.dart';
+import '../../features/outlets/outlets_screen.dart';
+import '../../features/outlets/outlet_revenue_screen.dart';
+import '../../features/outlets/outlet_expenditure_screen.dart';
+import '../../features/outlets/commission_management_screen.dart';
+import '../../features/assets/assets_screen.dart';
+import '../../features/assets/depreciation_screen.dart';
 import '../../widgets/app_shell.dart';
 import '../services/auth_service.dart';
 
@@ -111,6 +117,54 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/settings',
             name: 'settings',
             builder: (context, state) => const SettingsScreen(),
+          ),
+
+          // MAGIC BET - Outlet Management Routes
+          GoRoute(
+            path: '/outlets',
+            name: 'outlets',
+            builder: (context, state) => const OutletsScreen(),
+          ),
+          GoRoute(
+            path: '/outlet-revenue',
+            name: 'outlet-revenue',
+            builder: (context, state) {
+              final outletId = state.uri.queryParameters['outletId'];
+              final outletName = state.uri.queryParameters['outletName'];
+              return OutletRevenueScreen(
+                outletId: outletId,
+                outletName: outletName,
+              );
+            },
+          ),
+          GoRoute(
+            path: '/outlet-expenditure',
+            name: 'outlet-expenditure',
+            builder: (context, state) {
+              final outletId = state.uri.queryParameters['outletId'];
+              final outletName = state.uri.queryParameters['outletName'];
+              return OutletExpenditureScreen(
+                outletId: outletId,
+                outletName: outletName,
+              );
+            },
+          ),
+          GoRoute(
+            path: '/commissions',
+            name: 'commissions',
+            builder: (context, state) => const CommissionManagementScreen(),
+          ),
+
+          // MAGIC BET - Asset Management Routes
+          GoRoute(
+            path: '/assets',
+            name: 'assets',
+            builder: (context, state) => const AssetsScreen(),
+          ),
+          GoRoute(
+            path: '/depreciation',
+            name: 'depreciation',
+            builder: (context, state) => const DepreciationScreen(),
           ),
         ],
       ),
