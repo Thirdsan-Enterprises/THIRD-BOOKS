@@ -66,16 +66,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  Future<void> _handleViewDemo() async {
-    // Enter demo mode directly - no login required
-    // Set up a demo user session so the router allows access
-    final authNotifier = ref.read(authStateProvider.notifier);
-    await authNotifier.loginAsDemo();
-
-    if (mounted) {
-      context.go('/');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -317,30 +307,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           const SizedBox(height: 24),
 
                           // Divider
-                          Row(
-                            children: [
-                              const Expanded(child: Divider()),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: Text(
-                                  'OR',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ),
-                              const Expanded(child: Divider()),
-                            ],
-                          ),
-                          const SizedBox(height: 24),
-
-                          // View Demo button
-                          OutlinedButton.icon(
-                            onPressed: _handleViewDemo,
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                            ),
-                            icon: const Icon(Icons.play_circle_outline),
-                            label: const Text('View Demo'),
-                          ),
                           const SizedBox(height: 48),
 
                           // Contact admin link
