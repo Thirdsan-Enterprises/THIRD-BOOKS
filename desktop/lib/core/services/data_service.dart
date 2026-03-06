@@ -10,9 +10,15 @@ import 'auth_service.dart';
 import 'local_storage_service.dart';
 import 'sync_service.dart';
 import '../models/models.dart';
+import '../database/app_database.dart';
 
 // Global local storage instance
 final _localStorage = LocalStorageService.instance;
+
+// Database provider
+final databaseProvider = Provider<AppDatabase>((ref) {
+  return AppDatabase();
+});
 
 // ============================================================================
 // Dashboard Service
@@ -159,10 +165,6 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
     state = state.copyWith(isLoading: true);
 
     // Removed demo data - load from database only
-    if (_isDemoMode) {
-      final demoAccounts = _getDemoAccounts();
-      await _localStorage.saveAccounts(demoAccounts);
-      state = state.copyWith(accounts: demoAccounts, isLoading: false);
       return;
     }
 
@@ -182,9 +184,6 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
   }
 
   Future<void> loadAccounts() async {
-    if (_isDemoMode) {
-      final demoAccounts = _getDemoAccounts();
-      state = state.copyWith(accounts: demoAccounts, isLoading: false);
       return;
     }
 
@@ -208,9 +207,6 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
 
     // Only use demo data if we have nothing cached
     if (state.accounts.isEmpty) {
-      final demoAccounts = _getDemoAccounts();
-      await _localStorage.saveAccounts(demoAccounts);
-      state = state.copyWith(accounts: demoAccounts, isLoading: false);
     } else {
       state = state.copyWith(isLoading: false);
     }
@@ -250,30 +246,6 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
     );
   }
 
-  List<Account> _getDemoAccounts() {
-    final now = DateTime.now();
-    return [
-      Account(id: '1', code: '1000', name: 'Cash on Hand', type: AccountType.asset, subType: AccountSubType.cash, balance: 5250000, createdAt: now, updatedAt: now),
-      Account(id: '2', code: '1010', name: 'Petty Cash', type: AccountType.asset, subType: AccountSubType.cash, balance: 500000, createdAt: now, updatedAt: now),
-      Account(id: '3', code: '1100', name: 'Bank Account - UGX', type: AccountType.asset, subType: AccountSubType.bank, balance: 45000000, createdAt: now, updatedAt: now),
-      Account(id: '4', code: '1110', name: 'Bank Account - USD', type: AccountType.asset, subType: AccountSubType.bank, balance: 12500000, createdAt: now, updatedAt: now),
-      Account(id: '5', code: '1200', name: 'Accounts Receivable', type: AccountType.asset, subType: AccountSubType.accountsReceivable, balance: 8450000, createdAt: now, updatedAt: now),
-      Account(id: '6', code: '1500', name: 'Office Equipment', type: AccountType.asset, subType: AccountSubType.fixedAsset, balance: 15000000, createdAt: now, updatedAt: now),
-      Account(id: '7', code: '1510', name: 'Computer Equipment', type: AccountType.asset, subType: AccountSubType.fixedAsset, balance: 8500000, createdAt: now, updatedAt: now),
-      Account(id: '8', code: '2000', name: 'Accounts Payable', type: AccountType.liability, subType: AccountSubType.accountsPayable, balance: 6200000, createdAt: now, updatedAt: now),
-      Account(id: '9', code: '2100', name: 'VAT Payable', type: AccountType.liability, subType: AccountSubType.currentLiability, balance: 2100000, createdAt: now, updatedAt: now),
-      Account(id: '10', code: '2200', name: 'Salaries Payable', type: AccountType.liability, subType: AccountSubType.currentLiability, balance: 4500000, createdAt: now, updatedAt: now),
-      Account(id: '11', code: '3000', name: "Owner's Capital", type: AccountType.equity, subType: AccountSubType.ownersEquity, balance: 50000000, createdAt: now, updatedAt: now),
-      Account(id: '12', code: '3100', name: 'Retained Earnings', type: AccountType.equity, subType: AccountSubType.retainedEarnings, balance: 16910000, createdAt: now, updatedAt: now),
-      Account(id: '13', code: '4000', name: 'Sales Revenue', type: AccountType.revenue, subType: AccountSubType.salesRevenue, balance: 52340000, createdAt: now, updatedAt: now),
-      Account(id: '14', code: '4100', name: 'Service Revenue', type: AccountType.revenue, subType: AccountSubType.serviceRevenue, balance: 12500000, createdAt: now, updatedAt: now),
-      Account(id: '15', code: '5000', name: 'Cost of Goods Sold', type: AccountType.expense, subType: AccountSubType.costOfGoodsSold, balance: 28000000, createdAt: now, updatedAt: now),
-      Account(id: '16', code: '6000', name: 'Salaries & Wages', type: AccountType.expense, subType: AccountSubType.payrollExpense, balance: 15000000, createdAt: now, updatedAt: now),
-      Account(id: '17', code: '6100', name: 'Rent Expense', type: AccountType.expense, subType: AccountSubType.operatingExpense, balance: 6000000, createdAt: now, updatedAt: now),
-      Account(id: '18', code: '6200', name: 'Utilities Expense', type: AccountType.expense, subType: AccountSubType.operatingExpense, balance: 1800000, createdAt: now, updatedAt: now),
-      Account(id: '19', code: '6300', name: 'Office Supplies', type: AccountType.expense, subType: AccountSubType.operatingExpense, balance: 450000, createdAt: now, updatedAt: now),
-    ];
-  }
 }
 
 final accountsProvider = StateNotifierProvider<AccountsNotifier, AccountsState>((ref) {
@@ -321,10 +293,6 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-    if (_isDemoMode) {
-      final demoCustomers = _getDemoCustomers();
-      await _localStorage.saveCustomers(demoCustomers);
-      state = state.copyWith(customers: demoCustomers, isLoading: false);
       return;
     }
 
@@ -342,9 +310,6 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
   }
 
   Future<void> loadCustomers() async {
-    if (_isDemoMode) {
-      final demoCustomers = _getDemoCustomers();
-      state = state.copyWith(customers: demoCustomers, isLoading: false);
       return;
     }
 
@@ -365,9 +330,6 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
     }
 
     if (state.customers.isEmpty) {
-      final demoCustomers = _getDemoCustomers();
-      await _localStorage.saveCustomers(demoCustomers);
-      state = state.copyWith(customers: demoCustomers, isLoading: false);
     } else {
       state = state.copyWith(isLoading: false);
     }
@@ -403,17 +365,6 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
     );
   }
 
-  List<Customer> _getDemoCustomers() {
-    final now = DateTime.now();
-    return [
-      Customer(id: '1', name: 'Kampala Traders Ltd', email: 'info@kampalatraders.co.ug', phone: '+256 700 123456', address: 'Plot 45, Kampala Road, Kampala', taxId: 'TIN123456789', creditLimit: 50000000, balance: 12500000, isActive: true, createdAt: now, updatedAt: now),
-      Customer(id: '2', name: 'Jinja Hardware Supplies', email: 'sales@jinjahardware.ug', phone: '+256 752 987654', address: '23 Main Street, Jinja', taxId: 'TIN987654321', creditLimit: 30000000, balance: 8450000, isActive: true, createdAt: now, updatedAt: now),
-      Customer(id: '3', name: 'Entebbe Fresh Farms', email: 'orders@entebbefarms.com', phone: '+256 780 456789', address: 'Entebbe Highway, Kampala', taxId: 'TIN456789123', creditLimit: 20000000, balance: 0, isActive: true, createdAt: now, updatedAt: now),
-      Customer(id: '4', name: 'Mbarara Beverages Co', email: 'accounts@mbararabev.ug', phone: '+256 701 234567', address: 'Industrial Area, Mbarara', taxId: 'TIN234567891', creditLimit: 75000000, balance: 45000000, isActive: true, createdAt: now, updatedAt: now),
-      Customer(id: '5', name: 'Gulu Construction Works', email: 'info@guluconst.co.ug', phone: '+256 772 345678', address: 'Plot 12, Gulu Town', taxId: 'TIN345678912', creditLimit: 100000000, balance: 67500000, isActive: false, createdAt: now, updatedAt: now),
-      Customer(id: '6', name: 'Lira Agro Products', email: 'sales@liraagro.ug', phone: '+256 783 456789', address: 'Main Market, Lira', taxId: 'TIN567891234', creditLimit: 15000000, balance: 2500000, isActive: true, createdAt: now, updatedAt: now),
-    ];
-  }
 }
 
 final customersProvider = StateNotifierProvider<CustomersNotifier, CustomersState>((ref) {
@@ -461,10 +412,6 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-    if (_isDemoMode) {
-      final demoVendors = _getDemoVendors();
-      await _localStorage.saveVendors(demoVendors);
-      state = state.copyWith(vendors: demoVendors, isLoading: false);
       return;
     }
 
@@ -482,9 +429,6 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
   }
 
   Future<void> loadVendors() async {
-    if (_isDemoMode) {
-      final demoVendors = _getDemoVendors();
-      state = state.copyWith(vendors: demoVendors, isLoading: false);
       return;
     }
 
@@ -505,9 +449,6 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
     }
 
     if (state.vendors.isEmpty) {
-      final demoVendors = _getDemoVendors();
-      await _localStorage.saveVendors(demoVendors);
-      state = state.copyWith(vendors: demoVendors, isLoading: false);
     } else {
       state = state.copyWith(isLoading: false);
     }
@@ -543,16 +484,6 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
     );
   }
 
-  List<Vendor> _getDemoVendors() {
-    final now = DateTime.now();
-    return [
-      Vendor(id: '1', name: 'Uganda Office Supplies', email: 'orders@ugoffice.co.ug', phone: '+256 700 111222', address: 'Industrial Area, Kampala', taxId: 'TIN111222333', balance: 3500000, paymentTerms: 'Net 30', isActive: true, createdAt: now, updatedAt: now),
-      Vendor(id: '2', name: 'East African Paper Mills', email: 'sales@eapaper.ug', phone: '+256 752 333444', address: 'Jinja Industrial Park', taxId: 'TIN333444555', balance: 8200000, paymentTerms: 'Net 45', isActive: true, createdAt: now, updatedAt: now),
-      Vendor(id: '3', name: 'Kampala Tech Solutions', email: 'support@ktech.ug', phone: '+256 780 555666', address: 'Ntinda, Kampala', taxId: 'TIN555666777', balance: 2100000, paymentTerms: 'Net 15', isActive: true, createdAt: now, updatedAt: now),
-      Vendor(id: '4', name: 'Uganda Petroleum Ltd', email: 'accounts@ugpetrol.co.ug', phone: '+256 701 777888', address: 'Port Bell, Kampala', taxId: 'TIN777888999', balance: 15000000, paymentTerms: 'Net 30', isActive: true, createdAt: now, updatedAt: now),
-      Vendor(id: '5', name: 'Mbarara Construction Materials', email: 'info@mbaconst.ug', phone: '+256 772 999000', address: 'Mbarara Town', taxId: 'TIN999000111', balance: 5800000, paymentTerms: 'Net 60', isActive: false, createdAt: now, updatedAt: now),
-    ];
-  }
 }
 
 final vendorsProvider = StateNotifierProvider<VendorsNotifier, VendorsState>((ref) {
@@ -600,10 +531,6 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-    if (_isDemoMode) {
-      final demoInvoices = _getDemoInvoices();
-      await _localStorage.saveInvoices(demoInvoices);
-      state = state.copyWith(invoices: demoInvoices, isLoading: false);
       return;
     }
 
@@ -621,9 +548,6 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
   }
 
   Future<void> loadInvoices() async {
-    if (_isDemoMode) {
-      final demoInvoices = _getDemoInvoices();
-      state = state.copyWith(invoices: demoInvoices, isLoading: false);
       return;
     }
 
@@ -644,9 +568,6 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
     }
 
     if (state.invoices.isEmpty) {
-      final demoInvoices = _getDemoInvoices();
-      await _localStorage.saveInvoices(demoInvoices);
-      state = state.copyWith(invoices: demoInvoices, isLoading: false);
     } else {
       state = state.copyWith(isLoading: false);
     }
@@ -767,10 +688,6 @@ class BillsNotifier extends StateNotifier<BillsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-    if (_isDemoMode) {
-      final demoBills = _getDemoBills();
-      await _localStorage.saveBills(demoBills);
-      state = state.copyWith(bills: demoBills, isLoading: false);
       return;
     }
 
@@ -788,9 +705,6 @@ class BillsNotifier extends StateNotifier<BillsState> {
   }
 
   Future<void> loadBills() async {
-    if (_isDemoMode) {
-      final demoBills = _getDemoBills();
-      state = state.copyWith(bills: demoBills, isLoading: false);
       return;
     }
 
@@ -811,9 +725,6 @@ class BillsNotifier extends StateNotifier<BillsState> {
     }
 
     if (state.bills.isEmpty) {
-      final demoBills = _getDemoBills();
-      await _localStorage.saveBills(demoBills);
-      state = state.copyWith(bills: demoBills, isLoading: false);
     } else {
       state = state.copyWith(isLoading: false);
     }
@@ -934,10 +845,6 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-    if (_isDemoMode) {
-      final demoJournals = _getDemoJournals();
-      await _localStorage.saveJournalEntries(demoJournals);
-      state = state.copyWith(entries: demoJournals, isLoading: false);
       return;
     }
 
@@ -955,9 +862,6 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
   }
 
   Future<void> loadJournals() async {
-    if (_isDemoMode) {
-      final demoJournals = _getDemoJournals();
-      state = state.copyWith(entries: demoJournals, isLoading: false);
       return;
     }
 
@@ -978,9 +882,6 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
     }
 
     if (state.entries.isEmpty) {
-      final demoJournals = _getDemoJournals();
-      await _localStorage.saveJournalEntries(demoJournals);
-      state = state.copyWith(entries: demoJournals, isLoading: false);
     } else {
       state = state.copyWith(isLoading: false);
     }
@@ -1151,10 +1052,6 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-    if (_isDemoMode) {
-      final demoPayments = _getDemoPayments();
-      await _localStorage.savePayments(demoPayments);
-      state = state.copyWith(payments: demoPayments, isLoading: false);
       return;
     }
 
@@ -1172,9 +1069,6 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
   }
 
   Future<void> loadPayments() async {
-    if (_isDemoMode) {
-      final demoPayments = _getDemoPayments();
-      state = state.copyWith(payments: demoPayments, isLoading: false);
       return;
     }
 
@@ -1195,9 +1089,6 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
     }
 
     if (state.payments.isEmpty) {
-      final demoPayments = _getDemoPayments();
-      await _localStorage.savePayments(demoPayments);
-      state = state.copyWith(payments: demoPayments, isLoading: false);
     } else {
       state = state.copyWith(isLoading: false);
     }
@@ -1217,16 +1108,6 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
     );
   }
 
-  List<Payment> _getDemoPayments() {
-    final now = DateTime.now();
-    return [
-      Payment(id: '1', paymentNumber: 'REC-2026-0001', paymentType: PaymentType.received, customerId: '1', customerName: 'Kampala Traders Ltd', paymentDate: DateTime(2026, 1, 18), amount: 5900000, paymentMethod: 'Bank Transfer', reference: 'TRF-123456', accountId: '3', accountName: 'Bank Account - UGX', status: PaymentStatus.completed, createdAt: now, updatedAt: now),
-      Payment(id: '2', paymentNumber: 'REC-2026-0002', paymentType: PaymentType.received, customerId: '2', customerName: 'Jinja Hardware Supplies', paymentDate: DateTime(2026, 1, 20), amount: 2000000, paymentMethod: 'Cheque', reference: 'CHQ-78901', accountId: '3', accountName: 'Bank Account - UGX', status: PaymentStatus.completed, createdAt: now, updatedAt: now),
-      Payment(id: '3', paymentNumber: 'PAY-2026-0001', paymentType: PaymentType.made, vendorId: '1', vendorName: 'Uganda Office Supplies', paymentDate: DateTime(2026, 1, 15), amount: 1416000, paymentMethod: 'Bank Transfer', reference: 'TRF-654321', accountId: '3', accountName: 'Bank Account - UGX', status: PaymentStatus.completed, createdAt: now, updatedAt: now),
-      Payment(id: '4', paymentNumber: 'PAY-2026-0002', paymentType: PaymentType.made, vendorId: '4', vendorName: 'Uganda Petroleum Ltd', paymentDate: DateTime(2026, 1, 22), amount: 3000000, paymentMethod: 'Bank Transfer', reference: 'TRF-789012', accountId: '3', accountName: 'Bank Account - UGX', status: PaymentStatus.completed, createdAt: now, updatedAt: now),
-      Payment(id: '5', paymentNumber: 'REC-2026-0003', paymentType: PaymentType.received, customerId: '4', customerName: 'Mbarara Beverages Co', paymentDate: DateTime(2026, 1, 25), amount: 8500000, paymentMethod: 'Mobile Money', reference: 'MTN-123456789', accountId: '3', accountName: 'Bank Account - UGX', status: PaymentStatus.completed, createdAt: now, updatedAt: now),
-    ];
-  }
 }
 
 final paymentsProvider = StateNotifierProvider<PaymentsNotifier, PaymentsState>((ref) {
@@ -1264,4 +1145,14 @@ final outletsByRegionProvider = Provider.family<List<Outlet>, String>((ref, regi
     loading: () => [],
     error: (_, __) => [],
   );
+});
+
+/// Sorted outlets stream (by outlet code/ID)
+final sortedOutletsStreamProvider = Provider<Stream<List<Outlet>>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.watchAllOutlets().map((outlets) {
+    // Sort by outlet code (ID) in ascending order
+    outlets.sort((a, b) => a.outletCode.compareTo(b.outletCode));
+    return outlets;
+  });
 });
