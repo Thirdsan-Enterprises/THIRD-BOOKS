@@ -40,13 +40,10 @@ class CSVImportService {
     return null;
   }
 
-  /// Map CSV outlet code (e.g. "23103000") to DB outlet code (e.g. "3000")
+  /// Normalize CSV outlet code for DB lookup
+  /// DB stores full codes like "23103000", CSV has same format
   String _mapOutletCode(String csvCode) {
-    final trimmed = csvCode.trim().replaceAll('"', '');
-    if (trimmed.startsWith('2310')) {
-      return trimmed.substring(4);
-    }
-    return trimmed;
+    return csvCode.trim().replaceAll('"', '');
   }
 
   /// Import CSV data from parsed rows (List<List<dynamic>> from csv package)

@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:drift/drift.dart' hide JsonKey;
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/app_database.dart';
@@ -17,76 +17,65 @@ class MagicBetSetup {
 
   /// Complete system setup for MAGIC BET LTD
   Future<void> runCompleteSetup() async {
-    print('');
-    print('═══════════════════════════════════════════════════');
-    print('   MAGIC BET LTD - SYSTEM SETUP');
-    print('═══════════════════════════════════════════════════');
-    print('');
+    print('MAGIC BET LTD - SYSTEM SETUP');
 
     try {
-      // Step 1: Import Outlets
-      print('🏪 Step 1: Importing 74 outlets...');
+      // Step 1: Import Outlets from bundled asset
+      print('Step 1: Importing outlets...');
       await importOutlets();
-      print('✅ Outlets imported\n');
 
-      // Step 2: Company Configuration Notes
-      print('ℹ️  Step 2: Company Configuration');
-      print('   Company: MAGIC BET LTD');
-      print('   Admin: marion@magicbet.ug');
-      print('   Phone: +256 788 160516');
-      print('   Address: Plot 45, Kampala Road, Kampala, Uganda');
-      print('   TIN: 1053396130');
-      print('   Registration: UG-2024-123456\n');
+      // Step 2: Company Configuration
+      print('Step 2: Company configured');
+      print('  Company: MAGIC BET LTD');
+      print('  Admin: marion@magicbet.ug');
 
-      print('═══════════════════════════════════════════════════');
-      print('   ✨ SETUP COMPLETE!');
-      print('═══════════════════════════════════════════════════');
-      print('');
-      print('Next steps:');
-      print('1. Upload outlet CSV data to populate revenue/expenses');
-      print('2. System will create Chart of Accounts automatically');
-      print('3. Start recording transactions via CSV uploads');
-      print('');
+      print('SETUP COMPLETE!');
+      print('Next: Upload CSV data to populate revenue');
     } catch (e) {
-      print('❌ Setup failed: $e');
+      print('Setup failed: $e');
       rethrow;
     }
   }
 
-  /// Import 74 outlets from JSON
+  /// Import 74 outlets from bundled JSON asset
   Future<void> importOutlets() async {
-    final file = File('outlet_data.json');
+    try {
+      // Check if outlets already exist
+      final existing = await database.getAllOutlets();
+      if (existing.isNotEmpty) {
+        print('  ${existing.length} outlets already in database. Skipping import.');
+        return;
+      }
 
-    if (!await file.exists()) {
-      print('   ⚠️  outlet_data.json not found. Skipping outlet import.');
-      return;
+      // Load from Flutter asset bundle
+      final jsonString = await rootBundle.loadString('assets/outlet_data.json');
+      final List<dynamic> outletsJson = json.decode(jsonString);
+
+      int count = 0;
+      for (var outletData in outletsJson) {
+        final outlet = OutletsCompanion.insert(
+          id: _uuid.v4(),
+          outletCode: outletData['new id']?.toString() ?? '',
+          name: outletData['outlet_name']?.toString() ?? '',
+          address: Value(outletData['Address']?.toString()),
+          city: Value(outletData['City']?.toString()),
+          region: Value(outletData['Region']?.toString()),
+          venueType: Value(outletData['Venue_type']?.toString() ?? 'OUTLET'),
+          commissionRate: const Value(40.0),
+          isActive: const Value(true),
+          notes: Value('Imported on ${DateTime.now().toIso8601String()}'),
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+
+        await database.insertOutlet(outlet);
+        count++;
+      }
+
+      print('  Imported $count outlets');
+    } catch (e) {
+      print('  Outlet import error: $e');
     }
-
-    final jsonString = await file.readAsString();
-    final List<dynamic> outletsJson = json.decode(jsonString);
-
-    int count = 0;
-    for (var outletData in outletsJson) {
-      final outlet = OutletsCompanion.insert(
-        id: _uuid.v4(),
-        outletCode: outletData['new id']?.toString() ?? '',
-        name: outletData['outlet_name']?.toString() ?? '',
-        address: Value(outletData['Address']?.toString()),
-        city: Value(outletData['City']?.toString()),
-        region: Value(outletData['Region']?.toString()),
-        venueType: Value(outletData['Venue_type']?.toString() ?? 'OUTLET'),
-        commissionRate: const Value(40.0),
-        isActive: const Value(true),
-        notes: Value('Imported on ${DateTime.now().toIso8601String()}'),
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-
-      await database.insertOutlet(outlet);
-      count++;
-    }
-
-    print('   ✓ Imported $count outlets');
   }
 }
 

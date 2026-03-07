@@ -242,6 +242,14 @@ class _AppShellState extends ConsumerState<AppShell> {
                   path: '/commissions',
                   isActive: currentPath == '/commissions',
                 ),
+                _buildNavItem(
+                  context,
+                  icon: Icons.cloud_upload_outlined,
+                  activeIcon: Icons.cloud_upload,
+                  label: 'Upload',
+                  path: '/outlet-upload',
+                  isActive: currentPath == '/outlet-upload',
+                ),
 
                 const SizedBox(height: 16),
                 _buildNavSection('ASSETS'),
@@ -302,7 +310,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                   Padding(
                     padding: const EdgeInsets.only(left: 12),
                     child: Text(
-                      '© 2026 ThirdBooks',
+                      '© 2026 Magic Bet Ltd',
                       style: TextStyle(
                         color: AppColors.sidebarTextMuted,
                         fontSize: 11,
