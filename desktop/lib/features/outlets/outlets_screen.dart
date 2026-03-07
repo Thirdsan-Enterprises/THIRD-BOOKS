@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
+import 'package:drift/drift.dart' hide Column;
 
 import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
-import 'csv_upload_widget.dart';
 
 class OutletsScreen extends ConsumerStatefulWidget {
   const OutletsScreen({super.key});
@@ -31,13 +31,13 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Watch outlets from database
     final outletsAsync = ref.watch(outletsStreamProvider);
     final numberFormat = NumberFormat('#,##0', 'en_US');
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    return Scaffold(
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           // Page Title Bar
           Container(
             padding: const EdgeInsets.all(24),
@@ -88,14 +88,14 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
 
           // Filters
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             child: Row(
               children: [
                 Expanded(
                   flex: 3,
                   child: TextField(
                     decoration: InputDecoration(
-                      hintText: 'Search outlets...',
+                      hintText: 'Search outlets by name or code...',
                       prefixIcon: const Icon(Icons.search),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -130,13 +130,13 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
 
           // Statistics Cards
           outletsAsync.when(
             data: (outlets) {
               final totalCount = outlets.length;
               final activeCount = outlets.where((o) => o.isActive).length;
+              final regions = outlets.map((o) => o.region).where((r) => r != null).toSet().length;
 
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -165,9 +165,9 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                     Expanded(
                       child: _buildStatCard(
                         context,
-                        'This Month Revenue',
-                        'UGX 0',
-                        Icons.trending_up,
+                        'Regions',
+                        regions.toString(),
+                        Icons.map,
                         AppColors.info,
                       ),
                     ),
@@ -175,8 +175,8 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                     Expanded(
                       child: _buildStatCard(
                         context,
-                        'Pending Commissions',
-                        'UGX 0',
+                        'Commission Rate',
+                        '40%',
                         Icons.payment,
                         AppColors.warning,
                       ),
@@ -191,12 +191,12 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
             ),
             error: (error, stack) => const SizedBox.shrink(),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
 
           // Outlets Table
           Expanded(
             child: Container(
-              margin: const EdgeInsets.all(24),
+              margin: const EdgeInsets.symmetric(horizontal: 24),
               decoration: BoxDecoration(
                 color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(12),
@@ -208,32 +208,33 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                 children: [
                   // Table Header
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
                       border: Border(
                         bottom: BorderSide(
                           color: Theme.of(context).dividerColor,
                         ),
                       ),
                     ),
-                    child: Row(
+                    child: const Row(
                       children: [
-                        const Expanded(flex: 2, child: Text('Outlet Name', style: TextStyle(fontWeight: FontWeight.bold))),
-                        const Expanded(child: Text('Code', style: TextStyle(fontWeight: FontWeight.bold))),
-                        const Expanded(flex: 2, child: Text('Location', style: TextStyle(fontWeight: FontWeight.bold))),
-                        const Expanded(child: Text('Region', style: TextStyle(fontWeight: FontWeight.bold))),
-                        const Expanded(child: Text('Commission', style: TextStyle(fontWeight: FontWeight.bold))),
-                        const Expanded(child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
-                        const SizedBox(width: 100, child: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
+                        SizedBox(width: 50, child: Text('#', style: TextStyle(fontWeight: FontWeight.bold))),
+                        Expanded(flex: 2, child: Text('Outlet Name', style: TextStyle(fontWeight: FontWeight.bold))),
+                        Expanded(child: Text('Outlet Code', style: TextStyle(fontWeight: FontWeight.bold))),
+                        Expanded(flex: 2, child: Text('Location', style: TextStyle(fontWeight: FontWeight.bold))),
+                        Expanded(child: Text('Region', style: TextStyle(fontWeight: FontWeight.bold))),
+                        Expanded(child: Text('Commission', style: TextStyle(fontWeight: FontWeight.bold))),
+                        Expanded(child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+                        SizedBox(width: 120, child: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
                       ],
                     ),
                   ),
 
-                  // Table Body - Actual outlet data
+                  // Table Body
                   Expanded(
                     child: outletsAsync.when(
                       data: (allOutlets) {
-                        // Filter by search query and region
                         var filteredOutlets = allOutlets.where((outlet) {
                           final matchesSearch = _searchQuery.isEmpty ||
                               outlet.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
@@ -241,6 +242,9 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                           final matchesRegion = _selectedRegion == 'All' || outlet.region == _selectedRegion;
                           return matchesSearch && matchesRegion;
                         }).toList();
+
+                        // Sort by outlet code
+                        filteredOutlets.sort((a, b) => a.outletCode.compareTo(b.outletCode));
 
                         if (filteredOutlets.isEmpty) {
                           return Center(
@@ -254,10 +258,18 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
-                                  'No outlets found',
+                                  _searchQuery.isNotEmpty
+                                      ? 'No outlets found matching "$_searchQuery"'
+                                      : 'No outlets found',
                                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                         color: Theme.of(context).colorScheme.outline,
                                       ),
+                                ),
+                                const SizedBox(height: 16),
+                                FilledButton.icon(
+                                  onPressed: _showAddOutletDialog,
+                                  icon: const Icon(Icons.add),
+                                  label: const Text('Add Outlet'),
                                 ),
                               ],
                             ),
@@ -269,16 +281,29 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                           itemBuilder: (context, index) {
                             final outlet = filteredOutlets[index];
                             return Container(
-                              padding: const EdgeInsets.all(16),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                               decoration: BoxDecoration(
+                                color: index.isEven
+                                    ? null
+                                    : Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.1),
                                 border: Border(
                                   bottom: BorderSide(
-                                    color: Theme.of(context).dividerColor,
+                                    color: Theme.of(context).dividerColor.withOpacity(0.5),
                                   ),
                                 ),
                               ),
                               child: Row(
                                 children: [
+                                  SizedBox(
+                                    width: 50,
+                                    child: Text(
+                                      '${index + 1}',
+                                      style: TextStyle(
+                                        color: Theme.of(context).colorScheme.outline,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
                                   Expanded(
                                     flex: 2,
                                     child: Text(
@@ -287,7 +312,22 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                                     ),
                                   ),
                                   Expanded(
-                                    child: Text(outlet.outletCode),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        outlet.outletCode,
+                                        style: TextStyle(
+                                          fontFamily: 'monospace',
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.primary,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                   Expanded(
                                     flex: 2,
@@ -321,22 +361,21 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                                     ),
                                   ),
                                   SizedBox(
-                                    width: 100,
+                                    width: 120,
                                     child: Row(
                                       children: [
                                         IconButton(
                                           icon: const Icon(Icons.edit, size: 18),
-                                          onPressed: () {
-                                            // TODO: Edit outlet
-                                          },
+                                          onPressed: () => _showEditOutletDialog(outlet),
                                           tooltip: 'Edit',
                                         ),
                                         IconButton(
-                                          icon: const Icon(Icons.visibility, size: 18),
-                                          onPressed: () {
-                                            // TODO: View outlet details
-                                          },
-                                          tooltip: 'View',
+                                          icon: Icon(
+                                            outlet.isActive ? Icons.block : Icons.check_circle_outline,
+                                            size: 18,
+                                          ),
+                                          onPressed: () => _toggleOutletStatus(outlet),
+                                          tooltip: outlet.isActive ? 'Deactivate' : 'Activate',
                                         ),
                                       ],
                                     ),
@@ -357,11 +396,10 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
               ),
             ),
           ),
-
-          // CSV Upload Section
-          const CSVUploadWidget(),
+          const SizedBox(height: 24),
         ],
-      );
+      ),
+    );
   }
 
   Widget _buildStatCard(
@@ -420,162 +458,396 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
     final codeController = TextEditingController();
     final addressController = TextEditingController();
     final cityController = TextEditingController();
-    final regionController = TextEditingController();
+    String? selectedRegion;
     final ownerController = TextEditingController();
     final contactController = TextEditingController();
     final commissionController = TextEditingController(text: '40.0');
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New Outlet'),
-        content: SizedBox(
-          width: 600,
-          child: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: codeController,
-                          decoration: const InputDecoration(
-                            labelText: 'Outlet Code *',
-                            hintText: '3000',
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add New Outlet'),
+          content: SizedBox(
+            width: 600,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: codeController,
+                            decoration: const InputDecoration(
+                              labelText: 'Outlet Code *',
+                              hintText: '23103000',
+                            ),
+                            validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
                           ),
-                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
                         ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        flex: 2,
-                        child: TextFormField(
-                          controller: nameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Outlet Name *',
-                            hintText: 'MAGIC BET YUMBE',
+                        const SizedBox(width: 16),
+                        Expanded(
+                          flex: 2,
+                          child: TextFormField(
+                            controller: nameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Outlet Name *',
+                              hintText: 'MAGIC BET YUMBE',
+                            ),
+                            validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
                           ),
-                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: addressController,
-                    decoration: const InputDecoration(
-                      labelText: 'Address',
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: cityController,
-                          decoration: const InputDecoration(
-                            labelText: 'City',
-                          ),
-                        ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: addressController,
+                      decoration: const InputDecoration(
+                        labelText: 'Address',
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          decoration: const InputDecoration(
-                            labelText: 'Region',
-                          ),
-                          items: _regions
-                              .where((r) => r != 'All')
-                              .map((region) => DropdownMenuItem(
-                                    value: region,
-                                    child: Text(region),
-                                  ))
-                              .toList(),
-                          onChanged: (value) => regionController.text = value ?? '',
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: ownerController,
-                          decoration: const InputDecoration(
-                            labelText: 'Owner Name',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: TextFormField(
-                          controller: contactController,
-                          decoration: const InputDecoration(
-                            labelText: 'Contact',
-                            hintText: '+256 7XX XXX XXX',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: commissionController,
-                    decoration: const InputDecoration(
-                      labelText: 'Commission Rate (%)',
-                      suffix: Text('%'),
                     ),
-                    keyboardType: TextInputType.number,
-                    validator: (v) {
-                      if (v?.isEmpty ?? true) return 'Required';
-                      final rate = double.tryParse(v!);
-                      if (rate == null || rate < 0 || rate > 100) {
-                        return 'Enter a valid percentage (0-100)';
-                      }
-                      return null;
-                    },
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: cityController,
+                            decoration: const InputDecoration(
+                              labelText: 'City',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: selectedRegion,
+                            decoration: const InputDecoration(
+                              labelText: 'Region',
+                            ),
+                            items: _regions
+                                .where((r) => r != 'All')
+                                .map((region) => DropdownMenuItem(
+                                      value: region,
+                                      child: Text(region),
+                                    ))
+                                .toList(),
+                            onChanged: (value) => setDialogState(() => selectedRegion = value),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: ownerController,
+                            decoration: const InputDecoration(
+                              labelText: 'Owner Name',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: TextFormField(
+                            controller: contactController,
+                            decoration: const InputDecoration(
+                              labelText: 'Contact',
+                              hintText: '+256 7XX XXX XXX',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: commissionController,
+                      decoration: const InputDecoration(
+                        labelText: 'Commission Rate (%)',
+                        suffix: Text('%'),
+                      ),
+                      keyboardType: TextInputType.number,
+                      validator: (v) {
+                        if (v?.isEmpty ?? true) return 'Required';
+                        final rate = double.tryParse(v!);
+                        if (rate == null || rate < 0 || rate > 100) {
+                          return 'Enter a valid percentage (0-100)';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                if (!formKey.currentState!.validate()) return;
+
+                final db = ref.read(databaseProvider);
+                final now = DateTime.now();
+
+                try {
+                  await db.insertOutlet(OutletsCompanion.insert(
+                    id: const Uuid().v4(),
+                    outletCode: codeController.text.trim(),
+                    name: nameController.text.trim(),
+                    address: Value(addressController.text.isEmpty ? null : addressController.text.trim()),
+                    city: Value(cityController.text.isEmpty ? null : cityController.text.trim()),
+                    region: Value(selectedRegion),
+                    ownerName: Value(ownerController.text.isEmpty ? null : ownerController.text.trim()),
+                    ownerContact: Value(contactController.text.isEmpty ? null : contactController.text.trim()),
+                    commissionRate: Value(double.parse(commissionController.text)),
+                    isActive: const Value(true),
+                    createdAt: now,
+                    updatedAt: now,
+                  ));
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Outlet added successfully'),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error adding outlet: $e'),
+                        backgroundColor: AppColors.error,
+                      ),
+                    );
+                  }
+                }
+              },
+              child: const Text('Add Outlet'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-
-              // TODO: Save to database
-              // final outlet = OutletsCompanion.insert(
-              //   id: const Uuid().v4(),
-              //   outletCode: codeController.text,
-              //   name: nameController.text,
-              //   ...
-              // );
-              // await ref.read(databaseProvider).insertOutlet(outlet);
-
-              if (mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Outlet added successfully'),
-                    backgroundColor: AppColors.success,
-                  ),
-                );
-              }
-            },
-            child: const Text('Add Outlet'),
-          ),
-        ],
       ),
     );
+  }
+
+  void _showEditOutletDialog(Outlet outlet) {
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController(text: outlet.name);
+    final codeController = TextEditingController(text: outlet.outletCode);
+    final addressController = TextEditingController(text: outlet.address ?? '');
+    final cityController = TextEditingController(text: outlet.city ?? '');
+    String? selectedRegion = outlet.region;
+    final ownerController = TextEditingController(text: outlet.ownerName ?? '');
+    final contactController = TextEditingController(text: outlet.ownerContact ?? '');
+    final commissionController = TextEditingController(text: outlet.commissionRate.toString());
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Edit Outlet - ${outlet.outletCode}'),
+          content: SizedBox(
+            width: 600,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: codeController,
+                            decoration: const InputDecoration(labelText: 'Outlet Code *'),
+                            validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          flex: 2,
+                          child: TextFormField(
+                            controller: nameController,
+                            decoration: const InputDecoration(labelText: 'Outlet Name *'),
+                            validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: addressController,
+                      decoration: const InputDecoration(labelText: 'Address'),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: cityController,
+                            decoration: const InputDecoration(labelText: 'City'),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: selectedRegion,
+                            decoration: const InputDecoration(labelText: 'Region'),
+                            items: _regions
+                                .where((r) => r != 'All')
+                                .map((region) => DropdownMenuItem(
+                                      value: region,
+                                      child: Text(region),
+                                    ))
+                                .toList(),
+                            onChanged: (value) => setDialogState(() => selectedRegion = value),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: ownerController,
+                            decoration: const InputDecoration(labelText: 'Owner Name'),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: TextFormField(
+                            controller: contactController,
+                            decoration: const InputDecoration(labelText: 'Contact'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: commissionController,
+                      decoration: const InputDecoration(
+                        labelText: 'Commission Rate (%)',
+                        suffix: Text('%'),
+                      ),
+                      keyboardType: TextInputType.number,
+                      validator: (v) {
+                        if (v?.isEmpty ?? true) return 'Required';
+                        final rate = double.tryParse(v!);
+                        if (rate == null || rate < 0 || rate > 100) return 'Invalid';
+                        return null;
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                if (!formKey.currentState!.validate()) return;
+
+                final db = ref.read(databaseProvider);
+                final now = DateTime.now();
+
+                try {
+                  await db.updateOutlet(OutletsCompanion(
+                    id: Value(outlet.id),
+                    outletCode: Value(codeController.text.trim()),
+                    name: Value(nameController.text.trim()),
+                    address: Value(addressController.text.isEmpty ? null : addressController.text.trim()),
+                    city: Value(cityController.text.isEmpty ? null : cityController.text.trim()),
+                    region: Value(selectedRegion),
+                    venueType: Value(outlet.venueType),
+                    ownerName: Value(ownerController.text.isEmpty ? null : ownerController.text.trim()),
+                    ownerContact: Value(contactController.text.isEmpty ? null : contactController.text.trim()),
+                    commissionRate: Value(double.parse(commissionController.text)),
+                    isActive: Value(outlet.isActive),
+                    createdAt: Value(outlet.createdAt),
+                    updatedAt: Value(now),
+                  ));
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Outlet updated successfully'),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error updating outlet: $e'),
+                        backgroundColor: AppColors.error,
+                      ),
+                    );
+                  }
+                }
+              },
+              child: const Text('Save Changes'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleOutletStatus(Outlet outlet) async {
+    final db = ref.read(databaseProvider);
+    try {
+      await db.updateOutlet(OutletsCompanion(
+        id: Value(outlet.id),
+        outletCode: Value(outlet.outletCode),
+        name: Value(outlet.name),
+        address: Value(outlet.address),
+        city: Value(outlet.city),
+        postalCode: Value(outlet.postalCode),
+        region: Value(outlet.region),
+        venueType: Value(outlet.venueType),
+        ownerName: Value(outlet.ownerName),
+        ownerContact: Value(outlet.ownerContact),
+        commissionRate: Value(outlet.commissionRate),
+        isActive: Value(!outlet.isActive),
+        notes: Value(outlet.notes),
+        createdAt: Value(outlet.createdAt),
+        updatedAt: Value(DateTime.now()),
+      ));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(outlet.isActive ? 'Outlet deactivated' : 'Outlet activated'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 }
