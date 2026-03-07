@@ -224,7 +224,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
           child: DataTable(
             columnSpacing: 24,
             horizontalMargin: 24,
-            headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
             columns: const [
               DataColumn(label: Text('Invoice #')),
               DataColumn(label: Text('Customer')),
