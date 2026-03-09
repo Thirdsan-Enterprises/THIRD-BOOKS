@@ -37,42 +37,65 @@ class MagicBetSetup {
     }
   }
 
-  /// Import 74 outlets from bundled JSON asset
+  /// Import 74 outlets from bundled JSON asset.
+  /// Handles partial imports: if fewer than expected outlets exist,
+  /// imports only the missing ones by outlet code.
   Future<void> importOutlets() async {
     try {
-      // Check if outlets already exist
-      final existing = await database.getAllOutlets();
-      if (existing.isNotEmpty) {
-        print('  ${existing.length} outlets already in database. Skipping import.');
-        return;
-      }
-
       // Load from Flutter asset bundle
       final jsonString = await rootBundle.loadString('assets/outlet_data.json');
       final List<dynamic> outletsJson = json.decode(jsonString);
 
-      int count = 0;
-      for (var outletData in outletsJson) {
-        final outlet = OutletsCompanion.insert(
-          id: _uuid.v4(),
-          outletCode: outletData['new id']?.toString() ?? '',
-          name: outletData['outlet_name']?.toString() ?? '',
-          address: Value(outletData['Address']?.toString()),
-          city: Value(outletData['City']?.toString()),
-          region: Value(outletData['Region']?.toString()),
-          venueType: Value(outletData['Venue_type']?.toString() ?? 'OUTLET'),
-          commissionRate: const Value(40.0),
-          isActive: const Value(true),
-          notes: Value('Imported on ${DateTime.now().toIso8601String()}'),
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-        );
-
-        await database.insertOutlet(outlet);
-        count++;
+      // Check existing outlets by code
+      final existing = await database.getAllOutlets();
+      final existingCodes = <String>{};
+      for (final o in existing) {
+        existingCodes.add(o.outletCode);
       }
 
-      print('  Imported $count outlets');
+      if (existing.length >= outletsJson.length) {
+        print('  All ${existing.length} outlets already in database. Skipping import.');
+        return;
+      }
+
+      int count = 0;
+      int skipped = 0;
+      for (var outletData in outletsJson) {
+        final code = outletData['new id']?.toString() ?? '';
+        if (code.isEmpty) continue;
+
+        // Skip if this outlet code already exists
+        if (existingCodes.contains(code)) {
+          skipped++;
+          continue;
+        }
+
+        try {
+          final outlet = OutletsCompanion.insert(
+            id: _uuid.v4(),
+            outletCode: code,
+            name: outletData['outlet_name']?.toString() ?? '',
+            address: Value(outletData['Address']?.toString()),
+            city: Value(outletData['City']?.toString()),
+            region: Value(outletData['Region']?.toString()),
+            venueType: Value(outletData['Venue_type']?.toString() ?? 'OUTLET'),
+            commissionRate: const Value(40.0),
+            isActive: const Value(true),
+            notes: Value('Imported on ${DateTime.now().toIso8601String()}'),
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          );
+
+          await database.insertOutlet(outlet);
+          existingCodes.add(code);
+          count++;
+        } catch (e) {
+          print('  Warning: Failed to import outlet $code: $e');
+        }
+      }
+
+      print('  Imported $count new outlets (skipped $skipped existing)');
+      print('  Total outlets now: ${existingCodes.length}');
     } catch (e) {
       print('  Outlet import error: $e');
     }

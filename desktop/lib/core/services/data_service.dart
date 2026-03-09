@@ -1317,9 +1317,15 @@ final csvImportProvider = StateNotifierProvider<CsvImportNotifier, CsvImportStat
 // ============================================================================
 
 /// All outlet revenues stream
-final allOutletRevenuesProvider = FutureProvider<List<OutletRevenue>>((ref) async {
-  final db = ref.read(databaseProvider);
-  return db.getAllOutletRevenues();
+final allOutletRevenuesProvider = StreamProvider<List<OutletRevenue>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.select(db.outletRevenues).watch();
+});
+
+/// Stream provider for all outlet expenditures
+final allOutletExpendituresProvider = StreamProvider<List<OutletExpenditure>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.select(db.outletExpenditures).watch();
 });
 
 /// Revenue summary per outlet

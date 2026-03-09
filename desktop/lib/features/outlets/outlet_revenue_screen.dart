@@ -8,12 +8,6 @@ import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 
-/// Stream provider for all outlet revenues
-final allOutletRevenuesProvider = StreamProvider<List<OutletRevenue>>((ref) {
-  final db = ref.watch(databaseProvider);
-  return db.select(db.outletRevenues).watch();
-});
-
 class OutletRevenueScreen extends ConsumerStatefulWidget {
   final String? outletId;
   final String? outletName;
