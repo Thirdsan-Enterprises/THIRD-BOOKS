@@ -22,61 +22,37 @@ class DashboardScreen extends ConsumerWidget {
     final dashboardAsync = ref.watch(dashboardDataProvider);
     final user = ref.watch(currentUserProvider);
 
+    // Use .value to get DashboardData, fallback to empty on error
+    final data = dashboardAsync.valueOrNull ?? DashboardData.empty();
+
     return Scaffold(
-      body: dashboardAsync.when(
-        data: (data) => SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(context, user?.name),
-              const SizedBox(height: 24),
-              _buildKPICards(context, data),
-              const SizedBox(height: 24),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(flex: 2, child: _buildRevenueChart(context, data)),
-                  const SizedBox(width: 24),
-                  Expanded(child: _buildCashFlowSummary(context, data)),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: _buildRecentTransactions(context, data)),
-                  const SizedBox(width: 24),
-                  Expanded(child: _buildAccountsReceivable(context, data)),
-                ],
-              ),
-            ],
-          ),
-        ),
-        loading: () => const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Loading dashboard data...'),
-            ],
-          ),
-        ),
-        error: (error, stack) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: AppColors.error),
-              const SizedBox(height: 16),
-              Text('Error loading dashboard: $error'),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => ref.refresh(dashboardDataProvider),
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildHeader(context, user?.name),
+            const SizedBox(height: 24),
+            _buildKPICards(context, data),
+            const SizedBox(height: 24),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 2, child: _buildRevenueChart(context, data)),
+                const SizedBox(width: 24),
+                Expanded(child: _buildCashFlowSummary(context, data)),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildRecentTransactions(context, data)),
+                const SizedBox(width: 24),
+                Expanded(child: _buildAccountsReceivable(context, data)),
+              ],
+            ),
+          ],
         ),
       ),
     );

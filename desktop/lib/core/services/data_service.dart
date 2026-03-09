@@ -195,15 +195,16 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       monthlyPayouts[rev.date.month] = (monthlyPayouts[rev.date.month] ?? 0) + rev.commissionAmount;
     }
 
-    // Build recent transactions (last 10)
+    // Build recent transactions (last 10) - keys match dashboard_screen.dart expectations
     for (var i = 0; i < sortedRevenues.length && i < 10; i++) {
       final rev = sortedRevenues[i];
       final outlet = outlets.where((o) => o.id == rev.outletId).firstOrNull;
       recentTx.add({
-        'description': outlet?.name ?? 'Outlet',
-        'date': DateFormat('MMM d, yyyy').format(rev.date),
+        'title': outlet?.name ?? 'Outlet',
+        'subtitle': DateFormat('MMM d, yyyy').format(rev.date),
         'amount': rev.netAmount,
-        'type': rev.netAmount >= 0 ? 'income' : 'expense',
+        'isIncome': rev.netAmount >= 0,
+        'icon': 'payments',
       });
     }
 
@@ -224,11 +225,18 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       outletGGR[rev.outletId] = (outletGGR[rev.outletId] ?? 0) + rev.netAmount;
     }
 
-    final receivableAging = outletGGR.entries.take(5).map((e) {
+    // Sort outlets by GGR descending and take top 5
+    final sortedOutletGGR = outletGGR.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final topGGR = sortedOutletGGR.take(5).toList();
+    final maxGGR = topGGR.isNotEmpty ? topGGR.first.value : 1.0;
+
+    final receivableAging = topGGR.map((e) {
       final outlet = outlets.where((o) => o.id == e.key).firstOrNull;
       return {
-        'name': outlet?.name ?? 'Unknown',
+        'label': outlet?.name ?? 'Unknown',
         'amount': e.value,
+        'percentage': maxGGR > 0 ? e.value / maxGGR : 0.0,
       };
     }).toList();
 
@@ -306,11 +314,9 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
       debugPrint('Error loading accounts from local storage: $e');
     }
 
-    // If empty, seed with MagicBet default chart of accounts
-    final defaults = _magicBetDefaultAccounts();
-    state = state.copyWith(accounts: defaults, isLoading: false);
-    await _localStorage.saveAccounts(defaults);
-    debugPrint('Initialized ${defaults.length} MagicBet default accounts');
+    // Start with empty chart of accounts - user adds accounts manually
+    state = state.copyWith(accounts: [], isLoading: false);
+    debugPrint('No accounts found. Use "New Account" to add accounts.');
   }
 
   Future<void> loadAccounts() async {

@@ -14,8 +14,8 @@ class InitializationService {
   static const _storage = FlutterSecureStorage();
   static const _setupCompleteKey = 'magicbet_setup_complete';
   static const _setupVersionKey = 'magicbet_setup_version';
-  static const _demoPurgedKey = 'demo_data_purged';
-  static const currentSetupVersion = '2.0.0';
+  static const _demoPurgedKey = 'demo_data_purged_v3';
+  static const currentSetupVersion = '3.0.0';
 
   /// Check if initial setup has been completed
   static Future<bool> isSetupComplete() async {
