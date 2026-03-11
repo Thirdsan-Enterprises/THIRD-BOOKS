@@ -15,7 +15,7 @@ import 'auth_service.dart';
 import 'local_storage_service.dart';
 import 'sync_service.dart';
 import '../models/models.dart';
-import '../database/app_database.dart';
+import '../database/app_database.dart' hide Account, Customer, Vendor, Invoice, Bill, JournalEntry, JournalLine;
 
 // Global local storage instance
 final _localStorage = LocalStorageService.instance;
@@ -1277,9 +1277,9 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
             id: revenueId,
             outletId: outlet.id,
             date: date,
-            amount: totalIn,
-            commissionAmount: totalOut,
-            netAmount: totalGGR,
+            amount: Value(totalIn),
+            commissionAmount: Value(totalOut),
+            netAmount: Value(totalGGR),
             description: Value('CSV Import: ${outlet.name} - ${DateFormat('MMM d, yyyy').format(date)}'),
             reference: Value('CSV-$csvOutletCode-${DateFormat('yyyyMMdd').format(date)}'),
             status: const Value('recorded'),

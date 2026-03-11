@@ -11,6 +11,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/models/bill.dart';
+import '../../core/models/account.dart';
 import '../../core/providers/asset_drafts_provider.dart';
 
 class BillsScreen extends ConsumerStatefulWidget {
@@ -574,9 +575,9 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        const Expanded(
+                        Expanded(
                           child: TextFormField(
-                            decoration: InputDecoration(labelText: 'Reference Number'),
+                            decoration: const InputDecoration(labelText: 'Reference Number'),
                           ),
                         ),
                       ],
@@ -994,7 +995,7 @@ class _BillLineData {
 // ---------------------------------------------------------------------------
 class _BillLineWidget extends StatefulWidget {
   final _BillLineData line;
-  final List accounts;
+  final List<Account> accounts;
   final String currency;
   final VoidCallback onChanged;
   final VoidCallback? onDelete;
@@ -1053,7 +1054,7 @@ class _BillLineWidgetState extends State<_BillLineWidget> {
               ),
               items: widget.accounts
                   .map<DropdownMenuItem<String>>((a) => DropdownMenuItem(
-                        value: a.id as String,
+                        value: a.id,
                         child: Text('${a.code} - ${a.name}',
                             overflow: TextOverflow.ellipsis),
                       ))
