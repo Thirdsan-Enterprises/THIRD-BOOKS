@@ -335,7 +335,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     return Column(
       children: [
         Text(
-          'ThirdBooks',
+          'Magic Bet',
           style: TextStyle(
             fontSize: 42,
             fontWeight: FontWeight.w700,
@@ -404,7 +404,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
         ),
         const SizedBox(height: 4),
         Text(
-          '© 2026 ThirdBooks. All rights reserved.',
+          '© 2026 Magic Bet Ltd. All rights reserved.',
           style: TextStyle(
             fontSize: 12,
             color: Colors.white.withOpacity(0.4),

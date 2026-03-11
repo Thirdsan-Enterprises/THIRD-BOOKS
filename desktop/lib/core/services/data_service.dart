@@ -195,15 +195,16 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       monthlyPayouts[rev.date.month] = (monthlyPayouts[rev.date.month] ?? 0) + rev.commissionAmount;
     }
 
-    // Build recent transactions (last 10)
+    // Build recent transactions (last 10) - keys match dashboard_screen.dart expectations
     for (var i = 0; i < sortedRevenues.length && i < 10; i++) {
       final rev = sortedRevenues[i];
       final outlet = outlets.where((o) => o.id == rev.outletId).firstOrNull;
       recentTx.add({
-        'description': outlet?.name ?? 'Outlet',
-        'date': DateFormat('MMM d, yyyy').format(rev.date),
+        'title': outlet?.name ?? 'Outlet',
+        'subtitle': DateFormat('MMM d, yyyy').format(rev.date),
         'amount': rev.netAmount,
-        'type': rev.netAmount >= 0 ? 'income' : 'expense',
+        'isIncome': rev.netAmount >= 0,
+        'icon': 'payments',
       });
     }
 
@@ -224,11 +225,18 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       outletGGR[rev.outletId] = (outletGGR[rev.outletId] ?? 0) + rev.netAmount;
     }
 
-    final receivableAging = outletGGR.entries.take(5).map((e) {
+    // Sort outlets by GGR descending and take top 5
+    final sortedOutletGGR = outletGGR.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final topGGR = sortedOutletGGR.take(5).toList();
+    final maxGGR = topGGR.isNotEmpty ? topGGR.first.value : 1.0;
+
+    final receivableAging = topGGR.map((e) {
       final outlet = outlets.where((o) => o.id == e.key).firstOrNull;
       return {
-        'name': outlet?.name ?? 'Unknown',
+        'label': outlet?.name ?? 'Unknown',
         'amount': e.value,
+        'percentage': maxGGR > 0 ? e.value / maxGGR : 0.0,
       };
     }).toList();
 
@@ -294,7 +302,7 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-    // 1. First, load from local storage (instant offline data)
+    // Load from local storage only (no API - MagicBet is offline-first)
     try {
       final localAccounts = await _localStorage.loadAccounts();
       if (localAccounts.isNotEmpty) {
@@ -306,36 +314,20 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
       debugPrint('Error loading accounts from local storage: $e');
     }
 
-    // 2. If no local data, try API
-    await loadAccounts();
-
-    // 3. If still empty, seed with MagicBet defaults
-    if (state.accounts.isEmpty) {
-      final defaults = _magicBetDefaultAccounts();
-      state = state.copyWith(accounts: defaults, isLoading: false);
-      await _localStorage.saveAccounts(defaults);
-      debugPrint('Initialized ${defaults.length} MagicBet default accounts');
-    }
+    // Start with empty chart of accounts - user adds accounts manually
+    state = state.copyWith(accounts: [], isLoading: false);
+    debugPrint('No accounts found. Use "New Account" to add accounts.');
   }
 
   Future<void> loadAccounts() async {
+    // Reload from local storage
     try {
-      final response = await _apiClient.get('/accounts');
-      if (response.statusCode == 200) {
-        final data = response.data['data'] ?? response.data;
-        final accounts = (data as List<dynamic>)
-            .map((json) => Account.fromJson(json as Map<String, dynamic>))
-            .toList();
-
-        await _localStorage.saveAccounts(accounts);
-        state = state.copyWith(accounts: accounts, isLoading: false);
-        return;
-      }
+      final localAccounts = await _localStorage.loadAccounts();
+      state = state.copyWith(accounts: localAccounts, isLoading: false);
     } catch (e) {
-      debugPrint('API fetch failed, using local data: $e');
+      debugPrint('Error loading accounts: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    state = state.copyWith(isLoading: false);
   }
 
   void addAccount(Account account) {
@@ -412,38 +404,25 @@ class CustomersNotifier extends StateNotifier<CustomersState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
+    // Load from local storage only (no API)
     try {
       final localCustomers = await _localStorage.loadCustomers();
-      if (localCustomers.isNotEmpty) {
-        state = state.copyWith(customers: localCustomers, isLoading: false);
-        debugPrint('Loaded ${localCustomers.length} customers from local storage');
-        return;
-      }
+      state = state.copyWith(customers: localCustomers, isLoading: false);
+      debugPrint('Loaded ${localCustomers.length} customers from local storage');
     } catch (e) {
       debugPrint('Error loading customers from local storage: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    await loadCustomers();
   }
 
   Future<void> loadCustomers() async {
     try {
-      final response = await _apiClient.get('/customers');
-      if (response.statusCode == 200) {
-        final data = response.data['data'] ?? response.data;
-        final customers = (data as List<dynamic>)
-            .map((json) => Customer.fromJson(json as Map<String, dynamic>))
-            .toList();
-
-        await _localStorage.saveCustomers(customers);
-        state = state.copyWith(customers: customers, isLoading: false);
-        return;
-      }
+      final localCustomers = await _localStorage.loadCustomers();
+      state = state.copyWith(customers: localCustomers, isLoading: false);
     } catch (e) {
-      debugPrint('API fetch failed for customers: $e');
+      debugPrint('Error loading customers: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    state = state.copyWith(isLoading: false);
   }
 
   void addCustomer(Customer customer) {
@@ -520,38 +499,25 @@ class VendorsNotifier extends StateNotifier<VendorsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
+    // Load from local storage only (no API)
     try {
       final localVendors = await _localStorage.loadVendors();
-      if (localVendors.isNotEmpty) {
-        state = state.copyWith(vendors: localVendors, isLoading: false);
-        debugPrint('Loaded ${localVendors.length} vendors from local storage');
-        return;
-      }
+      state = state.copyWith(vendors: localVendors, isLoading: false);
+      debugPrint('Loaded ${localVendors.length} vendors from local storage');
     } catch (e) {
       debugPrint('Error loading vendors from local storage: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    await loadVendors();
   }
 
   Future<void> loadVendors() async {
     try {
-      final response = await _apiClient.get('/vendors');
-      if (response.statusCode == 200) {
-        final data = response.data['data'] ?? response.data;
-        final vendors = (data as List<dynamic>)
-            .map((json) => Vendor.fromJson(json as Map<String, dynamic>))
-            .toList();
-
-        await _localStorage.saveVendors(vendors);
-        state = state.copyWith(vendors: vendors, isLoading: false);
-        return;
-      }
+      final localVendors = await _localStorage.loadVendors();
+      state = state.copyWith(vendors: localVendors, isLoading: false);
     } catch (e) {
-      debugPrint('API fetch failed for vendors: $e');
+      debugPrint('Error loading vendors: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    state = state.copyWith(isLoading: false);
   }
 
   void addVendor(Vendor vendor) {
@@ -628,38 +594,25 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
+    // Load from local storage only (no API)
     try {
       final localInvoices = await _localStorage.loadInvoices();
-      if (localInvoices.isNotEmpty) {
-        state = state.copyWith(invoices: localInvoices, isLoading: false);
-        debugPrint('Loaded ${localInvoices.length} invoices from local storage');
-        return;
-      }
+      state = state.copyWith(invoices: localInvoices, isLoading: false);
+      debugPrint('Loaded ${localInvoices.length} invoices from local storage');
     } catch (e) {
       debugPrint('Error loading invoices from local storage: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    await loadInvoices();
   }
 
   Future<void> loadInvoices() async {
     try {
-      final response = await _apiClient.get('/invoices');
-      if (response.statusCode == 200) {
-        final data = response.data['data'] ?? response.data;
-        final invoices = (data as List<dynamic>)
-            .map((json) => Invoice.fromJson(json as Map<String, dynamic>))
-            .toList();
-
-        await _localStorage.saveInvoices(invoices);
-        state = state.copyWith(invoices: invoices, isLoading: false);
-        return;
-      }
+      final localInvoices = await _localStorage.loadInvoices();
+      state = state.copyWith(invoices: localInvoices, isLoading: false);
     } catch (e) {
-      debugPrint('API fetch failed for invoices: $e');
+      debugPrint('Error loading invoices: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    state = state.copyWith(isLoading: false);
   }
 
   void addInvoice(Invoice invoice) {
@@ -764,38 +717,25 @@ class BillsNotifier extends StateNotifier<BillsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
+    // Load from local storage only (no API)
     try {
       final localBills = await _localStorage.loadBills();
-      if (localBills.isNotEmpty) {
-        state = state.copyWith(bills: localBills, isLoading: false);
-        debugPrint('Loaded ${localBills.length} bills from local storage');
-        return;
-      }
+      state = state.copyWith(bills: localBills, isLoading: false);
+      debugPrint('Loaded ${localBills.length} bills from local storage');
     } catch (e) {
       debugPrint('Error loading bills from local storage: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    await loadBills();
   }
 
   Future<void> loadBills() async {
     try {
-      final response = await _apiClient.get('/bills');
-      if (response.statusCode == 200) {
-        final data = response.data['data'] ?? response.data;
-        final bills = (data as List<dynamic>)
-            .map((json) => Bill.fromJson(json as Map<String, dynamic>))
-            .toList();
-
-        await _localStorage.saveBills(bills);
-        state = state.copyWith(bills: bills, isLoading: false);
-        return;
-      }
+      final localBills = await _localStorage.loadBills();
+      state = state.copyWith(bills: localBills, isLoading: false);
     } catch (e) {
-      debugPrint('API fetch failed for bills: $e');
+      debugPrint('Error loading bills: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    state = state.copyWith(isLoading: false);
   }
 
   void addBill(Bill bill) {
@@ -900,38 +840,25 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
+    // Load from local storage only (no API)
     try {
       final localEntries = await _localStorage.loadJournalEntries();
-      if (localEntries.isNotEmpty) {
-        state = state.copyWith(entries: localEntries, isLoading: false);
-        debugPrint('Loaded ${localEntries.length} journal entries from local storage');
-        return;
-      }
+      state = state.copyWith(entries: localEntries, isLoading: false);
+      debugPrint('Loaded ${localEntries.length} journal entries from local storage');
     } catch (e) {
       debugPrint('Error loading journals from local storage: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    await loadJournals();
   }
 
   Future<void> loadJournals() async {
     try {
-      final response = await _apiClient.get('/journals');
-      if (response.statusCode == 200) {
-        final data = response.data['data'] ?? response.data;
-        final entries = (data as List<dynamic>)
-            .map((json) => JournalEntry.fromJson(json as Map<String, dynamic>))
-            .toList();
-
-        await _localStorage.saveJournalEntries(entries);
-        state = state.copyWith(entries: entries, isLoading: false);
-        return;
-      }
+      final localEntries = await _localStorage.loadJournalEntries();
+      state = state.copyWith(entries: localEntries, isLoading: false);
     } catch (e) {
-      debugPrint('API fetch failed for journals: $e');
+      debugPrint('Error loading journals: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    state = state.copyWith(isLoading: false);
   }
 
   void addEntry(JournalEntry entry) {
@@ -1015,38 +942,25 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
+    // Load from local storage only (no API)
     try {
       final localPayments = await _localStorage.loadPayments();
-      if (localPayments.isNotEmpty) {
-        state = state.copyWith(payments: localPayments, isLoading: false);
-        debugPrint('Loaded ${localPayments.length} payments from local storage');
-        return;
-      }
+      state = state.copyWith(payments: localPayments, isLoading: false);
+      debugPrint('Loaded ${localPayments.length} payments from local storage');
     } catch (e) {
       debugPrint('Error loading payments from local storage: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    await loadPayments();
   }
 
   Future<void> loadPayments() async {
     try {
-      final response = await _apiClient.get('/payments');
-      if (response.statusCode == 200) {
-        final data = response.data['data'] ?? response.data;
-        final payments = (data as List<dynamic>)
-            .map((json) => Payment.fromJson(json as Map<String, dynamic>))
-            .toList();
-
-        await _localStorage.savePayments(payments);
-        state = state.copyWith(payments: payments, isLoading: false);
-        return;
-      }
+      final localPayments = await _localStorage.loadPayments();
+      state = state.copyWith(payments: localPayments, isLoading: false);
     } catch (e) {
-      debugPrint('API fetch failed for payments: $e');
+      debugPrint('Error loading payments: $e');
+      state = state.copyWith(isLoading: false);
     }
-
-    state = state.copyWith(isLoading: false);
   }
 
   void addPayment(Payment payment) {
@@ -1186,13 +1100,10 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
     return null;
   }
 
-  /// Map CSV outlet code (e.g. "23103000") to DB outlet code (e.g. "3000")
+  /// Normalize CSV outlet code for DB lookup
+  /// DB stores full codes like "23103000", CSV has same format
   String _mapOutletCode(String csvCode) {
-    final trimmed = csvCode.trim();
-    if (trimmed.startsWith('2310')) {
-      return trimmed.substring(4);
-    }
-    return trimmed;
+    return csvCode.trim();
   }
 
   /// Import CSV file and create outlet revenue entries + journal entries
@@ -1406,9 +1317,15 @@ final csvImportProvider = StateNotifierProvider<CsvImportNotifier, CsvImportStat
 // ============================================================================
 
 /// All outlet revenues stream
-final allOutletRevenuesProvider = FutureProvider<List<OutletRevenue>>((ref) async {
-  final db = ref.read(databaseProvider);
-  return db.getAllOutletRevenues();
+final allOutletRevenuesProvider = StreamProvider<List<OutletRevenue>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.select(db.outletRevenues).watch();
+});
+
+/// Stream provider for all outlet expenditures
+final allOutletExpendituresProvider = StreamProvider<List<OutletExpenditure>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.select(db.outletExpenditures).watch();
 });
 
 /// Revenue summary per outlet

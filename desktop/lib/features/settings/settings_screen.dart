@@ -286,9 +286,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _buildUsersPermissions(BuildContext context) {
     final users = [
-      {'name': 'John Doe', 'email': 'john@thirdbooks.com', 'role': 'Administrator', 'status': 'Active'},
-      {'name': 'Jane Smith', 'email': 'jane@thirdbooks.com', 'role': 'Accountant', 'status': 'Active'},
-      {'name': 'Bob Wilson', 'email': 'bob@thirdbooks.com', 'role': 'Viewer', 'status': 'Invited'},
+      {'name': 'Admin', 'email': 'admin@magicbet.ug', 'role': 'Administrator', 'status': 'Active'},
     ];
 
     return SingleChildScrollView(
@@ -786,7 +784,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       Expanded(
                         child: TextFormField(
                           decoration: const InputDecoration(labelText: 'Next Number'),
-                          initialValue: '2024-007',
+                          initialValue: '2026-001',
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -803,7 +801,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text('Preview: INV-2024-007', style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+                  Text('Preview: INV-2026-001', style: TextStyle(color: Theme.of(context).colorScheme.outline)),
                 ],
               ),
             ),

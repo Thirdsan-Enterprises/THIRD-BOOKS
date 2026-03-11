@@ -72,6 +72,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final dashboardAsync = ref.watch(dashboardDataProvider);
     final user = ref.watch(currentUserProvider);
 
+    // Use .value to get DashboardData, fallback to empty on error
+    final data = dashboardAsync.valueOrNull ?? DashboardData.empty();
+
     return Scaffold(
       body: dashboardAsync.when(
         data: (data) => SingleChildScrollView(

@@ -18,6 +18,7 @@ import '../../features/outlets/outlets_screen.dart';
 import '../../features/outlets/outlet_revenue_screen.dart';
 import '../../features/outlets/outlet_expenditure_screen.dart';
 import '../../features/outlets/commission_management_screen.dart';
+import '../../features/outlets/outlet_upload_screen.dart';
 import '../../features/assets/assets_screen.dart';
 import '../../features/assets/depreciation_screen.dart';
 import '../../features/banking/banking_screen.dart';
@@ -159,6 +160,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/commissions',
             name: 'commissions',
             builder: (context, state) => const CommissionManagementScreen(),
+          ),
+          GoRoute(
+            path: '/outlet-upload',
+            name: 'outlet-upload',
+            builder: (context, state) => const OutletUploadScreen(),
           ),
 
           // MAGIC BET - Asset Management Routes
