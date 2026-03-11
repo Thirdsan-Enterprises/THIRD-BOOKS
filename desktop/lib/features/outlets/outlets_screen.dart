@@ -559,8 +559,10 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                   address: Value(addressController.text.isEmpty ? null : addressController.text.trim()),
                   city: Value(cityController.text.isEmpty ? null : cityController.text.trim()),
                   region: Value(regionController.text.isEmpty ? null : regionController.text),
-                  contactPerson: Value(ownerController.text.isEmpty ? null : ownerController.text.trim()),
-                  phone: Value(contactController.text.isEmpty ? null : contactController.text.trim()),
+                  ownerName: Value(ownerController.text.isEmpty ? null : ownerController.text.trim()),
+                  ownerContact: Value(contactController.text.isEmpty ? null : contactController.text.trim()),
+                  createdAt: DateTime.now(),
+                  updatedAt: DateTime.now(),
                 );
                 await db.insertOutlet(outlet);
 
