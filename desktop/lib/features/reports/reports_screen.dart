@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
-import '../../core/database/app_database.dart';
+import '../../core/database/app_database.dart' hide Account, Customer, Vendor, Invoice, Bill, JournalEntry, JournalLine;
 
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({super.key});

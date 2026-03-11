@@ -1,16 +1,14 @@
-// Invoices Screen for ThirdBooks Desktop App
-// Create and manage customer invoices
-// © 2026 ThirdBooks. All rights reserved.
-
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/models/invoice.dart';
+import '../../core/services/pdf_invoice_service.dart';
 
 class InvoicesScreen extends ConsumerStatefulWidget {
   const InvoicesScreen({super.key});
@@ -84,16 +82,12 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
           children: [
             Text(
               'Invoices',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
             Text(
               'Create and manage customer invoices',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.outline),
             ),
           ],
         ),
@@ -105,26 +99,10 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
               tooltip: 'Refresh',
             ),
             const SizedBox(width: 8),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert),
-              tooltip: 'More options',
-              onSelected: (value) {
-                if (value == 'export') {
-                  _exportInvoices();
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'export',
-                  child: Row(
-                    children: [
-                      Icon(Icons.file_download_outlined, size: 18),
-                      SizedBox(width: 8),
-                      Text('Export to CSV'),
-                    ],
-                  ),
-                ),
-              ],
+            OutlinedButton.icon(
+              onPressed: _exportInvoices,
+              icon: const Icon(Icons.file_download_outlined, size: 18),
+              label: const Text('Export CSV'),
             ),
             const SizedBox(width: 8),
             FilledButton.icon(
@@ -148,33 +126,13 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
 
     return Row(
       children: [
-        _SummaryCard(
-          icon: Icons.receipt_long,
-          iconColor: AppColors.primary,
-          label: 'Total Invoices',
-          value: totalInvoices.toString(),
-        ),
+        _SummaryCard(icon: Icons.receipt_long, iconColor: AppColors.primary, label: 'Total Invoices', value: totalInvoices.toString()),
         const SizedBox(width: 16),
-        _SummaryCard(
-          icon: Icons.account_balance_wallet,
-          iconColor: AppColors.secondary,
-          label: 'Total Invoiced',
-          value: 'UGX ${_formatNumber(totalAmount)}',
-        ),
+        _SummaryCard(icon: Icons.account_balance_wallet, iconColor: AppColors.secondary, label: 'Total Invoiced', value: 'UGX ${_formatNumber(totalAmount)}'),
         const SizedBox(width: 16),
-        _SummaryCard(
-          icon: Icons.payments,
-          iconColor: AppColors.income,
-          label: 'Total Collected',
-          value: 'UGX ${_formatNumber(totalPaid)}',
-        ),
+        _SummaryCard(icon: Icons.payments, iconColor: AppColors.income, label: 'Total Collected', value: 'UGX ${_formatNumber(totalPaid)}'),
         const SizedBox(width: 16),
-        _SummaryCard(
-          icon: Icons.warning_amber,
-          iconColor: AppColors.expense,
-          label: 'Overdue ($overdueCount)',
-          value: 'UGX ${_formatNumber(overdueAmount)}',
-        ),
+        _SummaryCard(icon: Icons.warning_amber, iconColor: AppColors.expense, label: 'Overdue ($overdueCount)', value: 'UGX ${_formatNumber(overdueAmount)}'),
       ],
     );
   }
@@ -189,10 +147,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
               hintText: 'Search invoices...',
               prefixIcon: const Icon(Icons.search, size: 20),
               suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, size: 18),
-                      onPressed: () => setState(() => _searchQuery = ''),
-                    )
+                  ? IconButton(icon: const Icon(Icons.clear, size: 18), onPressed: () => setState(() => _searchQuery = ''))
                   : null,
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
@@ -204,14 +159,10 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
           width: 160,
           child: DropdownButtonFormField<String>(
             value: _selectedStatus,
-            decoration: const InputDecoration(
-              hintText: 'All Statuses',
-              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            ),
+            decoration: const InputDecoration(hintText: 'All Statuses', contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
             items: [
               const DropdownMenuItem(value: null, child: Text('All Statuses')),
-              ...['Draft', 'Pending', 'Partial', 'Paid', 'Overdue', 'Cancelled']
-                  .map((s) => DropdownMenuItem(value: s, child: Text(s))),
+              ...['Draft', 'Pending', 'Partial', 'Paid', 'Overdue', 'Cancelled'].map((s) => DropdownMenuItem(value: s, child: Text(s))),
             ],
             onChanged: (value) => setState(() => _selectedStatus = value),
           ),
@@ -225,9 +176,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
               lastDate: DateTime.now().add(const Duration(days: 365)),
               initialDateRange: _dateRange,
             );
-            if (range != null) {
-              setState(() => _dateRange = range);
-            }
+            if (range != null) setState(() => _dateRange = range);
           },
           icon: const Icon(Icons.calendar_today, size: 18),
           label: Text(_dateRange != null
@@ -236,10 +185,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
         ),
         if (_dateRange != null) ...[
           const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.clear, size: 18),
-            onPressed: () => setState(() => _dateRange = null),
-          ),
+          IconButton(icon: const Icon(Icons.clear, size: 18), onPressed: () => setState(() => _dateRange = null)),
         ],
       ],
     );
@@ -256,25 +202,14 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.receipt_long_outlined,
-                  size: 64,
-                  color: Theme.of(context).colorScheme.outline,
-                ),
+                Icon(Icons.receipt_long_outlined, size: 64, color: Theme.of(context).colorScheme.outline),
                 const SizedBox(height: 16),
                 Text(
-                  _searchQuery.isNotEmpty
-                      ? 'No invoices found matching "$_searchQuery"'
-                      : 'No invoices yet',
+                  _searchQuery.isNotEmpty ? 'No invoices found matching "$_searchQuery"' : 'No invoices yet',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  'Create your first invoice to get started',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                ),
+                Text('Create your first invoice to get started', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.outline)),
               ],
             ),
           ),
@@ -307,10 +242,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
               return DataRow(
                 cells: [
                   DataCell(
-                    Text(
-                      invoice.invoiceNumber,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontFamily: 'monospace'),
-                    ),
+                    Text(invoice.invoiceNumber, style: const TextStyle(fontWeight: FontWeight.w600, fontFamily: 'monospace')),
                     onTap: () => _showInvoiceDetails(context, invoice),
                   ),
                   DataCell(
@@ -319,64 +251,39 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(invoice.customerName ?? '-', style: const TextStyle(fontWeight: FontWeight.w500)),
-                        Text(
-                          'ID: ${invoice.customerId}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context).colorScheme.outline,
-                          ),
-                        ),
                       ],
                     ),
                     onTap: () => _showInvoiceDetails(context, invoice),
                   ),
                   DataCell(Text(DateFormat('MMM d, yyyy').format(invoice.date))),
-                  DataCell(
-                    Text(
-                      DateFormat('MMM d, yyyy').format(invoice.dueDate),
-                      style: TextStyle(color: isOverdue ? AppColors.expense : null),
-                    ),
-                  ),
-                  DataCell(
-                    Text(
-                      'UGX ${_currencyFormat.format(invoice.total)}',
-                      style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
-                    ),
-                  ),
-                  DataCell(
-                    Text(
-                      balance > 0 ? 'UGX ${_currencyFormat.format(balance)}' : '-',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w500,
-                        fontFamily: 'monospace',
-                        color: balance > 0 ? AppColors.expense : AppColors.income,
-                      ),
-                    ),
-                  ),
+                  DataCell(Text(DateFormat('MMM d, yyyy').format(invoice.dueDate), style: TextStyle(color: isOverdue ? AppColors.expense : null))),
+                  DataCell(Text('UGX ${_currencyFormat.format(invoice.total)}', style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'))),
+                  DataCell(Text(
+                    balance > 0 ? 'UGX ${_currencyFormat.format(balance)}' : '-',
+                    style: TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace', color: balance > 0 ? AppColors.expense : AppColors.income),
+                  )),
                   DataCell(_buildStatusBadge(_getStatusString(invoice.status))),
-                  DataCell(
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
+                  DataCell(Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.visibility_outlined, size: 18),
+                        onPressed: () => _showInvoiceDetails(context, invoice),
+                        tooltip: 'View',
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.print_outlined, size: 18),
+                        onPressed: () => PdfInvoiceService.printInvoice(invoice),
+                        tooltip: 'Print PDF',
+                      ),
+                      if (invoice.status != InvoiceStatus.paid && invoice.status != InvoiceStatus.cancelled)
                         IconButton(
-                          icon: const Icon(Icons.visibility_outlined, size: 18),
-                          onPressed: () => _showInvoiceDetails(context, invoice),
-                          tooltip: 'View',
+                          icon: const Icon(Icons.payment_outlined, size: 18),
+                          onPressed: () => _showRecordPaymentDialog(context, invoice),
+                          tooltip: 'Record Payment',
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.print_outlined, size: 18),
-                          onPressed: () {},
-                          tooltip: 'Print',
-                        ),
-                        if (invoice.status != InvoiceStatus.paid && invoice.status != InvoiceStatus.cancelled)
-                          IconButton(
-                            icon: const Icon(Icons.payment_outlined, size: 18),
-                            onPressed: () => _showRecordPaymentDialog(context, invoice),
-                            tooltip: 'Record Payment',
-                          ),
-                      ],
-                    ),
-                  ),
+                    ],
+                  )),
                 ],
               );
             }).toList(),
@@ -388,71 +295,36 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
 
   String _getStatusString(InvoiceStatus status) {
     switch (status) {
-      case InvoiceStatus.draft:
-        return 'Draft';
-      case InvoiceStatus.sent:
-        return 'Sent';
-      case InvoiceStatus.pending:
-        return 'Pending';
-      case InvoiceStatus.partial:
-        return 'Partial';
-      case InvoiceStatus.paid:
-        return 'Paid';
-      case InvoiceStatus.overdue:
-        return 'Overdue';
-      case InvoiceStatus.cancelled:
-        return 'Cancelled';
+      case InvoiceStatus.draft: return 'Draft';
+      case InvoiceStatus.sent: return 'Sent';
+      case InvoiceStatus.pending: return 'Pending';
+      case InvoiceStatus.partial: return 'Partial';
+      case InvoiceStatus.paid: return 'Paid';
+      case InvoiceStatus.overdue: return 'Overdue';
+      case InvoiceStatus.cancelled: return 'Cancelled';
     }
   }
 
   Widget _buildStatusBadge(String status) {
     Color color;
     switch (status) {
-      case 'Paid':
-        color = AppColors.income;
-        break;
-      case 'Partial':
-        color = AppColors.info;
-        break;
-      case 'Pending':
-        color = AppColors.warning;
-        break;
-      case 'Overdue':
-        color = AppColors.expense;
-        break;
-      case 'Draft':
-        color = Colors.grey;
-        break;
-      case 'Cancelled':
-        color = Colors.grey;
-        break;
-      default:
-        color = Colors.grey;
+      case 'Paid': color = AppColors.income; break;
+      case 'Partial': color = AppColors.info; break;
+      case 'Pending': color = AppColors.warning; break;
+      case 'Overdue': color = AppColors.expense; break;
+      default: color = Colors.grey;
     }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        status,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+      child: Text(status, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
     );
   }
 
   String _formatNumber(double number) {
-    if (number >= 1000000) {
-      return '${(number / 1000000).toStringAsFixed(1)}M';
-    } else if (number >= 1000) {
-      return '${(number / 1000).toStringAsFixed(0)}K';
-    }
+    if (number >= 1000000) return '${(number / 1000000).toStringAsFixed(1)}M';
+    if (number >= 1000) return '${(number / 1000).toStringAsFixed(0)}K';
     return number.toStringAsFixed(0);
   }
 
@@ -460,6 +332,8 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     final customersState = ref.read(customersProvider);
     String selectedCurrency = 'UGX';
     double exchangeRate = 1.0;
+    String? selectedCustomerId;
+    String? selectedCustomerName;
     final List<_InvoiceLineData> lines = [_InvoiceLineData()];
     DateTime invoiceDate = DateTime.now();
     DateTime dueDate = DateTime.now().add(const Duration(days: 30));
@@ -488,12 +362,17 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                         Expanded(
                           flex: 2,
                           child: DropdownButtonFormField<String>(
-                            decoration: const InputDecoration(labelText: 'Customer'),
+                            decoration: const InputDecoration(labelText: 'Customer *'),
                             items: customersState.customers
-                                .map((c) => DropdownMenuItem(
-                                    value: c.id, child: Text(c.name)))
+                                .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
                                 .toList(),
-                            onChanged: (v) {},
+                            onChanged: (v) {
+                              setDialogState(() {
+                                selectedCustomerId = v;
+                                selectedCustomerName = customersState.customers
+                                    .firstWhere((c) => c.id == v).name;
+                              });
+                            },
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -503,8 +382,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                             value: selectedCurrency,
                             decoration: const InputDecoration(labelText: 'Currency'),
                             items: ['UGX', 'USD', 'EUR', 'GBP', 'KES', 'TZS']
-                                .map((c) =>
-                                    DropdownMenuItem(value: c, child: Text(c)))
+                                .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                                 .toList(),
                             onChanged: (v) => setDialogState(() {
                               selectedCurrency = v ?? 'UGX';
@@ -537,49 +415,38 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                     Row(
                       children: [
                         Expanded(
-                          child: TextFormField(
-                            decoration: const InputDecoration(
-                              labelText: 'Invoice Date',
-                              suffixIcon: Icon(Icons.calendar_today, size: 18),
-                            ),
-                            readOnly: true,
-                            controller: TextEditingController(
-                              text: DateFormat('MMM d, yyyy').format(invoiceDate),
-                            ),
+                          child: InkWell(
                             onTap: () async {
                               final d = await showDatePicker(
-                                context: context,
+                                context: ctx,
                                 initialDate: invoiceDate,
                                 firstDate: DateTime(2020),
-                                lastDate: DateTime.now()
-                                    .add(const Duration(days: 365)),
+                                lastDate: DateTime.now().add(const Duration(days: 365)),
                               );
-                              if (d != null)
-                                setDialogState(() => invoiceDate = d);
+                              if (d != null) setDialogState(() => invoiceDate = d);
                             },
+                            child: InputDecorator(
+                              decoration: const InputDecoration(labelText: 'Invoice Date'),
+                              child: Text(DateFormat('MMM d, yyyy').format(invoiceDate)),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: TextFormField(
-                            decoration: const InputDecoration(
-                              labelText: 'Due Date',
-                              suffixIcon: Icon(Icons.calendar_today, size: 18),
-                            ),
-                            readOnly: true,
-                            controller: TextEditingController(
-                              text: DateFormat('MMM d, yyyy').format(dueDate),
-                            ),
+                          child: InkWell(
                             onTap: () async {
                               final d = await showDatePicker(
-                                context: context,
+                                context: ctx,
                                 initialDate: dueDate,
                                 firstDate: DateTime.now(),
-                                lastDate: DateTime.now()
-                                    .add(const Duration(days: 730)),
+                                lastDate: DateTime.now().add(const Duration(days: 730)),
                               );
                               if (d != null) setDialogState(() => dueDate = d);
                             },
+                            child: InputDecorator(
+                              decoration: const InputDecoration(labelText: 'Due Date'),
+                              child: Text(DateFormat('MMM d, yyyy').format(dueDate)),
+                            ),
                           ),
                         ),
                       ],
@@ -594,47 +461,28 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                             Text(
                               '1 $selectedCurrency = ${NumberFormat('#,###').format(exchangeRate)} UGX  '
                               '| Total in UGX: ${fmt.format(total * exchangeRate)}',
-                              style: const TextStyle(
-                                  fontSize: 12, color: Colors.blue),
+                              style: const TextStyle(fontSize: 12, color: Colors.blue),
                             ),
                           ],
                         ),
                       ),
                     const SizedBox(height: 24),
-                    Text('Line Items',
-                        style: Theme.of(context).textTheme.titleMedium),
+                    Text('Line Items', style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        border: Border.all(
-                            color: Theme.of(context).dividerColor),
+                        border: Border.all(color: Theme.of(context).dividerColor),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Column(
                         children: [
-                          Row(
-                            children: const [
-                              Expanded(
-                                  flex: 3,
-                                  child: Text('Description',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.w600))),
-                              SizedBox(
-                                  width: 72,
-                                  child: Text('Qty',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.w600))),
-                              SizedBox(
-                                  width: 110,
-                                  child: Text('Unit Price',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.w600))),
-                              SizedBox(
-                                  width: 100,
-                                  child: Text('Amount',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.w600))),
+                          const Row(
+                            children: [
+                              Expanded(flex: 3, child: Text('Description', style: TextStyle(fontWeight: FontWeight.w600))),
+                              Expanded(flex: 1, child: Text('Qty', style: TextStyle(fontWeight: FontWeight.w600))),
+                              Expanded(flex: 2, child: Text('Unit Price', style: TextStyle(fontWeight: FontWeight.w600))),
+                              Expanded(flex: 2, child: Text('Amount', style: TextStyle(fontWeight: FontWeight.w600))),
                               SizedBox(width: 40),
                             ],
                           ),
@@ -648,16 +496,13 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                               currency: selectedCurrency,
                               onChanged: () => setDialogState(() {}),
                               onDelete: lines.length > 1
-                                  ? () => setDialogState(
-                                        () => lines.removeAt(idx),
-                                      )
+                                  ? () => setDialogState(() => lines.removeAt(idx))
                                   : null,
                             );
                           }),
                           const SizedBox(height: 8),
                           TextButton.icon(
-                            onPressed: () => setDialogState(
-                                () => lines.add(_InvoiceLineData())),
+                            onPressed: () => setDialogState(() => lines.add(_InvoiceLineData())),
                             icon: const Icon(Icons.add, size: 18),
                             label: const Text('Add Line'),
                           ),
@@ -671,15 +516,12 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text(
-                                '$selectedCurrency Subtotal: ${fmt.format(subtotal)}'),
-                            Text(
-                                '$selectedCurrency VAT (18%): ${fmt.format(vat)}'),
+                            Text('$selectedCurrency Subtotal: ${fmt.format(subtotal)}'),
+                            Text('$selectedCurrency VAT (18%): ${fmt.format(vat)}'),
                             const SizedBox(height: 4),
                             Text(
                               '$selectedCurrency Total: ${fmt.format(total)}',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 16),
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                             ),
                           ],
                         ),
@@ -690,32 +532,76 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
-              ),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
               OutlinedButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text('Invoice saved as draft')),
-                  );
-                },
+                onPressed: () => _createInvoice(ctx, selectedCustomerId, selectedCustomerName, selectedCurrency, exchangeRate, invoiceDate, dueDate, lines, InvoiceStatus.draft),
                 child: const Text('Save as Draft'),
               ),
               FilledButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Invoice created')),
-                  );
-                },
+                onPressed: () => _createInvoice(ctx, selectedCustomerId, selectedCustomerName, selectedCurrency, exchangeRate, invoiceDate, dueDate, lines, InvoiceStatus.pending),
                 child: const Text('Create Invoice'),
               ),
             ],
           );
         },
+      ),
+    );
+  }
+
+  void _createInvoice(BuildContext ctx, String? customerId, String? customerName, String currency, double exchangeRate, DateTime invoiceDate, DateTime dueDate, List<_InvoiceLineData> lines, InvoiceStatus status) {
+    if (customerId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a customer')));
+      return;
+    }
+    if (lines.every((l) => l.description.isEmpty || l.amount <= 0)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please add at least one line item')));
+      return;
+    }
+
+    final id = const Uuid().v4();
+    final invoiceNumber = 'INV-${DateFormat('yyyyMM').format(invoiceDate)}-${DateTime.now().millisecondsSinceEpoch % 10000}';
+    final subtotal = lines.fold<double>(0, (s, l) => s + l.amount);
+    final taxAmount = subtotal * 0.18;
+    final total = subtotal + taxAmount;
+
+    final invoiceLines = lines.where((l) => l.description.isNotEmpty && l.amount > 0).map((l) {
+      return InvoiceLine(
+        id: const Uuid().v4(),
+        invoiceId: id,
+        description: l.description,
+        quantity: l.qty,
+        unitPrice: l.unitPrice,
+        taxRate: 18.0,
+        taxAmount: l.amount * 0.18,
+        amount: l.amount,
+      );
+    }).toList();
+
+    final invoice = Invoice(
+      id: id,
+      invoiceNumber: invoiceNumber,
+      customerId: customerId,
+      customerName: customerName,
+      date: invoiceDate,
+      dueDate: dueDate,
+      subtotal: subtotal,
+      taxAmount: taxAmount,
+      total: total,
+      amountPaid: 0,
+      status: status,
+      currencyCode: currency,
+      lines: invoiceLines,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    ref.read(invoicesProvider.notifier).addInvoice(invoice);
+    Navigator.pop(ctx);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Invoice $invoiceNumber created (${status == InvoiceStatus.draft ? "Draft" : "Pending"})'),
+        backgroundColor: AppColors.success,
       ),
     );
   }
@@ -733,32 +619,57 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
         ),
         content: SizedBox(
           width: 600,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _DetailRow('Customer', invoice.customerName ?? '-'),
-              _DetailRow('Invoice Date', DateFormat('MMMM d, yyyy').format(invoice.date)),
-              _DetailRow('Due Date', DateFormat('MMMM d, yyyy').format(invoice.dueDate)),
-              _DetailRow('Items', '${invoice.lines.length} items'),
-              const Divider(),
-              _DetailRow('Subtotal', 'UGX ${_currencyFormat.format(invoice.subtotal)}'),
-              _DetailRow('Tax (18%)', 'UGX ${_currencyFormat.format(invoice.taxAmount)}'),
-              _DetailRow('Total', 'UGX ${_currencyFormat.format(invoice.total)}'),
-              _DetailRow('Amount Paid', 'UGX ${_currencyFormat.format(invoice.amountPaid)}'),
-              _DetailRow('Balance Due', 'UGX ${_currencyFormat.format(invoice.total - invoice.amountPaid)}'),
-            ],
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _DetailRow('Customer', invoice.customerName ?? '-'),
+                _DetailRow('Invoice Date', DateFormat('MMMM d, yyyy').format(invoice.date)),
+                _DetailRow('Due Date', DateFormat('MMMM d, yyyy').format(invoice.dueDate)),
+                _DetailRow('Items', '${invoice.lines.length} items'),
+                const Divider(),
+                if (invoice.lines.isNotEmpty) ...[
+                  const Text('Line Items:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  ...invoice.lines.map((line) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          children: [
+                            Expanded(flex: 3, child: Text(line.description)),
+                            Expanded(child: Text('x${line.quantity.toStringAsFixed(0)}', textAlign: TextAlign.center)),
+                            Expanded(flex: 2, child: Text('UGX ${_currencyFormat.format(line.amount)}', textAlign: TextAlign.right)),
+                          ],
+                        ),
+                      )),
+                  const Divider(),
+                ],
+                _DetailRow('Subtotal', 'UGX ${_currencyFormat.format(invoice.subtotal)}'),
+                _DetailRow('Tax (18%)', 'UGX ${_currencyFormat.format(invoice.taxAmount)}'),
+                _DetailRow('Total', 'UGX ${_currencyFormat.format(invoice.total)}'),
+                _DetailRow('Amount Paid', 'UGX ${_currencyFormat.format(invoice.amountPaid)}'),
+                _DetailRow('Balance Due', 'UGX ${_currencyFormat.format(invoice.total - invoice.amountPaid)}'),
+              ],
+            ),
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              PdfInvoiceService.printInvoice(invoice);
+            },
+            icon: const Icon(Icons.print, size: 18),
+            label: const Text('Print PDF'),
           ),
           OutlinedButton.icon(
-            onPressed: () {},
-            icon: const Icon(Icons.print, size: 18),
-            label: const Text('Print'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              PdfInvoiceService.sharePdf(invoice);
+            },
+            icon: const Icon(Icons.share, size: 18),
+            label: const Text('Share PDF'),
           ),
           if (invoice.status != InvoiceStatus.paid && invoice.status != InvoiceStatus.cancelled)
             FilledButton.icon(
@@ -776,70 +687,83 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
 
   void _showRecordPaymentDialog(BuildContext context, Invoice invoice) {
     final balance = invoice.total - invoice.amountPaid;
+    final amountController = TextEditingController(text: balance.toStringAsFixed(0));
+    String? selectedMethod;
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Record Payment - ${invoice.invoiceNumber}'),
-        content: SizedBox(
-          width: 400,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Balance Due: UGX ${_currencyFormat.format(balance)}',
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 16),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Payment Amount'),
-                keyboardType: TextInputType.number,
-                initialValue: balance.toStringAsFixed(0),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Payment Date'),
-                readOnly: true,
-                initialValue: DateFormat('MMM d, yyyy').format(DateTime.now()),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Payment Method'),
-                items: ['Bank Transfer', 'Cash', 'Mobile Money', 'Cheque']
-                    .map((m) => DropdownMenuItem(value: m, child: Text(m)))
-                    .toList(),
-                onChanged: (v) {},
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Reference (Optional)'),
-              ),
-            ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Record Payment - ${invoice.invoiceNumber}'),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Balance Due: UGX ${_currencyFormat.format(balance)}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: amountController,
+                  decoration: const InputDecoration(labelText: 'Payment Amount', prefixText: 'UGX '),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: selectedMethod,
+                  decoration: const InputDecoration(labelText: 'Payment Method'),
+                  items: ['Bank Transfer', 'Cash', 'Mobile Money', 'Cheque'].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+                  onChanged: (v) => setDialogState(() => selectedMethod = v),
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                final paymentAmount = double.tryParse(amountController.text.replaceAll(',', '')) ?? 0;
+                if (paymentAmount <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid amount')));
+                  return;
+                }
+
+                final newAmountPaid = invoice.amountPaid + paymentAmount;
+                InvoiceStatus newStatus;
+                if (newAmountPaid >= invoice.total) {
+                  newStatus = InvoiceStatus.paid;
+                } else if (newAmountPaid > 0) {
+                  newStatus = InvoiceStatus.partial;
+                } else {
+                  newStatus = invoice.status;
+                }
+
+                final updated = invoice.copyWith(
+                  amountPaid: newAmountPaid,
+                  status: newStatus,
+                  updatedAt: DateTime.now(),
+                );
+                ref.read(invoicesProvider.notifier).updateInvoice(updated);
+
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Payment of UGX ${_currencyFormat.format(paymentAmount)} recorded'),
+                    backgroundColor: AppColors.success,
+                  ),
+                );
+              },
+              child: const Text('Record Payment'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Payment recorded (will sync when online)')),
-              );
-            },
-            child: const Text('Record Payment'),
-          ),
-        ],
       ),
     );
   }
 
   Future<void> _exportInvoices() async {
     final invoicesState = ref.read(invoicesProvider);
-
     if (invoicesState.invoices.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No invoices to export')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No invoices to export')));
       return;
     }
 
@@ -853,14 +777,13 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     if (result != null) {
       final buffer = StringBuffer();
       buffer.writeln('Invoice #,Customer,Date,Due Date,Subtotal,Tax,Total,Amount Paid,Status');
-
       for (final invoice in invoicesState.invoices) {
         buffer.writeln(
           '"${invoice.invoiceNumber}","${invoice.customerName}",'
           '"${DateFormat('yyyy-MM-dd').format(invoice.date)}",'
           '"${DateFormat('yyyy-MM-dd').format(invoice.dueDate)}",'
           '${invoice.subtotal},${invoice.taxAmount},${invoice.total},'
-          '${invoice.amountPaid},"${_getStatusString(invoice.status)}"'
+          '${invoice.amountPaid},"${_getStatusString(invoice.status)}"',
         );
       }
 
@@ -876,18 +799,20 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
   }
 }
 
+class _LineItem {
+  String description = '';
+  double qty = 1;
+  double price = 0;
+  double amount = 0;
+}
+
 class _SummaryCard extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
   final String label;
   final String value;
 
-  const _SummaryCard({
-    required this.icon,
-    required this.iconColor,
-    required this.label,
-    required this.value,
-  });
+  const _SummaryCard({required this.icon, required this.iconColor, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -899,29 +824,16 @@ class _SummaryCard extends StatelessWidget {
             children: [
               Container(
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: iconColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
+                decoration: BoxDecoration(color: iconColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
                 child: Icon(icon, color: iconColor, size: 24),
               ),
               const SizedBox(width: 16),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    label,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                  ),
+                  Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
                   const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
+                  Text(value, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                 ],
               ),
             ],
@@ -945,10 +857,7 @@ class _DetailRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(color: Theme.of(context).colorScheme.outline),
-          ),
+          Text(label, style: TextStyle(color: Theme.of(context).colorScheme.outline)),
           Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
         ],
       ),
