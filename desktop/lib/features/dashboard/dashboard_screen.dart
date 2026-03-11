@@ -1,24 +1,74 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'package:go_router/go_router.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/auth_service.dart';
 
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
+  @override
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   String _formatCurrency(double amount) {
-    if (amount >= 1000000) {
-      return 'UGX ${NumberFormat('#,###').format(amount.round())}';
-    }
     return 'UGX ${NumberFormat('#,###').format(amount.round())}';
   }
 
+  Future<void> _exportDashboard(DashboardData data) async {
+    try {
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: 'Export Dashboard Report',
+        fileName:
+            'dashboard_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+      );
+      if (result != null) {
+        final buffer = StringBuffer();
+        buffer.writeln('MagicBet Dashboard Export - ${DateFormat('MMMM yyyy').format(DateTime.now())}');
+        buffer.writeln('');
+        buffer.writeln('Metric,Value');
+        buffer.writeln('Total GGR,${data.totalRevenue}');
+        buffer.writeln('Total Expenses,${data.totalExpenses}');
+        buffer.writeln('Net Income,${data.netIncome}');
+        buffer.writeln('Outstanding Invoices,${data.outstandingInvoices}');
+        buffer.writeln('Cash In,${data.cashIn}');
+        buffer.writeln('Cash Out,${data.cashOut}');
+        buffer.writeln('Net Cash,${data.netCash}');
+        buffer.writeln('');
+        buffer.writeln('Recent Transactions');
+        buffer.writeln('Description,Type,Amount');
+        for (final tx in data.recentTransactions) {
+          buffer.writeln(
+              '"${tx['title']}","${tx['isIncome'] == true ? 'Income' : 'Expense'}",${tx['amount']}');
+        }
+        final file = File(result);
+        await file.writeAsString(buffer.toString());
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Dashboard exported to $result')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e')),
+        );
+      }
+    }
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final dashboardAsync = ref.watch(dashboardDataProvider);
     final user = ref.watch(currentUserProvider);
 
@@ -29,7 +79,7 @@ class DashboardScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeader(context, user?.name),
+              _buildHeader(context, user?.name, data),
               const SizedBox(height: 24),
               _buildKPICards(context, data),
               const SizedBox(height: 24),
@@ -82,7 +132,7 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context, String? userName) {
+  Widget _buildHeader(BuildContext context, String? userName, DashboardData data) {
     final now = DateTime.now();
     final greeting = now.hour < 12
         ? 'Good Morning'
@@ -116,13 +166,13 @@ class DashboardScreen extends ConsumerWidget {
         Row(
           children: [
             OutlinedButton.icon(
-              onPressed: () {},
+              onPressed: () => _exportDashboard(data),
               icon: const Icon(Icons.file_download_outlined, size: 18),
               label: const Text('Export'),
             ),
             const SizedBox(width: 12),
             FilledButton.icon(
-              onPressed: () {},
+              onPressed: () => context.go('/journals'),
               icon: const Icon(Icons.add, size: 18),
               label: const Text('New Transaction'),
             ),
@@ -137,7 +187,7 @@ class DashboardScreen extends ConsumerWidget {
       children: [
         Expanded(
           child: _KPICard(
-            title: 'Total Revenue',
+            title: 'Total GGR',
             value: _formatCurrency(data.totalRevenue),
             change: '+${data.revenueChange.toStringAsFixed(1)}%',
             isPositive: data.revenueChange >= 0,

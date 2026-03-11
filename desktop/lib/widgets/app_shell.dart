@@ -201,6 +201,14 @@ class _AppShellState extends ConsumerState<AppShell> {
                 _buildNavSection('BANKING'),
                 _buildNavItem(
                   context,
+                  icon: Icons.account_balance_outlined,
+                  activeIcon: Icons.account_balance,
+                  label: 'Banks',
+                  path: '/banking',
+                  isActive: currentPath == '/banking',
+                ),
+                _buildNavItem(
+                  context,
                   icon: Icons.payments_outlined,
                   activeIcon: Icons.payments,
                   label: 'Payments',

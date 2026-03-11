@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/providers/asset_drafts_provider.dart';
 
 /// Assets Management Screen
 ///
@@ -176,32 +177,172 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
   }
 
   Widget _buildAssetsList() {
-    // TODO: Replace with actual data from database
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.inventory_2_outlined,
-            size: 64,
-            color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No assets found',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
+    final drafts = ref.watch(assetDraftsProvider);
+    final fmt = _currencyFormat;
+
+    // Filter by selected category
+    final filtered = drafts.where((d) =>
+        _selectedCategory == 'All' || d.category == _selectedCategory).toList();
+
+    if (filtered.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.inventory_2_outlined,
+              size: 64,
+              color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No assets found',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Asset-type bills (Equipment, Vehicle, Furniture, Electronics)\n'
+              'will appear here as drafts when you create them in Bills.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: _showAddAssetDialog,
+              icon: const Icon(Icons.add),
+              label: const Text('Add asset manually'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      itemCount: filtered.length,
+      itemBuilder: (context, index) {
+        final draft = filtered[index];
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: ListTile(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            leading: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: (draft.isConfirmed
+                        ? AppColors.success
+                        : AppColors.warning)
+                    .withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                _categoryIcon(draft.category),
+                color:
+                    draft.isConfirmed ? AppColors.success : AppColors.warning,
+                size: 24,
+              ),
+            ),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    draft.assetName,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                 ),
+                const SizedBox(width: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: (draft.isConfirmed
+                            ? AppColors.success
+                            : AppColors.warning)
+                        .withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    draft.isConfirmed ? 'Active' : 'Draft',
+                    style: TextStyle(
+                      color: draft.isConfirmed
+                          ? AppColors.success
+                          : AppColors.warning,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                Text(
+                  '${draft.currency} ${NumberFormat('#,###').format(draft.amount)}  ·  ${draft.category}  ·  ${DateFormat('MMM d, yyyy').format(draft.date)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (draft.vendorName != null)
+                  Text('Vendor: ${draft.vendorName}',
+                      style: Theme.of(context).textTheme.bodySmall),
+                if (draft.billReference != null)
+                  Text('Ref: ${draft.billReference}',
+                      style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+            trailing: draft.isConfirmed
+                ? const Icon(Icons.check_circle, color: AppColors.success)
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextButton(
+                        onPressed: () {
+                          ref
+                              .read(assetDraftsProvider.notifier)
+                              .confirmAsset(draft.id);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Asset confirmed and activated'),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+                        },
+                        child: const Text('Confirm'),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            size: 18, color: AppColors.error),
+                        onPressed: () => ref
+                            .read(assetDraftsProvider.notifier)
+                            .removeDraft(draft.id),
+                        tooltip: 'Remove draft',
+                      ),
+                    ],
+                  ),
           ),
-          const SizedBox(height: 8),
-          TextButton.icon(
-            onPressed: _showAddAssetDialog,
-            icon: const Icon(Icons.add),
-            label: const Text('Add your first asset'),
-          ),
-        ],
-      ),
+        );
+      },
     );
+  }
+
+  IconData _categoryIcon(String category) {
+    switch (category) {
+      case 'Vehicle':
+        return Icons.directions_car;
+      case 'Equipment':
+        return Icons.build;
+      case 'Furniture':
+        return Icons.chair;
+      case 'Electronics':
+        return Icons.devices;
+      default:
+        return Icons.inventory_2;
+    }
   }
 
   void _showAddAssetDialog() {

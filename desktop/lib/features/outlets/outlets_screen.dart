@@ -175,10 +175,10 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                     Expanded(
                       child: _buildStatCard(
                         context,
-                        'Pending Commissions',
-                        'UGX 0',
-                        Icons.payment,
-                        AppColors.warning,
+                        'Inactive',
+                        (outlets.length - activeCount).toString(),
+                        Icons.store_outlined,
+                        AppColors.expense,
                       ),
                     ),
                   ],
@@ -222,7 +222,6 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                         const Expanded(child: Text('Code', style: TextStyle(fontWeight: FontWeight.bold))),
                         const Expanded(flex: 2, child: Text('Location', style: TextStyle(fontWeight: FontWeight.bold))),
                         const Expanded(child: Text('Region', style: TextStyle(fontWeight: FontWeight.bold))),
-                        const Expanded(child: Text('Commission', style: TextStyle(fontWeight: FontWeight.bold))),
                         const Expanded(child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
                         const SizedBox(width: 100, child: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
                       ],
@@ -295,9 +294,6 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                                   ),
                                   Expanded(
                                     child: Text(outlet.region ?? '-'),
-                                  ),
-                                  Expanded(
-                                    child: Text('${outlet.commissionRate.toStringAsFixed(0)}%'),
                                   ),
                                   Expanded(
                                     child: Container(
@@ -423,7 +419,6 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
     final regionController = TextEditingController();
     final ownerController = TextEditingController();
     final contactController = TextEditingController();
-    final commissionController = TextEditingController(text: '40.0');
 
     showDialog(
       context: context,
@@ -522,23 +517,6 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: commissionController,
-                    decoration: const InputDecoration(
-                      labelText: 'Commission Rate (%)',
-                      suffix: Text('%'),
-                    ),
-                    keyboardType: TextInputType.number,
-                    validator: (v) {
-                      if (v?.isEmpty ?? true) return 'Required';
-                      final rate = double.tryParse(v!);
-                      if (rate == null || rate < 0 || rate > 100) {
-                        return 'Enter a valid percentage (0-100)';
-                      }
-                      return null;
-                    },
-                  ),
                 ],
               ),
             ),
@@ -553,23 +531,57 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
 
-              // TODO: Save to database
-              // final outlet = OutletsCompanion.insert(
-              //   id: const Uuid().v4(),
-              //   outletCode: codeController.text,
-              //   name: nameController.text,
-              //   ...
-              // );
-              // await ref.read(databaseProvider).insertOutlet(outlet);
+              // Check for duplicate outlet code
+              final db = ref.read(databaseProvider);
+              final existingOutlets = await db.getAllOutlets();
+              final codeExists = existingOutlets.any(
+                (o) => o.outletCode.toLowerCase() == codeController.text.trim().toLowerCase(),
+              );
 
-              if (mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Outlet added successfully'),
-                    backgroundColor: AppColors.success,
-                  ),
+              if (codeExists) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Code "${codeController.text.trim()}" is already in use. Please choose a unique code.'),
+                      backgroundColor: AppColors.error,
+                      duration: const Duration(seconds: 4),
+                    ),
+                  );
+                }
+                return;
+              }
+
+              try {
+                final outlet = OutletsCompanion.insert(
+                  id: const Uuid().v4(),
+                  outletCode: codeController.text.trim(),
+                  name: nameController.text.trim(),
+                  address: Value(addressController.text.isEmpty ? null : addressController.text.trim()),
+                  city: Value(cityController.text.isEmpty ? null : cityController.text.trim()),
+                  region: Value(regionController.text.isEmpty ? null : regionController.text),
+                  contactPerson: Value(ownerController.text.isEmpty ? null : ownerController.text.trim()),
+                  phone: Value(contactController.text.isEmpty ? null : contactController.text.trim()),
                 );
+                await db.insertOutlet(outlet);
+
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Outlet added successfully'),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to save outlet: $e'),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                }
               }
             },
             child: const Text('Add Outlet'),

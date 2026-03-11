@@ -11,6 +11,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/models/bill.dart';
+import '../../core/providers/asset_drafts_provider.dart';
 
 class BillsScreen extends ConsumerStatefulWidget {
   const BillsScreen({super.key});
@@ -451,140 +452,281 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
 
   void _showCreateBillDialog(BuildContext context) {
     final vendorsState = ref.read(vendorsProvider);
+    final accountsState = ref.read(accountsProvider);
+    String selectedCurrency = 'UGX';
+    String? selectedCategory;
+    final List<_BillLineData> lines = [_BillLineData()];
+    DateTime billDate = DateTime.now();
+    DateTime dueDate = DateTime.now().add(const Duration(days: 30));
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Create New Bill'),
-        content: SizedBox(
-          width: 700,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: DropdownButtonFormField<String>(
-                      decoration: const InputDecoration(labelText: 'Vendor'),
-                      items: vendorsState.vendors
-                          .map((v) => DropdownMenuItem(value: v.id, child: Text(v.name)))
-                          .toList(),
-                      onChanged: (v) {},
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      decoration: const InputDecoration(labelText: 'Category'),
-                      items: ['Inventory', 'Equipment', 'Office Supplies', 'Utilities', 'Raw Materials', 'Services']
-                          .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                          .toList(),
-                      onChanged: (v) {},
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Bill Date'),
-                      readOnly: true,
-                      initialValue: DateFormat('MMM d, yyyy').format(DateTime.now()),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Due Date'),
-                      readOnly: true,
-                      initialValue: DateFormat('MMM d, yyyy').format(
-                        DateTime.now().add(const Duration(days: 30)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Reference Number'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Text('Line Items', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                  borderRadius: BorderRadius.circular(8),
-                ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          double subtotal = lines.fold(0, (sum, l) => sum + l.amount);
+          double vat = subtotal * 0.18;
+          double total = subtotal + vat;
+          final fmt = NumberFormat('#,###');
+
+          return AlertDialog(
+            title: const Text('Create New Bill'),
+            content: SizedBox(
+              width: 760,
+              child: SingleChildScrollView(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Row(
+                    // Row 1: Vendor + Currency + Category
+                    Row(
                       children: [
-                        Expanded(flex: 2, child: Text('Account', style: TextStyle(fontWeight: FontWeight.w600))),
-                        Expanded(flex: 2, child: Text('Description', style: TextStyle(fontWeight: FontWeight.w600))),
-                        Expanded(flex: 1, child: Text('Amount', style: TextStyle(fontWeight: FontWeight.w600))),
-                        SizedBox(width: 40),
+                        Expanded(
+                          flex: 2,
+                          child: DropdownButtonFormField<String>(
+                            decoration: const InputDecoration(labelText: 'Vendor'),
+                            items: vendorsState.vendors
+                                .map((v) => DropdownMenuItem(value: v.id, child: Text(v.name)))
+                                .toList(),
+                            onChanged: (v) {},
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 110,
+                          child: DropdownButtonFormField<String>(
+                            value: selectedCurrency,
+                            decoration: const InputDecoration(labelText: 'Currency'),
+                            items: ['UGX', 'USD', 'EUR', 'GBP', 'KES', 'TZS']
+                                .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                                .toList(),
+                            onChanged: (v) =>
+                                setDialogState(() => selectedCurrency = v ?? 'UGX'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: selectedCategory,
+                            decoration: const InputDecoration(labelText: 'Category'),
+                            items: [
+                              'Inventory',
+                              'Equipment',
+                              'Office Supplies',
+                              'Utilities',
+                              'Raw Materials',
+                              'Services',
+                              'Vehicle',
+                              'Furniture',
+                            ]
+                                .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                                .toList(),
+                            onChanged: (v) =>
+                                setDialogState(() => selectedCategory = v),
+                          ),
+                        ),
                       ],
                     ),
-                    const Divider(),
-                    _BillLineRow(),
+                    const SizedBox(height: 16),
+                    // Row 2: Dates + Reference
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            decoration: const InputDecoration(
+                              labelText: 'Bill Date',
+                              suffixIcon: Icon(Icons.calendar_today, size: 18),
+                            ),
+                            readOnly: true,
+                            controller: TextEditingController(
+                              text: DateFormat('MMM d, yyyy').format(billDate),
+                            ),
+                            onTap: () async {
+                              final d = await showDatePicker(
+                                context: context,
+                                initialDate: billDate,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                              );
+                              if (d != null) setDialogState(() => billDate = d);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            decoration: const InputDecoration(
+                              labelText: 'Due Date',
+                              suffixIcon: Icon(Icons.calendar_today, size: 18),
+                            ),
+                            readOnly: true,
+                            controller: TextEditingController(
+                              text: DateFormat('MMM d, yyyy').format(dueDate),
+                            ),
+                            onTap: () async {
+                              final d = await showDatePicker(
+                                context: context,
+                                initialDate: dueDate,
+                                firstDate: DateTime.now(),
+                                lastDate: DateTime.now().add(const Duration(days: 730)),
+                              );
+                              if (d != null) setDialogState(() => dueDate = d);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: TextFormField(
+                            decoration: InputDecoration(labelText: 'Reference Number'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Text('Line Items',
+                        style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),
-                    TextButton.icon(
-                      onPressed: () {},
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Add Line'),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                            color: Theme.of(context).dividerColor),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: [
+                          // Header
+                          Row(
+                            children: [
+                              Expanded(
+                                  flex: 3,
+                                  child: Text('Account',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600))),
+                              Expanded(
+                                  flex: 2,
+                                  child: Text('Description',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600))),
+                              SizedBox(
+                                  width: 72,
+                                  child: Text('Qty',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600))),
+                              SizedBox(
+                                  width: 100,
+                                  child: Text('Unit Price',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600))),
+                              SizedBox(
+                                  width: 100,
+                                  child: Text('Amount',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600))),
+                              const SizedBox(width: 40),
+                            ],
+                          ),
+                          const Divider(),
+                          ...lines.asMap().entries.map((entry) {
+                            final idx = entry.key;
+                            final line = entry.value;
+                            return _BillLineWidget(
+                              key: ValueKey(line.id),
+                              line: line,
+                              accounts: accountsState.accounts,
+                              currency: selectedCurrency,
+                              onChanged: () => setDialogState(() {}),
+                              onDelete: lines.length > 1
+                                  ? () => setDialogState(
+                                        () => lines.removeAt(idx),
+                                      )
+                                  : null,
+                            );
+                          }),
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: () =>
+                                setDialogState(() => lines.add(_BillLineData())),
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Add Line'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // Totals
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                                '$selectedCurrency Subtotal: ${fmt.format(subtotal)}'),
+                            Text(
+                                '$selectedCurrency VAT (18%): ${fmt.format(vat)}'),
+                            const SizedBox(height: 4),
+                            Text(
+                              '$selectedCurrency Total: ${fmt.format(total)}',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-              const Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text('Subtotal: UGX 0'),
-                      Text('VAT (18%): UGX 0'),
-                      SizedBox(height: 4),
-                      Text('Total: UGX 0', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    ],
-                  ),
-                ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              OutlinedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Bill saved as draft')),
+                  );
+                },
+                child: const Text('Save as Draft'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  // If category is an asset type, auto-create a draft asset
+                  if (isAssetCategory(selectedCategory)) {
+                    final totalAmt = lines.fold<double>(
+                        0, (s, l) => s + l.amount);
+                    ref.read(assetDraftsProvider.notifier).addFromBill(
+                          id: DateTime.now().millisecondsSinceEpoch.toString(),
+                          assetName:
+                              '${selectedCategory ?? 'Asset'} (from bill)',
+                          category: selectedCategory!,
+                          amount: totalAmt,
+                          currency: selectedCurrency,
+                          date: billDate,
+                        );
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                            'Bill created. "$selectedCategory" added as a draft asset in Assets.'),
+                        backgroundColor: AppColors.info,
+                        duration: const Duration(seconds: 4),
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Bill created')),
+                    );
+                  }
+                },
+                child: const Text('Save Bill'),
               ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          OutlinedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Bill saved as draft (will sync when online)')),
-              );
-            },
-            child: const Text('Save as Draft'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Bill created (will sync when online)')),
-              );
-            },
-            child: const Text('Save Bill'),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -835,53 +977,181 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-class _BillLineRow extends StatelessWidget {
+// ---------------------------------------------------------------------------
+// Bill Line Data Model
+// ---------------------------------------------------------------------------
+class _BillLineData {
+  String id = DateTime.now().microsecondsSinceEpoch.toString();
+  String accountId = '';
+  String description = '';
+  double qty = 1;
+  double unitPrice = 0;
+  double get amount => qty * unitPrice;
+}
+
+// ---------------------------------------------------------------------------
+// Bill Line Widget — stateful for auto-calculation
+// ---------------------------------------------------------------------------
+class _BillLineWidget extends StatefulWidget {
+  final _BillLineData line;
+  final List accounts;
+  final String currency;
+  final VoidCallback onChanged;
+  final VoidCallback? onDelete;
+
+  const _BillLineWidget({
+    super.key,
+    required this.line,
+    required this.accounts,
+    required this.currency,
+    required this.onChanged,
+    this.onDelete,
+  });
+
+  @override
+  State<_BillLineWidget> createState() => _BillLineWidgetState();
+}
+
+class _BillLineWidgetState extends State<_BillLineWidget> {
+  late final TextEditingController _qtyCtrl;
+  late final TextEditingController _priceCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _qtyCtrl = TextEditingController(
+        text: widget.line.qty == 1 ? '1' : widget.line.qty.toString());
+    _priceCtrl = TextEditingController(
+        text: widget.line.unitPrice == 0 ? '' : widget.line.unitPrice.toString());
+  }
+
+  @override
+  void dispose() {
+    _qtyCtrl.dispose();
+    _priceCtrl.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final fmt = NumberFormat('#,###');
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
+          // Account
           Expanded(
-            flex: 2,
+            flex: 3,
             child: DropdownButtonFormField<String>(
+              value: widget.line.accountId.isEmpty ? null : widget.line.accountId,
               decoration: const InputDecoration(
                 hintText: 'Select account',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 isDense: true,
               ),
-              items: ['Cost of Goods Sold', 'Office Supplies', 'Equipment', 'Utilities Expense', 'Rent Expense']
-                  .map((a) => DropdownMenuItem(value: a, child: Text(a)))
+              items: widget.accounts
+                  .map<DropdownMenuItem<String>>((a) => DropdownMenuItem(
+                        value: a.id as String,
+                        child: Text('${a.code} - ${a.name}',
+                            overflow: TextOverflow.ellipsis),
+                      ))
                   .toList(),
-              onChanged: (v) {},
+              onChanged: (v) {
+                setState(() => widget.line.accountId = v ?? '');
+                widget.onChanged();
+              },
             ),
           ),
           const SizedBox(width: 8),
+          // Description
           Expanded(
             flex: 2,
             child: TextFormField(
               decoration: const InputDecoration(
                 hintText: 'Description',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 isDense: true,
               ),
+              onChanged: (v) {
+                widget.line.description = v;
+              },
             ),
           ),
           const SizedBox(width: 8),
-          Expanded(
-            flex: 1,
+          // Qty
+          SizedBox(
+            width: 72,
             child: TextFormField(
+              controller: _qtyCtrl,
               decoration: const InputDecoration(
-                hintText: '0.00',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                hintText: '1',
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 isDense: true,
               ),
-              keyboardType: TextInputType.number,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (v) {
+                setState(() {
+                  widget.line.qty = double.tryParse(v) ?? 1;
+                });
+                widget.onChanged();
+              },
             ),
           ),
+          const SizedBox(width: 8),
+          // Unit Price
+          SizedBox(
+            width: 100,
+            child: TextFormField(
+              controller: _priceCtrl,
+              decoration: InputDecoration(
+                hintText: '0',
+                prefixText: '${widget.currency} ',
+                prefixStyle: const TextStyle(fontSize: 12),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                isDense: true,
+              ),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (v) {
+                setState(() {
+                  widget.line.unitPrice = double.tryParse(v) ?? 0;
+                });
+                widget.onChanged();
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Amount (auto-computed)
+          SizedBox(
+            width: 100,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              decoration: BoxDecoration(
+                color:
+                    Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: Theme.of(context).dividerColor),
+              ),
+              child: Text(
+                fmt.format(widget.line.amount),
+                style: const TextStyle(
+                    fontWeight: FontWeight.w600, fontFamily: 'monospace'),
+              ),
+            ),
+          ),
+          // Delete
           IconButton(
             icon: const Icon(Icons.delete_outline, size: 18),
-            onPressed: () {},
+            onPressed: widget.onDelete,
+            color: widget.onDelete != null ? AppColors.error : Colors.grey,
           ),
         ],
       ),

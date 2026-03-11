@@ -20,6 +20,7 @@ import '../../features/outlets/outlet_expenditure_screen.dart';
 import '../../features/outlets/commission_management_screen.dart';
 import '../../features/assets/assets_screen.dart';
 import '../../features/assets/depreciation_screen.dart';
+import '../../features/banking/banking_screen.dart';
 import '../../widgets/app_shell.dart';
 import '../services/auth_service.dart';
 
@@ -107,6 +108,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/payments',
             name: 'payments',
             builder: (context, state) => const PaymentsScreen(),
+          ),
+          GoRoute(
+            path: '/banking',
+            name: 'banking',
+            builder: (context, state) => const BankingScreen(),
           ),
           GoRoute(
             path: '/reports',
