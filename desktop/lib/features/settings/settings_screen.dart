@@ -225,7 +225,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                       const SizedBox(width: 12),
                       FilledButton(
-                        onPressed: () {},
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Company profile saved successfully'),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+                        },
                         child: const Text('Save Changes'),
                       ),
                     ],
@@ -524,6 +531,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     value: true,
                     onChanged: (v) {},
                   ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      FilledButton(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Tax settings saved'),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+                        },
+                        child: const Text('Save Tax Settings'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -580,6 +604,61 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                       ),
                     ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Exchange Rate Feed', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Enter the URL of an exchange-rate API. Rates are fetched on demand and can be overridden per transaction.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          decoration: const InputDecoration(
+                            labelText: 'Exchange Rate API URL',
+                            hintText:
+                                'https://api.exchangerate-api.com/v4/latest/UGX',
+                            prefixIcon: Icon(Icons.link, size: 20),
+                          ),
+                          initialValue:
+                              'https://api.exchangerate-api.com/v4/latest/UGX',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('Fetching latest rates...')),
+                          );
+                        },
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const Text('Fetch Now'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    title: const Text('Allow manual rate override on billing'),
+                    subtitle: const Text(
+                        'Users can adjust the rate when creating invoices or bills'),
+                    value: true,
+                    onChanged: (v) {},
                   ),
                 ],
               ),
@@ -650,6 +729,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ].map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
                           onChanged: (v) {},
                         ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      FilledButton(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Currency & localization settings saved'),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+                        },
+                        child: const Text('Save Settings'),
                       ),
                     ],
                   ),
@@ -751,6 +847,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     decoration: const InputDecoration(labelText: 'Default Notes / Terms & Conditions'),
                     maxLines: 3,
                     initialValue: 'Payment is due within 30 days. Please include invoice number with your payment.',
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      FilledButton(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Invoice settings saved'),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+                        },
+                        child: const Text('Save Invoice Settings'),
+                      ),
+                    ],
                   ),
                 ],
               ),

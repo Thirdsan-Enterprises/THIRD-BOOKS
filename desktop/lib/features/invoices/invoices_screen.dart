@@ -458,121 +458,264 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
 
   void _showCreateInvoiceDialog(BuildContext context) {
     final customersState = ref.read(customersProvider);
+    String selectedCurrency = 'UGX';
+    double exchangeRate = 1.0;
+    final List<_InvoiceLineData> lines = [_InvoiceLineData()];
+    DateTime invoiceDate = DateTime.now();
+    DateTime dueDate = DateTime.now().add(const Duration(days: 30));
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Create New Invoice'),
-        content: SizedBox(
-          width: 700,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: DropdownButtonFormField<String>(
-                      decoration: const InputDecoration(labelText: 'Customer'),
-                      items: customersState.customers
-                          .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
-                          .toList(),
-                      onChanged: (v) {},
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Invoice Date'),
-                      readOnly: true,
-                      initialValue: DateFormat('MMM d, yyyy').format(DateTime.now()),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Due Date'),
-                      readOnly: true,
-                      initialValue: DateFormat('MMM d, yyyy').format(
-                        DateTime.now().add(const Duration(days: 30)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Text('Line Items', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                  borderRadius: BorderRadius.circular(8),
-                ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          double subtotal = lines.fold(0, (sum, l) => sum + l.amount);
+          double vat = subtotal * 0.18;
+          double total = subtotal + vat;
+          final fmt = NumberFormat('#,###');
+
+          return AlertDialog(
+            title: const Text('Create New Invoice'),
+            content: SizedBox(
+              width: 760,
+              child: SingleChildScrollView(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Row(
+                    // Row 1: Customer + Currency + Exchange Rate
+                    Row(
                       children: [
-                        Expanded(flex: 3, child: Text('Description', style: TextStyle(fontWeight: FontWeight.w600))),
-                        Expanded(flex: 1, child: Text('Qty', style: TextStyle(fontWeight: FontWeight.w600))),
-                        Expanded(flex: 2, child: Text('Price', style: TextStyle(fontWeight: FontWeight.w600))),
-                        Expanded(flex: 2, child: Text('Amount', style: TextStyle(fontWeight: FontWeight.w600))),
-                        SizedBox(width: 40),
+                        Expanded(
+                          flex: 2,
+                          child: DropdownButtonFormField<String>(
+                            decoration: const InputDecoration(labelText: 'Customer'),
+                            items: customersState.customers
+                                .map((c) => DropdownMenuItem(
+                                    value: c.id, child: Text(c.name)))
+                                .toList(),
+                            onChanged: (v) {},
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 110,
+                          child: DropdownButtonFormField<String>(
+                            value: selectedCurrency,
+                            decoration: const InputDecoration(labelText: 'Currency'),
+                            items: ['UGX', 'USD', 'EUR', 'GBP', 'KES', 'TZS']
+                                .map((c) =>
+                                    DropdownMenuItem(value: c, child: Text(c)))
+                                .toList(),
+                            onChanged: (v) => setDialogState(() {
+                              selectedCurrency = v ?? 'UGX';
+                              exchangeRate = selectedCurrency == 'UGX' ? 1.0 : 0.0;
+                            }),
+                          ),
+                        ),
+                        if (selectedCurrency != 'UGX') ...[
+                          const SizedBox(width: 12),
+                          SizedBox(
+                            width: 140,
+                            child: TextFormField(
+                              decoration: InputDecoration(
+                                labelText: 'Rate to UGX',
+                                hintText: '3750',
+                                suffixText: '$selectedCurrency → UGX',
+                              ),
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              initialValue: exchangeRate == 0.0 ? '' : exchangeRate.toString(),
+                              onChanged: (v) => setDialogState(() {
+                                exchangeRate = double.tryParse(v) ?? 1.0;
+                              }),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
-                    const Divider(),
-                    _InvoiceLineRow(),
+                    const SizedBox(height: 16),
+                    // Row 2: Dates
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            decoration: const InputDecoration(
+                              labelText: 'Invoice Date',
+                              suffixIcon: Icon(Icons.calendar_today, size: 18),
+                            ),
+                            readOnly: true,
+                            controller: TextEditingController(
+                              text: DateFormat('MMM d, yyyy').format(invoiceDate),
+                            ),
+                            onTap: () async {
+                              final d = await showDatePicker(
+                                context: context,
+                                initialDate: invoiceDate,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now()
+                                    .add(const Duration(days: 365)),
+                              );
+                              if (d != null)
+                                setDialogState(() => invoiceDate = d);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            decoration: const InputDecoration(
+                              labelText: 'Due Date',
+                              suffixIcon: Icon(Icons.calendar_today, size: 18),
+                            ),
+                            readOnly: true,
+                            controller: TextEditingController(
+                              text: DateFormat('MMM d, yyyy').format(dueDate),
+                            ),
+                            onTap: () async {
+                              final d = await showDatePicker(
+                                context: context,
+                                initialDate: dueDate,
+                                firstDate: DateTime.now(),
+                                lastDate: DateTime.now()
+                                    .add(const Duration(days: 730)),
+                              );
+                              if (d != null) setDialogState(() => dueDate = d);
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (selectedCurrency != 'UGX' && exchangeRate > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.info_outline, size: 14, color: Colors.blue),
+                            const SizedBox(width: 6),
+                            Text(
+                              '1 $selectedCurrency = ${NumberFormat('#,###').format(exchangeRate)} UGX  '
+                              '| Total in UGX: ${fmt.format(total * exchangeRate)}',
+                              style: const TextStyle(
+                                  fontSize: 12, color: Colors.blue),
+                            ),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(height: 24),
+                    Text('Line Items',
+                        style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),
-                    TextButton.icon(
-                      onPressed: () {},
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Add Line'),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                            color: Theme.of(context).dividerColor),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: const [
+                              Expanded(
+                                  flex: 3,
+                                  child: Text('Description',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w600))),
+                              SizedBox(
+                                  width: 72,
+                                  child: Text('Qty',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w600))),
+                              SizedBox(
+                                  width: 110,
+                                  child: Text('Unit Price',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w600))),
+                              SizedBox(
+                                  width: 100,
+                                  child: Text('Amount',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w600))),
+                              SizedBox(width: 40),
+                            ],
+                          ),
+                          const Divider(),
+                          ...lines.asMap().entries.map((entry) {
+                            final idx = entry.key;
+                            final line = entry.value;
+                            return _InvoiceLineWidget(
+                              key: ValueKey(line.id),
+                              line: line,
+                              currency: selectedCurrency,
+                              onChanged: () => setDialogState(() {}),
+                              onDelete: lines.length > 1
+                                  ? () => setDialogState(
+                                        () => lines.removeAt(idx),
+                                      )
+                                  : null,
+                            );
+                          }),
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: () => setDialogState(
+                                () => lines.add(_InvoiceLineData())),
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Add Line'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                                '$selectedCurrency Subtotal: ${fmt.format(subtotal)}'),
+                            Text(
+                                '$selectedCurrency VAT (18%): ${fmt.format(vat)}'),
+                            const SizedBox(height: 4),
+                            Text(
+                              '$selectedCurrency Total: ${fmt.format(total)}',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-              const Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text('Subtotal: UGX 0'),
-                      Text('VAT (18%): UGX 0'),
-                      SizedBox(height: 4),
-                      Text('Total: UGX 0', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    ],
-                  ),
-                ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              OutlinedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Invoice saved as draft')),
+                  );
+                },
+                child: const Text('Save as Draft'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Invoice created')),
+                  );
+                },
+                child: const Text('Create Invoice'),
               ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          OutlinedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Invoice saved as draft (will sync when online)')),
-              );
-            },
-            child: const Text('Save as Draft'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Invoice created (will sync when online)')),
-              );
-            },
-            child: const Text('Create Invoice'),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -813,62 +956,147 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-class _InvoiceLineRow extends StatelessWidget {
+// ---------------------------------------------------------------------------
+// Invoice Line Data Model
+// ---------------------------------------------------------------------------
+class _InvoiceLineData {
+  String id = DateTime.now().microsecondsSinceEpoch.toString();
+  String description = '';
+  double qty = 1;
+  double unitPrice = 0;
+  double get amount => qty * unitPrice;
+}
+
+// ---------------------------------------------------------------------------
+// Invoice Line Widget — stateful for auto-calculation
+// ---------------------------------------------------------------------------
+class _InvoiceLineWidget extends StatefulWidget {
+  final _InvoiceLineData line;
+  final String currency;
+  final VoidCallback onChanged;
+  final VoidCallback? onDelete;
+
+  const _InvoiceLineWidget({
+    super.key,
+    required this.line,
+    required this.currency,
+    required this.onChanged,
+    this.onDelete,
+  });
+
+  @override
+  State<_InvoiceLineWidget> createState() => _InvoiceLineWidgetState();
+}
+
+class _InvoiceLineWidgetState extends State<_InvoiceLineWidget> {
+  late final TextEditingController _qtyCtrl;
+  late final TextEditingController _priceCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _qtyCtrl = TextEditingController(text: '1');
+    _priceCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _qtyCtrl.dispose();
+    _priceCtrl.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final fmt = NumberFormat('#,###');
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
+          // Description
           Expanded(
             flex: 3,
             child: TextFormField(
               decoration: const InputDecoration(
                 hintText: 'Item description',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 isDense: true,
               ),
+              onChanged: (v) => widget.line.description = v,
             ),
           ),
           const SizedBox(width: 8),
-          Expanded(
-            flex: 1,
+          // Qty
+          SizedBox(
+            width: 72,
             child: TextFormField(
+              controller: _qtyCtrl,
               decoration: const InputDecoration(
                 hintText: '1',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 isDense: true,
               ),
-              keyboardType: TextInputType.number,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (v) {
+                setState(() => widget.line.qty = double.tryParse(v) ?? 1);
+                widget.onChanged();
+              },
             ),
           ),
           const SizedBox(width: 8),
-          Expanded(
-            flex: 2,
+          // Unit Price
+          SizedBox(
+            width: 110,
             child: TextFormField(
-              decoration: const InputDecoration(
-                hintText: '0.00',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              controller: _priceCtrl,
+              decoration: InputDecoration(
+                hintText: '0',
+                prefixText: '${widget.currency} ',
+                prefixStyle: const TextStyle(fontSize: 12),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 isDense: true,
               ),
-              keyboardType: TextInputType.number,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (v) {
+                setState(
+                    () => widget.line.unitPrice = double.tryParse(v) ?? 0);
+                widget.onChanged();
+              },
             ),
           ),
           const SizedBox(width: 8),
-          Expanded(
-            flex: 2,
-            child: TextFormField(
-              decoration: const InputDecoration(
-                hintText: '0.00',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                isDense: true,
+          // Auto-computed Amount
+          SizedBox(
+            width: 100,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              decoration: BoxDecoration(
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceVariant
+                    .withOpacity(0.5),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Theme.of(context).dividerColor),
               ),
-              readOnly: true,
+              child: Text(
+                fmt.format(widget.line.amount),
+                style: const TextStyle(
+                    fontWeight: FontWeight.w600, fontFamily: 'monospace'),
+              ),
             ),
           ),
+          // Delete
           IconButton(
             icon: const Icon(Icons.delete_outline, size: 18),
-            onPressed: () {},
+            onPressed: widget.onDelete,
+            color: widget.onDelete != null ? AppColors.error : Colors.grey,
           ),
         ],
       ),
