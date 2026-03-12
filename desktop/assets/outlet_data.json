@@ -691,25 +691,5 @@
     "Postal code": 256,
     "Region": "WEST",
     "Venue_type": "OUTLET"
-  },
-  {
-    "outlet_id": 23103173,
-    "new id": 23103072,
-    "outlet_name": "MAGIC BET RWAMWANJA",
-    "Address": "RWAMWANJA",
-    "City": "RWAMWANJA",
-    "Postal code": 256,
-    "Region": "WEST",
-    "Venue_type": "OUTLET"
-  },
-  {
-    "outlet_id": 23101155,
-    "new id": 23103073,
-    "outlet_name": "MAGIC BET KAHENDERO",
-    "Address": "KASESE",
-    "City": "KASESE",
-    "Postal code": 256,
-    "Region": "WEST",
-    "Venue_type": "OUTLET"
   }
 ]

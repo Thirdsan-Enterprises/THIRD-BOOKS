@@ -209,6 +209,14 @@ class _AppShellState extends ConsumerState<AppShell> {
                 ),
                 _buildNavItem(
                   context,
+                  icon: Icons.compare_arrows_outlined,
+                  activeIcon: Icons.compare_arrows,
+                  label: 'Reconciliation',
+                  path: '/bank-reconciliation',
+                  isActive: currentPath == '/bank-reconciliation',
+                ),
+                _buildNavItem(
+                  context,
                   icon: Icons.payments_outlined,
                   activeIcon: Icons.payments,
                   label: 'Payments',
@@ -241,14 +249,6 @@ class _AppShellState extends ConsumerState<AppShell> {
                   label: 'Expenditures',
                   path: '/outlet-expenditure',
                   isActive: currentPath == '/outlet-expenditure',
-                ),
-                _buildNavItem(
-                  context,
-                  icon: Icons.payment_outlined,
-                  activeIcon: Icons.payment,
-                  label: 'Commissions',
-                  path: '/commissions',
-                  isActive: currentPath == '/commissions',
                 ),
                 _buildNavItem(
                   context,

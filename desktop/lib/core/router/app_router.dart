@@ -17,8 +17,8 @@ import '../../features/settings/settings_screen.dart';
 import '../../features/outlets/outlets_screen.dart';
 import '../../features/outlets/outlet_revenue_screen.dart';
 import '../../features/outlets/outlet_expenditure_screen.dart';
-import '../../features/outlets/commission_management_screen.dart';
 import '../../features/outlets/outlet_upload_screen.dart';
+import '../../features/banking/bank_reconciliation_screen.dart';
 import '../../features/assets/assets_screen.dart';
 import '../../features/assets/depreciation_screen.dart';
 import '../../features/banking/banking_screen.dart';
@@ -116,6 +116,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const BankingScreen(),
           ),
           GoRoute(
+            path: '/bank-reconciliation',
+            name: 'bank-reconciliation',
+            builder: (context, state) => const BankReconciliationScreen(),
+          ),
+          GoRoute(
             path: '/reports',
             name: 'reports',
             builder: (context, state) => const ReportsScreen(),
@@ -155,11 +160,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 outletName: outletName,
               );
             },
-          ),
-          GoRoute(
-            path: '/commissions',
-            name: 'commissions',
-            builder: (context, state) => const CommissionManagementScreen(),
           ),
           GoRoute(
             path: '/outlet-upload',

@@ -460,6 +460,9 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
     DateTime billDate = DateTime.now();
     DateTime dueDate = DateTime.now().add(const Duration(days: 30));
 
+    String? attachedFilePath;
+    String? attachedFileName;
+
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -468,6 +471,20 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
           double vat = subtotal * 0.18;
           double total = subtotal + vat;
           final fmt = NumberFormat('#,###');
+
+          Future<void> pickAttachment() async {
+            final result = await FilePicker.platform.pickFiles(
+              type: FileType.custom,
+              allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+              dialogTitle: 'Attach Bill Document',
+            );
+            if (result != null && result.files.single.path != null) {
+              setDialogState(() {
+                attachedFilePath = result.files.single.path;
+                attachedFileName = result.files.single.name;
+              });
+            }
+          }
 
           return AlertDialog(
             title: const Text('Create New Bill'),
@@ -675,6 +692,81 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 20),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    // Attachment section
+                    Row(
+                      children: [
+                        Icon(Icons.attach_file,
+                            size: 18,
+                            color: Theme.of(context).colorScheme.outline),
+                        const SizedBox(width: 8),
+                        Text('Attachment',
+                            style: Theme.of(context).textTheme.titleSmall),
+                        const SizedBox(width: 16),
+                        if (attachedFileName != null) ...[
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                    color: AppColors.primary.withOpacity(0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    attachedFileName!
+                                            .toLowerCase()
+                                            .endsWith('.pdf')
+                                        ? Icons.picture_as_pdf
+                                        : Icons.image_outlined,
+                                    size: 18,
+                                    color: AppColors.primary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      attachedFileName!,
+                                      style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.close, size: 16),
+                                    onPressed: () => setDialogState(() {
+                                      attachedFilePath = null;
+                                      attachedFileName = null;
+                                    }),
+                                    tooltip: 'Remove attachment',
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ] else ...[
+                          OutlinedButton.icon(
+                            onPressed: pickAttachment,
+                            icon: const Icon(Icons.upload_file, size: 18),
+                            label: const Text('Attach PDF or Image'),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'PDF, JPG, PNG',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context).colorScheme.outline),
+                          ),
+                        ],
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -719,7 +811,11 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                     );
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Bill created')),
+                      SnackBar(
+                        content: Text(attachedFileName != null
+                            ? 'Bill created with attachment: $attachedFileName'
+                            : 'Bill created'),
+                      ),
                     );
                   }
                 },
