@@ -1,8 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/theme_service.dart';
+import '../../core/services/company_settings_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -109,178 +112,264 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _buildCompanyProfile(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader(context, 'Company Profile', 'Manage your business information'),
-          const SizedBox(height: 24),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+    final settings = ref.watch(companySettingsProvider);
+
+    final nameCtrl = TextEditingController(text: settings.companyName);
+    final regCtrl = TextEditingController(text: settings.registrationNumber);
+    final tinCtrl = TextEditingController(text: settings.taxId);
+    final emailCtrl = TextEditingController(text: settings.email);
+    final phoneCtrl = TextEditingController(text: settings.phone);
+    final websiteCtrl = TextEditingController(text: settings.website);
+    final addressCtrl = TextEditingController(text: settings.address);
+    String fiscalYear = settings.fiscalYearStart;
+    String accountingMethod = settings.accountingMethod;
+
+    return StatefulBuilder(
+      builder: (context, setPageState) {
+        final logoPath = settings.logoPath;
+
+        Future<void> pickLogo() async {
+          final result = await FilePicker.platform.pickFiles(
+            type: FileType.custom,
+            allowedExtensions: ['png', 'jpg', 'jpeg'],
+            dialogTitle: 'Select Company Logo',
+          );
+          if (result != null && result.files.single.path != null) {
+            await ref.read(companySettingsProvider.notifier).save(
+                  settings.copyWith(logoPath: result.files.single.path),
+                );
+            setPageState(() {});
+          }
+        }
+
+        void saveProfile() {
+          final updated = settings.copyWith(
+            companyName: nameCtrl.text.trim(),
+            registrationNumber: regCtrl.text.trim(),
+            taxId: tinCtrl.text.trim(),
+            email: emailCtrl.text.trim(),
+            phone: phoneCtrl.text.trim(),
+            website: websiteCtrl.text.trim(),
+            address: addressCtrl.text.trim(),
+            fiscalYearStart: fiscalYear,
+            accountingMethod: accountingMethod,
+          );
+          ref.read(companySettingsProvider.notifier).save(updated);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Company profile saved successfully'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionHeader(context, 'Company Profile', 'Manage your business information'),
+              const SizedBox(height: 24),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Logo Upload
-                      Column(
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            width: 120,
-                            height: 120,
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.surfaceVariant,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Theme.of(context).dividerColor),
-                            ),
-                            child: Icon(
-                              Icons.business,
-                              size: 48,
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed: () {},
-                            icon: const Icon(Icons.upload, size: 18),
-                            label: const Text('Upload Logo'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(width: 32),
-                      // Company Details
-                      Expanded(
-                        child: Column(
-                          children: [
-                            TextFormField(
-                              decoration: const InputDecoration(labelText: 'Company Name'),
-                              initialValue: 'Magic Bet Ltd',
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextFormField(
-                                    decoration: const InputDecoration(labelText: 'Registration Number'),
-                                    initialValue: '',
-                                  ),
+                          // Logo Upload
+                          Column(
+                            children: [
+                              Container(
+                                width: 120,
+                                height: 120,
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.surfaceVariant,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Theme.of(context).dividerColor),
                                 ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: TextFormField(
-                                    decoration: const InputDecoration(labelText: 'Tax ID (TIN)'),
-                                    initialValue: '',
-                                  ),
+                                clipBehavior: Clip.antiAlias,
+                                child: logoPath != null && File(logoPath).existsSync()
+                                    ? Image.file(File(logoPath), fit: BoxFit.cover)
+                                    : Icon(
+                                        Icons.business,
+                                        size: 48,
+                                        color: Theme.of(context).colorScheme.outline,
+                                      ),
+                              ),
+                              const SizedBox(height: 12),
+                              OutlinedButton.icon(
+                                onPressed: pickLogo,
+                                icon: const Icon(Icons.upload, size: 18),
+                                label: const Text('Upload Logo'),
+                              ),
+                              if (logoPath != null) ...[
+                                const SizedBox(height: 6),
+                                TextButton.icon(
+                                  onPressed: () async {
+                                    await ref
+                                        .read(companySettingsProvider.notifier)
+                                        .save(settings.copyWith(clearLogo: true));
+                                    setPageState(() {});
+                                  },
+                                  icon: Icon(Icons.close, size: 14, color: AppColors.error),
+                                  label: Text('Remove',
+                                      style: TextStyle(fontSize: 12, color: AppColors.error)),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(width: 32),
+                          // Company Details
+                          Expanded(
+                            child: Column(
+                              children: [
+                                TextFormField(
+                                  controller: nameCtrl,
+                                  decoration: const InputDecoration(labelText: 'Company Name'),
+                                ),
+                                const SizedBox(height: 16),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: regCtrl,
+                                        decoration: const InputDecoration(
+                                            labelText: 'Registration Number'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: tinCtrl,
+                                        decoration:
+                                            const InputDecoration(labelText: 'Tax ID (TIN)'),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  const Divider(height: 48),
-                  Text('Contact Information', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          decoration: const InputDecoration(labelText: 'Email'),
-                          initialValue: 'info@magicbet.ug',
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: TextFormField(
-                          decoration: const InputDecoration(labelText: 'Phone'),
-                          initialValue: '',
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: TextFormField(
-                          decoration: const InputDecoration(labelText: 'Website'),
-                          initialValue: 'www.magicbet.ug',
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    decoration: const InputDecoration(labelText: 'Address'),
-                    initialValue: 'Kampala, Uganda',
-                    maxLines: 2,
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      OutlinedButton(
-                        onPressed: () {},
-                        child: const Text('Cancel'),
-                      ),
-                      const SizedBox(width: 12),
-                      FilledButton(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Company profile saved successfully'),
-                              backgroundColor: AppColors.success,
+                      const Divider(height: 48),
+                      Text('Contact Information',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: emailCtrl,
+                              decoration: const InputDecoration(labelText: 'Email'),
                             ),
-                          );
-                        },
-                        child: const Text('Save Changes'),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: TextFormField(
+                              controller: phoneCtrl,
+                              decoration: const InputDecoration(labelText: 'Phone'),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: TextFormField(
+                              controller: websiteCtrl,
+                              decoration: const InputDecoration(labelText: 'Website'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: addressCtrl,
+                        decoration: const InputDecoration(labelText: 'Address'),
+                        maxLines: 2,
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          OutlinedButton(
+                            onPressed: () {
+                              nameCtrl.text = settings.companyName;
+                              regCtrl.text = settings.registrationNumber;
+                              tinCtrl.text = settings.taxId;
+                              emailCtrl.text = settings.email;
+                              phoneCtrl.text = settings.phone;
+                              websiteCtrl.text = settings.website;
+                              addressCtrl.text = settings.address;
+                              setPageState(() {});
+                            },
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 12),
+                          FilledButton(
+                            onPressed: saveProfile,
+                            child: const Text('Save Changes'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Fiscal Year Settings', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 16),
-                  Row(
+              const SizedBox(height: 24),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          decoration: const InputDecoration(labelText: 'Fiscal Year Start'),
-                          value: 'January',
-                          items: ['January', 'April', 'July', 'October']
-                              .map((m) => DropdownMenuItem(value: m, child: Text(m)))
-                              .toList(),
-                          onChanged: (v) {},
-                        ),
+                      Text('Fiscal Year Settings',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              decoration: const InputDecoration(labelText: 'Fiscal Year Start'),
+                              value: fiscalYear,
+                              items: ['January', 'April', 'July', 'October']
+                                  .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                                  .toList(),
+                              onChanged: (v) => setPageState(() => fiscalYear = v ?? fiscalYear),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              decoration:
+                                  const InputDecoration(labelText: 'Accounting Method'),
+                              value: accountingMethod,
+                              items: ['Accrual', 'Cash']
+                                  .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                                  .toList(),
+                              onChanged: (v) =>
+                                  setPageState(() => accountingMethod = v ?? accountingMethod),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          decoration: const InputDecoration(labelText: 'Accounting Method'),
-                          value: 'Accrual',
-                          items: ['Accrual', 'Cash']
-                              .map((m) => DropdownMenuItem(value: m, child: Text(m)))
-                              .toList(),
-                          onChanged: (v) {},
+                      const SizedBox(height: 16),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: FilledButton(
+                          onPressed: saveProfile,
+                          child: const Text('Save Changes'),
                         ),
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
