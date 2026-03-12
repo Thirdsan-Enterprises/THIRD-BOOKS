@@ -9,6 +9,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/models/invoice.dart';
 import '../../core/services/pdf_invoice_service.dart';
+import '../../core/services/company_settings_service.dart';
+import '../../core/services/auth_service.dart';
 
 class InvoicesScreen extends ConsumerStatefulWidget {
   const InvoicesScreen({super.key});
@@ -273,7 +275,11 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.print_outlined, size: 18),
-                        onPressed: () => PdfInvoiceService.printInvoice(invoice),
+                        onPressed: () => PdfInvoiceService.printInvoice(
+                          invoice,
+                          company: ref.read(companySettingsProvider),
+                          preparedBy: ref.read(authStateProvider).user?.name,
+                        ),
                         tooltip: 'Print PDF',
                       ),
                       if (invoice.status != InvoiceStatus.paid && invoice.status != InvoiceStatus.cancelled)
@@ -658,7 +664,11 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
           OutlinedButton.icon(
             onPressed: () {
               Navigator.pop(ctx);
-              PdfInvoiceService.printInvoice(invoice);
+              PdfInvoiceService.printInvoice(
+                invoice,
+                company: ref.read(companySettingsProvider),
+                preparedBy: ref.read(authStateProvider).user?.name,
+              );
             },
             icon: const Icon(Icons.print, size: 18),
             label: const Text('Print PDF'),
@@ -666,7 +676,11 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
           OutlinedButton.icon(
             onPressed: () {
               Navigator.pop(ctx);
-              PdfInvoiceService.sharePdf(invoice);
+              PdfInvoiceService.sharePdf(
+                invoice,
+                company: ref.read(companySettingsProvider),
+                preparedBy: ref.read(authStateProvider).user?.name,
+              );
             },
             icon: const Icon(Icons.share, size: 18),
             label: const Text('Share PDF'),
