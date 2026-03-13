@@ -12,6 +12,7 @@ use App\Http\Controllers\API\Purchases\VendorController;
 use App\Http\Controllers\API\Reporting\ReportController;
 use App\Http\Controllers\SyncController;
 use App\Http\Controllers\ConflictController;
+use App\Http\Controllers\API\AccountDataController;
 
 /*
 |--------------------------------------------------------------------------
@@ -31,6 +32,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Auth
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/user', [AuthController::class, 'user']);
+
+    // Account / self-service data management
+    Route::delete('/me/data', [AccountDataController::class, 'deleteAllData']);
 
     // Tenant-specific routes
     Route::middleware('tenant')->group(function () {

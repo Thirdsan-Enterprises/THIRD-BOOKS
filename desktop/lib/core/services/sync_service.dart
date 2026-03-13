@@ -365,6 +365,64 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
     }
   }
 
+  // ============================================================================
+  // Clear Local Cache
+  // Wipes all locally-stored JSON files and the sync queue.
+  // Cloud data is untouched. The next sync will re-populate local storage.
+  // ============================================================================
+
+  Future<void> clearLocalCache() async {
+    try {
+      await _localStorage.initialize();
+      await Future.wait([
+        _localStorage.saveAccounts([]),
+        _localStorage.saveCustomers([]),
+        _localStorage.saveVendors([]),
+        _localStorage.saveInvoices([]),
+        _localStorage.saveBills([]),
+        _localStorage.saveJournalEntries([]),
+        _localStorage.savePayments([]),
+        _localStorage.clearSyncQueue(),
+      ]);
+      state = state.copyWith(pendingChanges: 0);
+      debugPrint('Local cache cleared.');
+    } catch (e) {
+      debugPrint('Error clearing local cache: $e');
+      rethrow;
+    }
+  }
+
+  // ============================================================================
+  // Delete All Cloud Data
+  // Calls DELETE /api/me/data on the backend (irrecoverable) then clears local.
+  // ============================================================================
+
+  Future<void> deleteAllCloudData() async {
+    try {
+      final connectivity = _ref.read(connectivityProvider);
+      if (!connectivity.isOnline) {
+        throw Exception('Must be online to delete cloud data');
+      }
+
+      state = state.copyWith(isSyncing: true, error: null);
+
+      // Ask backend to wipe the tenant's data
+      final response = await _apiClient.delete('/me/data');
+      if (response.statusCode != 200 && response.statusCode != 204) {
+        throw Exception('Server returned ${response.statusCode}');
+      }
+
+      // Then wipe local cache too
+      await clearLocalCache();
+
+      state = state.copyWith(isSyncing: false);
+      debugPrint('All cloud and local data deleted.');
+    } catch (e) {
+      state = state.copyWith(isSyncing: false, error: 'Delete failed: $e');
+      rethrow;
+    }
+  }
+
   @override
   void dispose() {
     _autoSyncTimer?.cancel();
