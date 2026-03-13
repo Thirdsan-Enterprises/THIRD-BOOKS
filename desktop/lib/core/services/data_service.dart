@@ -167,35 +167,51 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       return DashboardData.empty();
     }
 
-    // amount = Total In (cash in / stakes)
-    // commissionAmount = Total Out (payouts)
-    // netAmount = GGR (Gross Gaming Revenue)
+    // Run carry-forward commission engine per outlet to get accurate Net Revenue.
+    // This is the real money MagicBet has available after paying 40% to outlet owners.
     double totalCashIn = 0;
-    double totalCashOut = 0;
-    double totalGGR = 0;
+    double totalCashOut = 0;   // raw payouts (Total Out column)
+    double totalGGR = 0;       // Gross Gaming Revenue = Cash In - Cash Out
+    double totalOutletExpense = 0;  // 40% commission (carry-forward adjusted)
+    double totalNetRevenue = 0;    // what MagicBet actually keeps
 
-    // Monthly aggregation for chart data
-    final Map<int, double> monthlyGGR = {};
-    final Map<int, double> monthlyPayouts = {};
-
-    // Recent transactions
-    final List<Map<String, dynamic>> recentTx = [];
-
-    // Sort by date descending for recent transactions
-    final sortedRevenues = List<OutletRevenue>.from(allRevenues)
-      ..sort((a, b) => b.date.compareTo(a.date));
-
+    final revenuesByOutlet = <String, List<OutletRevenue>>{};
     for (final rev in allRevenues) {
+      revenuesByOutlet.putIfAbsent(rev.outletId, () => []).add(rev);
       totalCashIn += rev.amount;
       totalCashOut += rev.commissionAmount;
       totalGGR += rev.netAmount;
-
-      final month = rev.date.month.toDouble();
-      monthlyGGR[rev.date.month] = (monthlyGGR[rev.date.month] ?? 0) + rev.netAmount;
-      monthlyPayouts[rev.date.month] = (monthlyPayouts[rev.date.month] ?? 0) + rev.commissionAmount;
     }
 
-    // Build recent transactions (last 10) - keys match dashboard_screen.dart expectations
+    // Monthly GGR and Net Revenue for charts
+    final Map<int, double> monthlyGGR = {};
+    final Map<int, double> monthlyNet = {};
+
+    // Per-outlet net for top-outlets panel
+    final Map<String, double> outletNet = {};
+
+    for (final outlet in outlets) {
+      final revs = revenuesByOutlet[outlet.id] ?? [];
+      final weeks = _computeWeeksForOutlet(outlet, revs);
+      final outletNetTotal = weeks.fold(0.0, (s, w) => s + w.netRevenue);
+      final outletExpTotal = weeks.fold(0.0, (s, w) => s + w.outletExpense);
+      totalOutletExpense += outletExpTotal;
+      totalNetRevenue += outletNetTotal;
+      outletNet[outlet.id] = outletNetTotal;
+
+      // Monthly aggregation from weekly data
+      for (final w in weeks) {
+        final mo = w.weekStart.month;
+        monthlyGGR[mo] = (monthlyGGR[mo] ?? 0) + w.rawGGR;
+        monthlyNet[mo] = (monthlyNet[mo] ?? 0) + w.netRevenue;
+      }
+    }
+
+    // Recent transactions (last 10 entries, sorted DESC)
+    final sortedRevenues = List<OutletRevenue>.from(allRevenues)
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    final recentTx = <Map<String, dynamic>>[];
     for (var i = 0; i < sortedRevenues.length && i < 10; i++) {
       final rev = sortedRevenues[i];
       final outlet = outlets.where((o) => o.id == rev.outletId).firstOrNull;
@@ -208,50 +224,44 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       });
     }
 
-    // Build monthly data for charts
+    // Chart data: GGR line (light) and Net line (bold)
     final revenueData = monthlyGGR.entries
         .map((e) => {'month': e.key.toDouble(), 'value': e.value})
         .toList()
       ..sort((a, b) => a['month']!.compareTo(b['month']!));
 
-    final expenseData = monthlyPayouts.entries
+    final expenseData = monthlyNet.entries
         .map((e) => {'month': e.key.toDouble(), 'value': e.value})
         .toList()
       ..sort((a, b) => a['month']!.compareTo(b['month']!));
 
-    // Outlet performance as "aging" (top outlets by GGR)
-    final Map<String, double> outletGGR = {};
-    for (final rev in allRevenues) {
-      outletGGR[rev.outletId] = (outletGGR[rev.outletId] ?? 0) + rev.netAmount;
-    }
-
-    // Sort outlets by GGR descending and take top 5
-    final sortedOutletGGR = outletGGR.entries.toList()
+    // Top outlets by net revenue for the panel
+    final sortedByNet = outletNet.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final topGGR = sortedOutletGGR.take(5).toList();
-    final maxGGR = topGGR.isNotEmpty ? topGGR.first.value : 1.0;
+    final topNet = sortedByNet.take(5).toList();
+    final maxNet = topNet.isNotEmpty ? topNet.first.value.abs().clamp(1.0, double.infinity) : 1.0;
 
-    final receivableAging = topGGR.map((e) {
+    final receivableAging = topNet.map((e) {
       final outlet = outlets.where((o) => o.id == e.key).firstOrNull;
       return {
         'label': outlet?.name ?? 'Unknown',
         'amount': e.value,
-        'percentage': maxGGR > 0 ? e.value / maxGGR : 0.0,
+        'percentage': e.value / maxNet,
       };
     }).toList();
 
     return DashboardData(
       totalRevenue: totalGGR,
-      totalExpenses: totalCashOut,
-      netIncome: totalGGR,
+      totalExpenses: totalOutletExpense, // actual 40% commission expense
+      netIncome: totalNetRevenue,        // real money MagicBet keeps
       outstandingInvoices: 0,
-      invoiceCount: outlets.length,
+      invoiceCount: outlets.where((o) => o.isActive).length,
       revenueChange: 0,
       expenseChange: 0,
       incomeChange: 0,
       cashIn: totalCashIn,
       cashOut: totalCashOut,
-      netCash: totalGGR,
+      netCash: totalNetRevenue,
       revenueData: revenueData,
       expenseData: expenseData,
       receivableAging: receivableAging,
@@ -1354,3 +1364,288 @@ final outletRevenueSummaryProvider = FutureProvider<Map<String, Map<String, doub
 
   return summary;
 });
+
+// ============================================================================
+// Outlet Analytics — Carry-Forward Commission Engine
+// ============================================================================
+//
+// Business Rules (MagicBet):
+//  • Revenue data arrives weekly per outlet.
+//  • 40% of GGR is the outlet expense (commission to location owner).
+//  • If a week's adjusted GGR ≤ 0  → NO 40% deducted; full negative carried forward.
+//  • If a week's adjusted GGR  > 0  → 40% deducted on the adjusted GGR.
+//  • "Adjusted GGR" = raw week GGR + carriedForward (negative from prior week).
+//  • Net Revenue = adjusted GGR × 60% (what MagicBet actually keeps).
+//
+// Example:
+//   Week 1: rawGGR = -20 000 → adjustedGGR = -20 000 → no expense → carry -20 000
+//   Week 2: rawGGR = 80 000  → adjustedGGR = 60 000  → expense = 24 000 → net = 36 000
+
+class OutletWeekSummary {
+  final String outletId;
+  final String outletName;
+  final String outletCode;
+  final DateTime weekStart;   // Monday of the week
+  final DateTime weekEnd;     // Sunday of the week
+  final int weekNumber;
+  final int year;
+  final double rawGGR;
+  final double carriedForward; // negative from previous week (≤ 0)
+  final double adjustedGGR;
+  final double outletExpense;  // 40% if adjustedGGR > 0, else 0
+  final double netRevenue;     // what MagicBet keeps
+
+  const OutletWeekSummary({
+    required this.outletId,
+    required this.outletName,
+    required this.outletCode,
+    required this.weekStart,
+    required this.weekEnd,
+    required this.weekNumber,
+    required this.year,
+    required this.rawGGR,
+    required this.carriedForward,
+    required this.adjustedGGR,
+    required this.outletExpense,
+    required this.netRevenue,
+  });
+}
+
+class OutletMonthSummary {
+  final String outletId;
+  final String outletName;
+  final String outletCode;
+  final int year;
+  final int month;
+  final double totalGGR;
+  final double totalOutletExpense;
+  final double netRevenue;
+
+  const OutletMonthSummary({
+    required this.outletId,
+    required this.outletName,
+    required this.outletCode,
+    required this.year,
+    required this.month,
+    required this.totalGGR,
+    required this.totalOutletExpense,
+    required this.netRevenue,
+  });
+}
+
+class OutletAnalyticsData {
+  final double totalGGR;
+  final double totalOutletExpense;
+  final double totalNetRevenue;
+  final int totalActiveOutlets;
+  final List<OutletWeekSummary> allWeeks;   // all outlets × all weeks
+  final List<OutletMonthSummary> allMonths; // all outlets × all months
+  // Per-outlet lifetime totals
+  final List<OutletLifetime> lifetimeTotals;
+
+  const OutletAnalyticsData({
+    required this.totalGGR,
+    required this.totalOutletExpense,
+    required this.totalNetRevenue,
+    required this.totalActiveOutlets,
+    required this.allWeeks,
+    required this.allMonths,
+    required this.lifetimeTotals,
+  });
+
+  static const empty = OutletAnalyticsData(
+    totalGGR: 0,
+    totalOutletExpense: 0,
+    totalNetRevenue: 0,
+    totalActiveOutlets: 0,
+    allWeeks: [],
+    allMonths: [],
+    lifetimeTotals: [],
+  );
+}
+
+class OutletLifetime {
+  final String outletId;
+  final String outletName;
+  final String outletCode;
+  final double totalGGR;
+  final double totalOutletExpense;
+  final double netRevenue;
+
+  const OutletLifetime({
+    required this.outletId,
+    required this.outletName,
+    required this.outletCode,
+    required this.totalGGR,
+    required this.totalOutletExpense,
+    required this.netRevenue,
+  });
+}
+
+// Returns the Monday (start) of the ISO week containing [date].
+DateTime _weekStart(DateTime date) {
+  final diff = date.weekday - DateTime.monday;
+  return DateTime(date.year, date.month, date.day - diff);
+}
+
+// Key for grouping: "yyyy-Www" e.g. "2025-W12"
+String _weekKey(DateTime date) {
+  final start = _weekStart(date);
+  // ISO week number: days from Jan 4 of year (first week always contains Jan 4)
+  final jan4 = DateTime(start.year, 1, 4);
+  final weekNum = ((start.difference(jan4).inDays + jan4.weekday) / 7).ceil();
+  return '${start.year}-W${weekNum.toString().padLeft(2, '0')}';
+}
+
+int _isoWeekNumber(DateTime date) {
+  final start = _weekStart(date);
+  final jan4 = DateTime(start.year, 1, 4);
+  return ((start.difference(jan4).inDays + jan4.weekday) / 7).ceil();
+}
+
+List<OutletWeekSummary> _computeWeeksForOutlet(
+  Outlet outlet,
+  List<OutletRevenue> revenues,
+) {
+  if (revenues.isEmpty) return [];
+
+  // Group raw GGR by ISO week
+  final weekRaw = <String, double>{};
+  final weekStartDates = <String, DateTime>{};
+
+  for (final rev in revenues) {
+    final key = _weekKey(rev.date);
+    weekRaw[key] = (weekRaw[key] ?? 0) + rev.netAmount;
+    final ws = _weekStart(rev.date);
+    if (!weekStartDates.containsKey(key) || ws.isBefore(weekStartDates[key]!)) {
+      weekStartDates[key] = ws;
+    }
+  }
+
+  // Sort weeks chronologically
+  final sortedKeys = weekRaw.keys.toList()..sort();
+
+  final summaries = <OutletWeekSummary>[];
+  double carriedForward = 0; // negative balance carried from previous week
+
+  for (final key in sortedKeys) {
+    final rawGGR = weekRaw[key]!;
+    final ws = weekStartDates[key]!;
+    final incomingCarry = carriedForward; // capture before update
+    final adjustedGGR = rawGGR + incomingCarry;
+    final double outletExpense;
+    final double netRevenue;
+
+    if (adjustedGGR > 0) {
+      outletExpense = adjustedGGR * 0.40;
+      netRevenue = adjustedGGR * 0.60;
+      carriedForward = 0;
+    } else {
+      outletExpense = 0;
+      netRevenue = adjustedGGR;
+      carriedForward = adjustedGGR;
+    }
+
+    summaries.add(OutletWeekSummary(
+      outletId: outlet.id,
+      outletName: outlet.name,
+      outletCode: outlet.outletCode,
+      weekStart: ws,
+      weekEnd: ws.add(const Duration(days: 6)),
+      weekNumber: _isoWeekNumber(ws),
+      year: ws.year,
+      rawGGR: rawGGR,
+      carriedForward: incomingCarry, // what came in from previous week
+      adjustedGGR: adjustedGGR,
+      outletExpense: outletExpense,
+      netRevenue: netRevenue,
+    ));
+  }
+
+  return summaries;
+}
+
+final outletAnalyticsProvider = FutureProvider<OutletAnalyticsData>((ref) async {
+  final db = ref.read(databaseProvider);
+  final outlets = await db.getAllOutlets();
+  final allRevenues = await db.getAllOutletRevenues();
+
+  if (outlets.isEmpty || allRevenues.isEmpty) return OutletAnalyticsData.empty;
+
+  final revenuesByOutlet = <String, List<OutletRevenue>>{};
+  for (final rev in allRevenues) {
+    revenuesByOutlet.putIfAbsent(rev.outletId, () => []).add(rev);
+  }
+
+  final allWeeks = <OutletWeekSummary>[];
+  final allMonths = <OutletMonthSummary>[];
+  final lifetimes = <OutletLifetime>[];
+
+  for (final outlet in outlets) {
+    final revs = revenuesByOutlet[outlet.id] ?? [];
+    final weeks = _computeWeeksForOutlet(outlet, revs);
+    allWeeks.addAll(weeks);
+
+    // Aggregate months from weekly summaries (use adjustedGGR and outletExpense)
+    // Group weeks into months by weekStart month
+    final monthMap = <String, _MonthAccum>{};
+    for (final w in weeks) {
+      final mk = '${w.year}-${w.weekStart.month.toString().padLeft(2, '0')}';
+      monthMap.putIfAbsent(mk, () => _MonthAccum(w.weekStart.year, w.weekStart.month));
+      monthMap[mk]!.addWeek(w);
+    }
+    for (final accum in monthMap.values) {
+      allMonths.add(OutletMonthSummary(
+        outletId: outlet.id,
+        outletName: outlet.name,
+        outletCode: outlet.outletCode,
+        year: accum.year,
+        month: accum.month,
+        totalGGR: accum.totalGGR,
+        totalOutletExpense: accum.totalOutletExpense,
+        netRevenue: accum.netRevenue,
+      ));
+    }
+
+    // Lifetime totals per outlet
+    final lifetimeGGR = weeks.fold(0.0, (s, w) => s + w.rawGGR);
+    final lifetimeExpense = weeks.fold(0.0, (s, w) => s + w.outletExpense);
+    final lifetimeNet = weeks.fold(0.0, (s, w) => s + w.netRevenue);
+    lifetimes.add(OutletLifetime(
+      outletId: outlet.id,
+      outletName: outlet.name,
+      outletCode: outlet.outletCode,
+      totalGGR: lifetimeGGR,
+      totalOutletExpense: lifetimeExpense,
+      netRevenue: lifetimeNet,
+    ));
+  }
+
+  final grandGGR = lifetimes.fold(0.0, (s, o) => s + o.totalGGR);
+  final grandExpense = lifetimes.fold(0.0, (s, o) => s + o.totalOutletExpense);
+  final grandNet = lifetimes.fold(0.0, (s, o) => s + o.netRevenue);
+
+  return OutletAnalyticsData(
+    totalGGR: grandGGR,
+    totalOutletExpense: grandExpense,
+    totalNetRevenue: grandNet,
+    totalActiveOutlets: outlets.where((o) => o.isActive).length,
+    allWeeks: allWeeks,
+    allMonths: allMonths,
+    lifetimeTotals: lifetimes,
+  );
+});
+
+class _MonthAccum {
+  final int year;
+  final int month;
+  double totalGGR = 0;
+  double totalOutletExpense = 0;
+  double netRevenue = 0;
+  _MonthAccum(this.year, this.month);
+  void addWeek(OutletWeekSummary w) {
+    totalGGR += w.rawGGR;
+    totalOutletExpense += w.outletExpense;
+    netRevenue += w.netRevenue;
+  }
+}
