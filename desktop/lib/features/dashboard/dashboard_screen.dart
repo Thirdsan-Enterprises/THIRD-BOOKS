@@ -192,43 +192,44 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           child: _KPICard(
             title: 'Total GGR',
             value: _formatCurrency(data.totalRevenue),
-            change: '+${data.revenueChange.toStringAsFixed(1)}%',
-            isPositive: data.revenueChange >= 0,
-            icon: Icons.trending_up,
-            color: AppColors.income,
+            change: 'Gross Gaming Revenue',
+            isPositive: data.totalRevenue >= 0,
+            icon: Icons.bar_chart,
+            color: AppColors.info,
           ),
         ),
         const SizedBox(width: 16),
         Expanded(
           child: _KPICard(
-            title: 'Total Expenses',
+            title: 'Outlet Expense (40%)',
             value: _formatCurrency(data.totalExpenses),
-            change: '+${data.expenseChange.toStringAsFixed(1)}%',
+            change: 'Commission to owners',
             isPositive: false,
-            icon: Icons.trending_down,
-            color: AppColors.expense,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _KPICard(
-            title: 'Net Income',
-            value: _formatCurrency(data.netIncome),
-            change: '+${data.incomeChange.toStringAsFixed(1)}%',
-            isPositive: data.incomeChange >= 0,
-            icon: Icons.account_balance_wallet,
-            color: AppColors.secondary,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _KPICard(
-            title: 'Outstanding Invoices',
-            value: _formatCurrency(data.outstandingInvoices),
-            change: '${data.invoiceCount} invoices',
-            isPositive: null,
-            icon: Icons.receipt_long,
+            icon: Icons.handshake_outlined,
             color: AppColors.warning,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: _KPICard(
+            title: 'Net Revenue',
+            value: _formatCurrency(data.netIncome),
+            change: 'Real money available',
+            isPositive: data.netIncome >= 0,
+            icon: Icons.account_balance_wallet,
+            color: AppColors.income,
+            highlight: true,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: _KPICard(
+            title: 'Active Outlets',
+            value: data.invoiceCount.toString(),
+            change: 'Contributing outlets',
+            isPositive: null,
+            icon: Icons.store_mall_directory,
+            color: AppColors.secondary,
           ),
         ),
       ],
@@ -253,7 +254,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Revenue vs Expenses',
+                  'GGR vs Net Revenue',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 SegmentedButton<String>(
@@ -356,9 +357,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _buildLegendItem('Revenue', AppColors.income),
+                _buildLegendItem('GGR', AppColors.income),
                 const SizedBox(width: 24),
-                _buildLegendItem('Expenses', AppColors.expense),
+                _buildLegendItem('Net Revenue', AppColors.expense),
               ],
             ),
           ],
@@ -385,8 +386,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Widget _buildCashFlowSummary(BuildContext context, DashboardData data) {
-    final total = data.cashIn + data.cashOut;
-    final cashInPercent = total > 0 ? (data.cashIn / total * 100).round() : 50;
+    final total = data.totalRevenue.abs() + data.totalExpenses.abs();
+    final cashInPercent = total > 0 ? (data.totalRevenue / total * 100).round().clamp(0, 100) : 60;
     final cashOutPercent = 100 - cashInPercent;
 
     return Card(
@@ -396,15 +397,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Cash Flow',
+              'Revenue Breakdown',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 20),
-            _buildCashFlowItem(context, 'Cash In', _formatCurrency(data.cashIn), AppColors.income),
+            _buildCashFlowItem(context, 'Total GGR', _formatCurrency(data.totalRevenue), AppColors.info),
             const SizedBox(height: 12),
-            _buildCashFlowItem(context, 'Cash Out', _formatCurrency(data.cashOut), AppColors.expense),
+            _buildCashFlowItem(context, 'Outlet Expense (40%)', _formatCurrency(data.totalExpenses), AppColors.warning),
             const Divider(height: 32),
-            _buildCashFlowItem(context, 'Net Cash', _formatCurrency(data.netCash), AppColors.secondary, isBold: true),
+            _buildCashFlowItem(context, 'Net Revenue', _formatCurrency(data.netCash), AppColors.income, isBold: true),
             const SizedBox(height: 24),
             SizedBox(
               height: 160,
@@ -414,16 +415,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   centerSpaceRadius: 40,
                   sections: [
                     PieChartSectionData(
-                      value: data.cashIn,
+                      value: data.totalRevenue.clamp(0, double.infinity),
                       title: '$cashInPercent%',
-                      color: AppColors.income,
+                      color: AppColors.info,
                       radius: 50,
                       titleStyle: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                     PieChartSectionData(
-                      value: data.cashOut,
+                      value: data.totalExpenses.clamp(0, double.infinity),
                       title: '$cashOutPercent%',
-                      color: AppColors.expense,
+                      color: AppColors.warning,
                       radius: 50,
                       titleStyle: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
@@ -486,8 +487,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 TextButton(
-                  onPressed: () {},
-                  child: const Text('View All'),
+                  onPressed: () => context.go('/outlet-analytics'),
+                  child: const Text('View Analytics'),
                 ),
               ],
             ),
@@ -601,12 +602,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Accounts Receivable Aging',
+                  'Top Outlets by Net Revenue',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 TextButton(
-                  onPressed: () {},
-                  child: const Text('Details'),
+                  onPressed: () => context.go('/outlet-analytics'),
+                  child: const Text('Full Report'),
                 ),
               ],
             ),
@@ -632,7 +633,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Total Outstanding',
+                  'Total Net Revenue',
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 Text(
@@ -680,6 +681,7 @@ class _KPICard extends StatelessWidget {
   final bool? isPositive;
   final IconData icon;
   final Color color;
+  final bool highlight;
 
   const _KPICard({
     required this.title,
@@ -688,11 +690,19 @@ class _KPICard extends StatelessWidget {
     required this.isPositive,
     required this.icon,
     required this.color,
+    this.highlight = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
+      elevation: highlight ? 4 : 1,
+      shape: highlight
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: color, width: 2),
+            )
+          : null,
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
