@@ -374,6 +374,7 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
   Future<void> clearLocalCache() async {
     try {
       await _localStorage.initialize();
+      // Clear JSON file cache
       await Future.wait([
         _localStorage.saveAccounts([]),
         _localStorage.saveCustomers([]),
@@ -384,8 +385,13 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
         _localStorage.savePayments([]),
         _localStorage.clearSyncQueue(),
       ]);
+      // Also wipe the SQLite/Drift database so outlet revenues, expenditures,
+      // outlets, journals, assets etc. are fully gone — true blank slate.
+      final db = _ref.read(databaseProvider);
+      await db.clearAllData();
+
       state = state.copyWith(pendingChanges: 0);
-      debugPrint('Local cache cleared.');
+      debugPrint('Local cache and database cleared.');
     } catch (e) {
       debugPrint('Error clearing local cache: $e');
       rethrow;

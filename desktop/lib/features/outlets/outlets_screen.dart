@@ -357,7 +357,7 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                                     ),
                                   ),
                                   SizedBox(
-                                    width: 120,
+                                    width: outlet.isActive ? 120 : 160,
                                     child: Row(
                                       children: [
                                         IconButton(
@@ -373,6 +373,14 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                                           onPressed: () => _toggleOutletStatus(outlet),
                                           tooltip: outlet.isActive ? 'Deactivate' : 'Activate',
                                         ),
+                                        // Delete only available when outlet is inactive
+                                        if (!outlet.isActive)
+                                          IconButton(
+                                            icon: const Icon(Icons.delete_outline, size: 18),
+                                            onPressed: () => _confirmDeleteOutlet(outlet),
+                                            tooltip: 'Delete permanently',
+                                            color: AppColors.error,
+                                          ),
                                       ],
                                     ),
                                   ),
@@ -785,6 +793,81 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteOutlet(Outlet outlet) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber, color: AppColors.error),
+            const SizedBox(width: 8),
+            const Text('Delete Outlet'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('You are about to permanently delete:'),
+            const SizedBox(height: 8),
+            Text(
+              '${outlet.name} (${outlet.outletCode})',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.error.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.error.withOpacity(0.3)),
+              ),
+              child: const Text(
+                'This will permanently delete the outlet AND all its revenue records, expenditures, and commission payments. This cannot be undone.',
+                style: TextStyle(fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            child: const Text('Delete Permanently'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final db = ref.read(databaseProvider);
+    try {
+      await db.deleteOutletWithData(outlet.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${outlet.name} and all its data deleted.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Delete failed: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _toggleOutletStatus(Outlet outlet) async {
