@@ -156,6 +156,122 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
           ),
           const SizedBox(height: 16),
 
+          // ── Commission Expense Section (40% of GGR per outlet) ────────────
+          // This is the primary expense for MagicBet: 40% of adjusted GGR
+          // paid to outlet location owners, with carry-forward loss adjustment.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: ref.watch(outletAnalyticsProvider).when(
+              data: (analytics) {
+                final lifetimes = _selectedOutletId == null
+                    ? analytics.lifetimeTotals
+                    : analytics.lifetimeTotals.where((o) => o.outletId == _selectedOutletId).toList();
+                if (lifetimes.isEmpty) return const SizedBox.shrink();
+                final totalCommission = lifetimes.fold(0.0, (s, o) => s + o.totalOutletExpense);
+                return Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: AppColors.warning.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(Icons.handshake_outlined, color: AppColors.warning, size: 20),
+                            ),
+                            const SizedBox(width: 12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Outlet Commission Expense (40% of GGR)',
+                                    style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                                Text('Paid to location owners — calculated after carry-forward loss adjustment',
+                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
+                              ],
+                            ),
+                            const Spacer(),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text('Total Commission', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
+                                Text(
+                                  'UGX ${_numberFormat.format(totalCommission.round())}',
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: AppColors.warning),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        const Divider(height: 1),
+                        const SizedBox(height: 8),
+                        // Per-outlet commission table
+                        Row(
+                          children: [
+                            Expanded(flex: 3, child: Text('Outlet', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
+                            Expanded(flex: 2, child: Text('Total GGR', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12), textAlign: TextAlign.right)),
+                            Expanded(flex: 2, child: Text('Commission (40%)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.warning), textAlign: TextAlign.right)),
+                            Expanded(flex: 2, child: Text('Net Revenue (60%)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.income), textAlign: TextAlign.right)),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        ...lifetimes.map((o) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 5),
+                            child: Row(
+                              children: [
+                                Expanded(flex: 3, child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(o.outletName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                                    Text(o.outletCode, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)),
+                                  ],
+                                )),
+                                Expanded(flex: 2, child: Text(
+                                  'UGX ${_numberFormat.format(o.totalGGR.round())}',
+                                  textAlign: TextAlign.right,
+                                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                                )),
+                                Expanded(flex: 2, child: Text(
+                                  'UGX ${_numberFormat.format(o.totalOutletExpense.round())}',
+                                  textAlign: TextAlign.right,
+                                  style: TextStyle(fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.w600, color: AppColors.warning),
+                                )),
+                                Expanded(flex: 2, child: Text(
+                                  'UGX ${_numberFormat.format(o.netRevenue.round())}',
+                                  textAlign: TextAlign.right,
+                                  style: TextStyle(fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.w600, color: o.netRevenue >= 0 ? AppColors.income : AppColors.error),
+                                )),
+                              ],
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+                );
+              },
+              loading: () => const SizedBox.shrink(),
+              error: (_, __) => const SizedBox.shrink(),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // ── Operational Expenditure Table ─────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              'Operational Expenses',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(height: 8),
+
           // Expenditure Table
           Expanded(
             child: Container(

@@ -283,6 +283,53 @@ class AppDatabase extends _$AppDatabase {
 
   Stream<List<DepreciationEntry>> watchPendingDepreciationEntries() =>
       (select(depreciationEntries)..where((e) => e.status.equals('draft'))).watch();
+
+  // ========== BULK / RESET OPERATIONS ==========
+
+  /// Delete an outlet plus all its associated revenues, expenditures,
+  /// and commission payments in a single transaction.
+  Future<void> deleteOutletWithData(String outletId) async {
+    await transaction(() async {
+      await (delete(outletRevenues)..where((r) => r.outletId.equals(outletId))).go();
+      await (delete(outletExpenditures)..where((e) => e.outletId.equals(outletId))).go();
+      await (delete(commissionPayments)..where((c) => c.outletId.equals(outletId))).go();
+      await (delete(outlets)..where((o) => o.id.equals(outletId))).go();
+    });
+  }
+
+  /// Wipe EVERY row from every table and reset the sync sequence to zero.
+  /// Used by "Clear All Data" so the app is fully blank — same as a fresh install.
+  Future<void> clearAllData() async {
+    await transaction(() async {
+      // Child tables first (FK order)
+      await delete(depreciationEntries).go();
+      await delete(assetDepreciation).go();
+      await delete(assets).go();
+      await delete(commissionPayments).go();
+      await delete(outletExpenditures).go();
+      await delete(outletRevenues).go();
+      await delete(outlets).go();
+      await delete(journalLines).go();
+      await delete(journalEntries).go();
+      await delete(invoiceLines).go();
+      await delete(invoices).go();
+      await delete(billLines).go();
+      await delete(bills).go();
+      await delete(customers).go();
+      await delete(vendors).go();
+      await delete(accounts).go();
+      await delete(syncEvents).go();
+      // Reset sync state row (id=1) back to defaults
+      await (update(syncState)..where((s) => s.id.equals(1))).write(
+        const SyncStateCompanion(
+          lastSyncedSequence: Value(0),
+          lastSyncAt: Value(null),
+          syncStatus: Value('idle'),
+          lastError: Value(null),
+        ),
+      );
+    });
+  }
 }
 
 LazyDatabase _openConnection() {
