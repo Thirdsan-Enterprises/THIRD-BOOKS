@@ -390,6 +390,12 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
       final db = _ref.read(databaseProvider);
       await db.clearAllData();
 
+      // Invalidate cached FutureProviders so dashboard, analytics, expenditure,
+      // and reports screens immediately reflect the cleared state without restart.
+      _ref.invalidate(dashboardDataProvider);
+      _ref.invalidate(outletAnalyticsProvider);
+      _ref.invalidate(outletRevenueSummaryProvider);
+
       state = state.copyWith(pendingChanges: 0);
       debugPrint('Local cache and database cleared.');
     } catch (e) {
