@@ -655,7 +655,7 @@ class _OverviewTab extends StatelessWidget {
                     ),
             ),
             const SizedBox(height: 12),
-            ...outlets.take(6).asMap().entries.map((e) => Padding(
+            ...outlets.take(6).toList().asMap().entries.map((e) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 3),
               child: Row(
                 children: [
