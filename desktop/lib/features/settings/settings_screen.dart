@@ -2,10 +2,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/theme_service.dart';
 import '../../core/services/company_settings_service.dart';
+import '../../core/services/sync_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -962,6 +964,127 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _buildSyncSettings(BuildContext context) {
+    final syncState = ref.watch(syncServiceProvider);
+    final connectivity = ref.watch(connectivityProvider);
+    final appSettings = ref.watch(appSettingsProvider);
+
+    final isOnline = connectivity.isOnline;
+    final isSyncing = syncState.isSyncing;
+    final lastSync = syncState.lastSyncTime;
+    final pending = syncState.pendingChanges;
+
+    String _formatLastSync() {
+      if (lastSync == null) return 'Never synced';
+      final now = DateTime.now();
+      final diff = now.difference(lastSync);
+      if (diff.inSeconds < 60) return 'Just now';
+      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      return DateFormat('d MMM yyyy, h:mm a').format(lastSync);
+    }
+
+    Future<void> _confirmClearCache() async {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Clear Local Cache?'),
+          content: const Text(
+              'All locally stored data will be removed from this device. '
+              'Your cloud data is untouched and will re-sync automatically.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Clear Cache')),
+          ],
+        ),
+      );
+      if (ok == true && mounted) {
+        await ref.read(syncServiceProvider.notifier).clearLocalCache();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Local cache cleared. Syncing from cloud...'),
+            backgroundColor: AppColors.success,
+          ));
+          ref.read(syncServiceProvider.notifier).syncAll();
+        }
+      }
+    }
+
+    Future<void> _confirmDeleteAllData() async {
+      // Step 1: warn
+      final step1 = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Row(children: [
+            Icon(Icons.warning_amber_rounded, color: AppColors.error),
+            const SizedBox(width: 8),
+            const Text('Delete All Data?'),
+          ]),
+          content: const Text(
+              'This will permanently delete ALL your invoices, bills, customers, '
+              'vendors, journal entries and payments from the cloud. '
+              'This action CANNOT be undone.\n\n'
+              'Are you sure you want to proceed?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Yes, proceed'),
+            ),
+          ],
+        ),
+      );
+      if (step1 != true || !mounted) return;
+
+      // Step 2: type confirmation
+      final confirmCtrl = TextEditingController();
+      final step2 = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Final Confirmation'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Type DELETE_ALL_MY_DATA to confirm:'),
+            const SizedBox(height: 12),
+            TextField(controller: confirmCtrl, decoration: const InputDecoration(hintText: 'DELETE_ALL_MY_DATA')),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Delete Everything'),
+            ),
+          ],
+        ),
+      );
+      if (step2 != true || !mounted) return;
+
+      if (confirmCtrl.text.trim() != 'DELETE_ALL_MY_DATA') {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Confirmation text did not match. Deletion cancelled.'),
+          backgroundColor: AppColors.warning,
+        ));
+        return;
+      }
+
+      try {
+        await ref.read(syncServiceProvider.notifier).deleteAllCloudData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('All data has been permanently deleted.'),
+            backgroundColor: AppColors.error,
+          ));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Deletion failed: $e'),
+            backgroundColor: AppColors.error,
+          ));
+        }
+      }
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
       child: Column(
@@ -969,6 +1092,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         children: [
           _buildSectionHeader(context, 'Sync & Backup', 'Manage data synchronization and backups'),
           const SizedBox(height: 24),
+
+          // ── Sync Status Card ──────────────────────────────────────────────
           Card(
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -980,30 +1105,71 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: AppColors.income.withOpacity(0.1),
+                          color: (isOnline ? AppColors.income : AppColors.error).withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.cloud_done, color: AppColors.income, size: 32),
+                        child: Icon(
+                          isOnline ? Icons.cloud_done : Icons.cloud_off,
+                          color: isOnline ? AppColors.income : AppColors.error,
+                          size: 32,
+                        ),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Sync Status', style: Theme.of(context).textTheme.titleMedium),
+                            Row(children: [
+                              Text('Sync Status', style: Theme.of(context).textTheme.titleMedium),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: (isOnline ? AppColors.income : AppColors.error).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  isOnline ? 'Online' : 'Offline',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isOnline ? AppColors.income : AppColors.error,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ]),
                             const SizedBox(height: 4),
-                            Text('Last synced: Today at 2:45 PM',
-                                style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+                            Text(
+                              isSyncing
+                                  ? 'Syncing… ${(syncState.progress * 100).toStringAsFixed(0)}%'
+                                  : 'Last synced: ${_formatLastSync()}',
+                              style: TextStyle(color: Theme.of(context).colorScheme.outline),
+                            ),
+                            if (syncState.error != null)
+                              Text(syncState.error!,
+                                  style: const TextStyle(color: AppColors.error, fontSize: 12)),
                           ],
                         ),
                       ),
-                      FilledButton.icon(
-                        onPressed: () {},
-                        icon: const Icon(Icons.sync, size: 18),
-                        label: const Text('Sync Now'),
-                      ),
+                      if (isSyncing)
+                        const SizedBox(
+                          width: 24, height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      else
+                        FilledButton.icon(
+                          onPressed: isOnline
+                              ? () => ref.read(syncServiceProvider.notifier).syncAll()
+                              : null,
+                          icon: const Icon(Icons.sync, size: 18),
+                          label: const Text('Sync Now'),
+                        ),
                     ],
                   ),
+                  if (isSyncing) ...[
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(value: syncState.progress),
+                  ],
                   const Divider(height: 32),
                   Row(
                     children: [
@@ -1011,7 +1177,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         child: _SyncStatCard(
                           icon: Icons.upload,
                           label: 'Pending Upload',
-                          value: '0 items',
+                          value: '$pending item${pending == 1 ? '' : 's'}',
                           color: AppColors.info,
                         ),
                       ),
@@ -1019,18 +1185,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       Expanded(
                         child: _SyncStatCard(
                           icon: Icons.download,
-                          label: 'Pending Download',
-                          value: '0 items',
+                          label: 'Last Pull',
+                          value: lastSync != null ? _formatLastSync() : '—',
                           color: AppColors.secondary,
                         ),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
                         child: _SyncStatCard(
-                          icon: Icons.warning_amber,
-                          label: 'Conflicts',
-                          value: '0 items',
-                          color: AppColors.warning,
+                          icon: isOnline ? Icons.wifi : Icons.wifi_off,
+                          label: 'Connection',
+                          value: isOnline ? 'Connected' : 'Offline',
+                          color: isOnline ? AppColors.income : AppColors.error,
                         ),
                       ),
                     ],
@@ -1040,6 +1206,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
+
+          // ── Sync Settings Card ────────────────────────────────────────────
           Card(
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -1047,60 +1215,121 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Sync Settings', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
                   SwitchListTile(
                     title: const Text('Auto-sync'),
                     subtitle: const Text('Automatically sync when changes are made'),
-                    value: true,
-                    onChanged: (v) {},
+                    value: appSettings.autoSync,
+                    onChanged: (v) =>
+                        ref.read(appSettingsProvider.notifier).setAutoSync(v),
                   ),
-                  SwitchListTile(
-                    title: const Text('Sync on WiFi only'),
-                    subtitle: const Text('Only sync when connected to WiFi'),
-                    value: false,
-                    onChanged: (v) {},
-                  ),
-                  SwitchListTile(
-                    title: const Text('Background sync'),
-                    subtitle: const Text('Continue syncing when app is minimized'),
-                    value: true,
-                    onChanged: (v) {},
+                  const Divider(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Sync Interval'),
+                              Text(
+                                'How often to auto-sync in the background',
+                                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline),
+                              ),
+                            ],
+                          ),
+                        ),
+                        DropdownButton<int>(
+                          value: [5, 10, 15, 30, 60].contains(appSettings.syncIntervalMinutes)
+                              ? appSettings.syncIntervalMinutes
+                              : 15,
+                          items: const [
+                            DropdownMenuItem(value: 5, child: Text('Every 5 min')),
+                            DropdownMenuItem(value: 10, child: Text('Every 10 min')),
+                            DropdownMenuItem(value: 15, child: Text('Every 15 min')),
+                            DropdownMenuItem(value: 30, child: Text('Every 30 min')),
+                            DropdownMenuItem(value: 60, child: Text('Every hour')),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) {
+                              ref.read(appSettingsProvider.notifier).setSyncInterval(v);
+                            }
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 24),
+
+          // ── Local Cache Card ──────────────────────────────────────────────
           Card(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Local Backup', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {},
-                          icon: const Icon(Icons.backup, size: 18),
-                          label: const Text('Create Backup'),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {},
-                          icon: const Icon(Icons.restore, size: 18),
-                          label: const Text('Restore Backup'),
-                        ),
-                      ),
-                    ],
+                  Text('Local Cache', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Text(
+                    'The app stores a copy of your cloud data locally for offline access. '
+                    'Clearing the cache frees device storage; your cloud data is untouched '
+                    'and will re-download on the next sync.',
+                    style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.outline),
                   ),
                   const SizedBox(height: 16),
-                  Text('Last backup: January 20, 2024 at 10:30 AM',
-                      style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+                  OutlinedButton.icon(
+                    onPressed: _confirmClearCache,
+                    icon: const Icon(Icons.cleaning_services_outlined, size: 18),
+                    label: const Text('Clear Local Cache'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // ── Danger Zone Card ──────────────────────────────────────────────
+          Card(
+            shape: RoundedRectangleBorder(
+              side: BorderSide(color: AppColors.error.withOpacity(0.4), width: 1.5),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Icon(Icons.dangerous_outlined, color: AppColors.error),
+                    const SizedBox(width: 8),
+                    Text('Danger Zone',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(color: AppColors.error)),
+                  ]),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Permanently delete all your data from the cloud. '
+                    'This includes all invoices, bills, customers, vendors, '
+                    'journal entries and payments. This action is irreversible.',
+                    style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.outline),
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.error,
+                      side: BorderSide(color: AppColors.error),
+                    ),
+                    onPressed: isOnline ? _confirmDeleteAllData : null,
+                    icon: const Icon(Icons.delete_forever_outlined, size: 18),
+                    label: Text(isOnline ? 'Delete All My Data' : 'Must be online to delete'),
+                  ),
                 ],
               ),
             ),
