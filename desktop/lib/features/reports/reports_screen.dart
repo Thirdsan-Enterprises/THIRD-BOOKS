@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
@@ -127,7 +130,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             ),
             const SizedBox(width: 12),
             FilledButton.icon(
-              onPressed: () {},
+              onPressed: _exportAllReports,
               icon: const Icon(Icons.download, size: 18),
               label: const Text('Export All'),
             ),
@@ -291,18 +294,331 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             child: const Text('Close'),
           ),
           OutlinedButton.icon(
-            onPressed: () {},
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _printReport(report['name'] as String);
+            },
             icon: const Icon(Icons.print, size: 18),
             label: const Text('Print'),
           ),
           FilledButton.icon(
-            onPressed: () {},
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _exportReportPdf(report['name'] as String);
+            },
             icon: const Icon(Icons.download, size: 18),
             label: const Text('Export PDF'),
           ),
         ],
       ),
     );
+  }
+
+  // ── PDF Generation Helpers ─────────────────────────────────────────────────
+
+  static pw.Widget _pdfRow(String label, String value, {bool bold = false, double size = 11}) {
+    final style = pw.TextStyle(fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal, fontSize: size);
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 3),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [pw.Text(label, style: style), pw.Text(value, style: style)],
+      ),
+    );
+  }
+
+  static pw.Widget _pdfDivider() => pw.Divider(thickness: 0.5, color: PdfColors.grey400);
+
+  Future<pw.Document> _buildPdfDocument(String reportName) async {
+    final numFmt = NumberFormat('#,##0', 'en_US');
+    final dateFmt = DateFormat('MMM d, yyyy HH:mm');
+    final pdf = pw.Document();
+
+    final dashData = ref.read(dashboardDataProvider).valueOrNull;
+    final summary = ref.read(outletRevenueSummaryProvider).valueOrNull;
+    final outlets = ref.read(outletsStreamProvider).valueOrNull ?? [];
+
+    pw.Widget buildHeader(String title) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text('MAGIC BET LTD', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 20)),
+            pw.SizedBox(height: 4),
+            pw.Text(title, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 15)),
+            pw.SizedBox(height: 4),
+            pw.Text('Period: $_selectedPeriod   |   Generated: ${dateFmt.format(DateTime.now())}',
+                style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+            _pdfDivider(),
+            pw.SizedBox(height: 8),
+          ],
+        );
+
+    if (reportName == 'Income Statement' || reportName == 'GGR by Month') {
+      final totalIn = dashData?.cashIn ?? 0;
+      final totalOut = dashData?.cashOut ?? 0;
+      final ggr = dashData?.totalRevenue ?? 0;
+      final commission = dashData?.totalExpenses ?? 0;
+      final netRevenue = dashData?.netIncome ?? 0;
+
+      pdf.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            buildHeader('INCOME STATEMENT'),
+            pw.Text('REVENUE', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+            pw.SizedBox(height: 4),
+            _pdfRow('Total Stakes (Cash In)', 'UGX ${numFmt.format(totalIn)}'),
+            _pdfRow('Customer Winnings (Payouts)', '(UGX ${numFmt.format(totalOut)})'),
+            _pdfDivider(),
+            _pdfRow('Gross Gaming Revenue (GGR)', 'UGX ${numFmt.format(ggr)}', bold: true),
+            pw.SizedBox(height: 12),
+            pw.Text('OPERATING EXPENSES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+            pw.SizedBox(height: 4),
+            _pdfRow('Outlet Commission (40% of GGR)', '(UGX ${numFmt.format(commission)})'),
+            _pdfDivider(),
+            _pdfRow('Net Revenue (after commission)', 'UGX ${numFmt.format(netRevenue)}', bold: true, size: 13),
+          ],
+        ),
+      ));
+    } else if (reportName == 'Balance Sheet') {
+      final cashIn = dashData?.cashIn ?? 0;
+      final cashOut = dashData?.cashOut ?? 0;
+      final ggr = dashData?.totalRevenue ?? 0;
+
+      pdf.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            buildHeader('BALANCE SHEET'),
+            pw.Text('ASSETS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+            pw.SizedBox(height: 4),
+            pw.Text('Current Assets', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+            pw.SizedBox(height: 4),
+            _pdfRow('  Outlet Cash Collections', 'UGX ${numFmt.format(cashIn)}'),
+            _pdfDivider(),
+            _pdfRow('TOTAL ASSETS', 'UGX ${numFmt.format(cashIn)}', bold: true),
+            pw.SizedBox(height: 16),
+            pw.Text('LIABILITIES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+            pw.SizedBox(height: 4),
+            pw.Text('Current Liabilities', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+            pw.SizedBox(height: 4),
+            _pdfRow('  Customer Payouts', 'UGX ${numFmt.format(cashOut)}'),
+            _pdfDivider(),
+            _pdfRow('TOTAL LIABILITIES', 'UGX ${numFmt.format(cashOut)}', bold: true),
+            pw.SizedBox(height: 16),
+            pw.Text('EQUITY', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+            pw.SizedBox(height: 4),
+            pw.Text("Owner's Equity", style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+            pw.SizedBox(height: 4),
+            _pdfRow('  Retained Earnings (GGR)', 'UGX ${numFmt.format(ggr)}'),
+            _pdfDivider(),
+            _pdfRow('TOTAL LIABILITIES & EQUITY', 'UGX ${numFmt.format(cashOut + ggr)}', bold: true, size: 13),
+          ],
+        ),
+      ));
+    } else if (reportName == 'GGR by Outlet' || reportName == 'Top Performers' || reportName == 'Outlet Revenue Summary') {
+      final sortedEntries = (summary?.entries.toList() ?? [])
+        ..sort((a, b) => (b.value['totalGGR'] ?? 0).compareTo(a.value['totalGGR'] ?? 0));
+
+      pdf.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4.landscape,
+        build: (pw.Context ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            buildHeader('OUTLET PERFORMANCE REPORT'),
+            pw.TableHelper.fromTextArray(
+              headers: ['Outlet', 'Total In (UGX)', 'Total Out (UGX)', 'GGR (UGX)', 'Days'],
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
+              data: sortedEntries.map((entry) {
+                final outlet = outlets.where((o) => o.outletCode == entry.key).firstOrNull;
+                final d = entry.value;
+                return [
+                  outlet?.name ?? 'Outlet ${entry.key}',
+                  numFmt.format(d['totalIn'] ?? 0),
+                  numFmt.format(d['totalOut'] ?? 0),
+                  numFmt.format(d['totalGGR'] ?? 0),
+                  '${(d['days'] ?? 0).toInt()}',
+                ];
+              }).toList(),
+            ),
+          ],
+        ),
+      ));
+    } else {
+      // Generic placeholder page for reports without detailed preview
+      pdf.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            buildHeader(reportName.toUpperCase()),
+            pw.Center(
+              child: pw.Text(
+                'Report data will be available once CSV data has been imported.',
+                style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey600),
+              ),
+            ),
+          ],
+        ),
+      ));
+    }
+
+    return pdf;
+  }
+
+  Future<void> _printReport(String reportName) async {
+    try {
+      final pdf = await _buildPdfDocument(reportName);
+      await Printing.layoutPdf(onLayout: (_) async => pdf.save());
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Print failed: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
+  }
+
+  Future<void> _exportReportPdf(String reportName) async {
+    try {
+      final pdf = await _buildPdfDocument(reportName);
+      final bytes = await pdf.save();
+      final filename = '${reportName.replaceAll(' ', '_')}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf';
+      await Printing.sharePdf(bytes: bytes, filename: filename);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
+  }
+
+  Future<void> _exportAllReports() async {
+    try {
+      final numFmt = NumberFormat('#,##0', 'en_US');
+      final dateFmt = DateFormat('MMM d, yyyy HH:mm');
+      final dashData = ref.read(dashboardDataProvider).valueOrNull;
+      final summary = ref.read(outletRevenueSummaryProvider).valueOrNull;
+      final outlets = ref.read(outletsStreamProvider).valueOrNull ?? [];
+
+      final pdf = pw.Document();
+
+      pw.Widget buildHeader(String title) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('MAGIC BET LTD', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 20)),
+              pw.SizedBox(height: 4),
+              pw.Text(title, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 15)),
+              pw.SizedBox(height: 4),
+              pw.Text('Period: $_selectedPeriod   |   Generated: ${dateFmt.format(DateTime.now())}',
+                  style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+              _pdfDivider(),
+              pw.SizedBox(height: 8),
+            ],
+          );
+
+      final totalIn = dashData?.cashIn ?? 0;
+      final totalOut = dashData?.cashOut ?? 0;
+      final ggr = dashData?.totalRevenue ?? 0;
+      final commission = dashData?.totalExpenses ?? 0;
+      final netRevenue = dashData?.netIncome ?? 0;
+
+      // Page 1: Income Statement
+      pdf.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            buildHeader('INCOME STATEMENT'),
+            _pdfRow('Total Stakes (Cash In)', 'UGX ${numFmt.format(totalIn)}'),
+            _pdfRow('Customer Winnings (Payouts)', '(UGX ${numFmt.format(totalOut)})'),
+            _pdfDivider(),
+            _pdfRow('Gross Gaming Revenue (GGR)', 'UGX ${numFmt.format(ggr)}', bold: true),
+            pw.SizedBox(height: 12),
+            _pdfRow('Outlet Commission (40% of GGR)', '(UGX ${numFmt.format(commission)})'),
+            _pdfDivider(),
+            _pdfRow('Net Revenue', 'UGX ${numFmt.format(netRevenue)}', bold: true, size: 13),
+          ],
+        ),
+      ));
+
+      // Page 2: Balance Sheet
+      pdf.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            buildHeader('BALANCE SHEET'),
+            pw.Text('ASSETS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+            pw.SizedBox(height: 4),
+            _pdfRow('  Outlet Cash Collections', 'UGX ${numFmt.format(totalIn)}'),
+            _pdfDivider(),
+            _pdfRow('TOTAL ASSETS', 'UGX ${numFmt.format(totalIn)}', bold: true),
+            pw.SizedBox(height: 16),
+            pw.Text('LIABILITIES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+            pw.SizedBox(height: 4),
+            _pdfRow('  Customer Payouts', 'UGX ${numFmt.format(totalOut)}'),
+            _pdfDivider(),
+            _pdfRow('TOTAL LIABILITIES', 'UGX ${numFmt.format(totalOut)}', bold: true),
+            pw.SizedBox(height: 16),
+            pw.Text('EQUITY', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+            pw.SizedBox(height: 4),
+            _pdfRow('  Retained Earnings (GGR)', 'UGX ${numFmt.format(ggr)}'),
+            _pdfDivider(),
+            _pdfRow('TOTAL LIABILITIES & EQUITY', 'UGX ${numFmt.format(totalOut + ggr)}', bold: true, size: 13),
+          ],
+        ),
+      ));
+
+      // Page 3: Outlet Performance
+      final sortedEntries = (summary?.entries.toList() ?? [])
+        ..sort((a, b) => (b.value['totalGGR'] ?? 0).compareTo(a.value['totalGGR'] ?? 0));
+
+      pdf.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4.landscape,
+        build: (pw.Context ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            buildHeader('OUTLET PERFORMANCE REPORT'),
+            if (sortedEntries.isEmpty)
+              pw.Text('No outlet data yet. Import CSV data to see outlet performance.',
+                  style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey600))
+            else
+              pw.TableHelper.fromTextArray(
+                headers: ['Outlet', 'Total In (UGX)', 'Total Out (UGX)', 'GGR (UGX)', 'Days'],
+                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+                cellStyle: const pw.TextStyle(fontSize: 9),
+                headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                data: sortedEntries.map((entry) {
+                  final outlet = outlets.where((o) => o.outletCode == entry.key).firstOrNull;
+                  final d = entry.value;
+                  return [
+                    outlet?.name ?? 'Outlet ${entry.key}',
+                    numFmt.format(d['totalIn'] ?? 0),
+                    numFmt.format(d['totalOut'] ?? 0),
+                    numFmt.format(d['totalGGR'] ?? 0),
+                    '${(d['days'] ?? 0).toInt()}',
+                  ];
+                }).toList(),
+              ),
+          ],
+        ),
+      ));
+
+      final bytes = await pdf.save();
+      final filename = 'MagicBet_All_Reports_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf';
+      await Printing.sharePdf(bytes: bytes, filename: filename);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
   }
 
   Widget _buildReportContent(BuildContext context, String reportName) {

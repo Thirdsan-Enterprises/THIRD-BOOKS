@@ -126,36 +126,6 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
             ),
           ),
 
-          // Summary Cards
-          expendituresAsync.when(
-            data: (expenditures) {
-              var filtered = expenditures.toList();
-              if (_selectedOutletId != null) filtered = filtered.where((e) => e.outletId == _selectedOutletId).toList();
-              final total = filtered.fold<double>(0, (s, e) => s + e.amount);
-              final pending = filtered.where((e) => e.status == 'pending').fold<double>(0, (s, e) => s + e.amount);
-              final approved = filtered.where((e) => e.status == 'approved').fold<double>(0, (s, e) => s + e.amount);
-              final paid = filtered.where((e) => e.status == 'paid').fold<double>(0, (s, e) => s + e.amount);
-
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Row(
-                  children: [
-                    _buildSummaryCard('Total Expenses', 'UGX ${_numberFormat.format(total)}', Icons.money_off, AppColors.error),
-                    const SizedBox(width: 16),
-                    _buildSummaryCard('Pending', 'UGX ${_numberFormat.format(pending)}', Icons.pending_actions, AppColors.warning),
-                    const SizedBox(width: 16),
-                    _buildSummaryCard('Approved', 'UGX ${_numberFormat.format(approved)}', Icons.check_circle_outline, AppColors.success),
-                    const SizedBox(width: 16),
-                    _buildSummaryCard('Paid', 'UGX ${_numberFormat.format(paid)}', Icons.payment, AppColors.info),
-                  ],
-                ),
-              );
-            },
-            loading: () => const SizedBox.shrink(),
-            error: (_, __) => const SizedBox.shrink(),
-          ),
-          const SizedBox(height: 16),
-
           // ── Commission Expense Section (40% of GGR per outlet) ────────────
           // This is the primary expense for MagicBet: 40% of adjusted GGR
           // paid to outlet location owners, with carry-forward loss adjustment.
@@ -376,27 +346,6 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
           ),
           const SizedBox(height: 24),
         ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryCard(String title, String value, IconData icon, Color color) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withOpacity(0.3)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [Icon(icon, color: color, size: 20), const SizedBox(width: 8), Expanded(child: Text(title, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)))]),
-            const SizedBox(height: 8),
-            Text(value, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-          ],
-        ),
       ),
     );
   }
