@@ -4,8 +4,10 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
 
 import 'tables.dart';
+import 'outlet_seed_data.dart';
 
 part 'app_database.g.dart';
 
@@ -42,6 +44,8 @@ class AppDatabase extends _$AppDatabase {
         await m.createAll();
         // Initialize sync state
         await into(syncState).insert(SyncStateCompanion.insert());
+        // Pre-load all 72 MagicBet outlet locations
+        await seedOutlets();
       },
       onUpgrade: (Migrator m, int from, int to) async {
         // Migration from v1 to v2 - add new tables for MAGIC BET LTD
@@ -198,6 +202,28 @@ class AppDatabase extends _$AppDatabase {
 
   Future<int> deleteOutlet(String id) =>
       (delete(outlets)..where((o) => o.id.equals(id))).go();
+
+  /// Inserts the 72 pre-defined MagicBet outlet locations.
+  /// Safe to call multiple times — only runs when the outlets table is empty.
+  Future<void> seedOutlets() async {
+    final existing = await getAllOutlets();
+    if (existing.isNotEmpty) return;
+
+    final now = DateTime.now();
+    const uuid = Uuid();
+    for (final row in kOutletSeedData) {
+      await into(outlets).insert(OutletsCompanion.insert(
+        id: uuid.v4(),
+        outletCode: row[0],
+        name: row[1],
+        city: Value(row[2]),
+        region: Value(row[3]),
+        isActive: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ));
+    }
+  }
 
   // ========== OUTLET REVENUE OPERATIONS ==========
   Future<List<OutletRevenue>> getAllOutletRevenues() =>
