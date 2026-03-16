@@ -53,7 +53,7 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
     return Scaffold(
       body: Column(
         children: [
-          // Header
+          // Fixed Header
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
@@ -89,9 +89,10 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
             ),
           ),
 
-          // Filters
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          // Filters (fixed, always visible)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            color: Theme.of(context).scaffoldBackgroundColor,
             child: Row(
               children: [
                 Expanded(
@@ -101,6 +102,7 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
                       value: _selectedOutletId,
                       decoration: InputDecoration(
                         labelText: 'Filter by Outlet',
+                        isDense: true,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       items: [
@@ -126,225 +128,221 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
             ),
           ),
 
-          // ── Commission Expense Section (40% of GGR per outlet) ────────────
-          // This is the primary expense for MagicBet: 40% of adjusted GGR
-          // paid to outlet location owners, with carry-forward loss adjustment.
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: ref.watch(outletAnalyticsProvider).when(
-              data: (analytics) {
-                final lifetimes = _selectedOutletId == null
-                    ? analytics.lifetimeTotals
-                    : analytics.lifetimeTotals.where((o) => o.outletId == _selectedOutletId).toList();
-                if (lifetimes.isEmpty) return const SizedBox.shrink();
-                final totalCommission = lifetimes.fold(0.0, (s, o) => s + o.totalOutletExpense);
-                return Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: AppColors.warning.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Icon(Icons.handshake_outlined, color: AppColors.warning, size: 20),
-                            ),
-                            const SizedBox(width: 12),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Outlet Commission Expense (40% of GGR)',
-                                    style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
-                                Text('Paid to location owners — calculated after carry-forward loss adjustment',
-                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
-                              ],
-                            ),
-                            const Spacer(),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text('Total Commission', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
-                                Text(
-                                  'UGX ${_numberFormat.format(totalCommission.round())}',
-                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: AppColors.warning),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        const Divider(height: 1),
-                        const SizedBox(height: 8),
-                        // Per-outlet commission table
-                        Row(
-                          children: [
-                            Expanded(flex: 3, child: Text('Outlet', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
-                            Expanded(flex: 2, child: Text('Total GGR', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12), textAlign: TextAlign.right)),
-                            Expanded(flex: 2, child: Text('Commission (40%)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.warning), textAlign: TextAlign.right)),
-                            Expanded(flex: 2, child: Text('Net Revenue (60%)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.income), textAlign: TextAlign.right)),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        ...lifetimes.map((o) {
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 5),
-                            child: Row(
-                              children: [
-                                Expanded(flex: 3, child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(o.outletName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                                    Text(o.outletCode, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)),
-                                  ],
-                                )),
-                                Expanded(flex: 2, child: Text(
-                                  'UGX ${_numberFormat.format(o.totalGGR.round())}',
-                                  textAlign: TextAlign.right,
-                                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                                )),
-                                Expanded(flex: 2, child: Text(
-                                  'UGX ${_numberFormat.format(o.totalOutletExpense.round())}',
-                                  textAlign: TextAlign.right,
-                                  style: TextStyle(fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.w600, color: AppColors.warning),
-                                )),
-                                Expanded(flex: 2, child: Text(
-                                  'UGX ${_numberFormat.format(o.netRevenue.round())}',
-                                  textAlign: TextAlign.right,
-                                  style: TextStyle(fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.w600, color: o.netRevenue >= 0 ? AppColors.income : AppColors.error),
-                                )),
-                              ],
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
-                  ),
-                );
-              },
-              loading: () => const SizedBox.shrink(),
-              error: (_, __) => const SizedBox.shrink(),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // ── Operational Expenditure Table ─────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Text(
-              'Operational Expenses',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          // Expenditure Table
+          // ── Everything below is scrollable ────────────────────────────────
           Expanded(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24),
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Theme.of(context).dividerColor),
-              ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
-                      border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
-                    ),
-                    child: const Row(
-                      children: [
-                        Expanded(flex: 2, child: Text('Outlet', style: TextStyle(fontWeight: FontWeight.bold))),
-                        Expanded(child: Text('Date', style: TextStyle(fontWeight: FontWeight.bold))),
-                        Expanded(child: Text('Type', style: TextStyle(fontWeight: FontWeight.bold))),
-                        Expanded(child: Text('Amount', style: TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
-                        Expanded(flex: 2, child: Text('Description', style: TextStyle(fontWeight: FontWeight.bold))),
-                        Expanded(child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: expendituresAsync.when(
-                      data: (expenditures) {
-                        final outletsData = ref.watch(outletsStreamProvider).valueOrNull ?? [];
-                        final outletMap = {for (var o in outletsData) o.id: o};
-
-                        var filtered = expenditures.toList();
-                        if (_selectedOutletId != null) filtered = filtered.where((e) => e.outletId == _selectedOutletId).toList();
-                        if (_selectedStatus != 'All') filtered = filtered.where((e) => e.status == _selectedStatus).toList();
-                        filtered.sort((a, b) => b.date.compareTo(a.date));
-
-                        if (filtered.isEmpty) {
-                          return Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.receipt_outlined, size: 64, color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
-                                const SizedBox(height: 16),
-                                Text('No expenditure records found', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.outline)),
-                              ],
-                            ),
-                          );
-                        }
-
-                        return ListView.builder(
-                          itemCount: filtered.length,
-                          itemBuilder: (context, index) {
-                            final exp = filtered[index];
-                            final outlet = outletMap[exp.outletId];
-                            final statusColor = exp.status == 'paid' ? AppColors.success : exp.status == 'approved' ? AppColors.info : AppColors.warning;
-
-                            return Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: index.isEven ? null : Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.1),
-                                border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.5))),
-                              ),
-                              child: Row(
+                  // ── Commission Expense Section (40% of GGR per outlet) ────
+                  ref.watch(outletAnalyticsProvider).when(
+                    data: (analytics) {
+                      final lifetimes = _selectedOutletId == null
+                          ? analytics.lifetimeTotals
+                          : analytics.lifetimeTotals.where((o) => o.outletId == _selectedOutletId).toList();
+                      if (lifetimes.isEmpty) return const SizedBox.shrink();
+                      final totalCommission = lifetimes.fold(0.0, (s, o) => s + o.totalOutletExpense);
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
                                 children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.warning.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Icon(Icons.handshake_outlined, color: AppColors.warning, size: 20),
+                                  ),
+                                  const SizedBox(width: 12),
                                   Expanded(
-                                    flex: 2,
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(outlet?.name ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.w500)),
-                                        Text(outlet?.outletCode ?? '', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)),
+                                        Text('Outlet Commission Expense (40% of GGR)',
+                                            style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                                        Text('Paid to location owners — calculated after carry-forward loss adjustment',
+                                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
                                       ],
                                     ),
                                   ),
-                                  Expanded(child: Text(DateFormat('MMM d, yyyy').format(exp.date))),
-                                  Expanded(child: Text(exp.expenseType)),
-                                  Expanded(child: Text('UGX ${_numberFormat.format(exp.amount)}', textAlign: TextAlign.right, style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w500))),
-                                  Expanded(flex: 2, child: Text(exp.description, overflow: TextOverflow.ellipsis)),
-                                  Expanded(
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                      decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                                      child: Text(exp.status[0].toUpperCase() + exp.status.substring(1), style: TextStyle(fontSize: 12, color: statusColor)),
-                                    ),
+                                  const SizedBox(width: 12),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text('Total Commission', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
+                                      Text(
+                                        'UGX ${_numberFormat.format(totalCommission.round())}',
+                                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: AppColors.warning),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
+                              const SizedBox(height: 12),
+                              const Divider(height: 1),
+                              const SizedBox(height: 8),
+                              // Header row
+                              Row(
+                                children: [
+                                  Expanded(flex: 3, child: Text('Outlet', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
+                                  Expanded(flex: 2, child: Text('Total GGR', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12), textAlign: TextAlign.right)),
+                                  Expanded(flex: 2, child: Text('Commission (40%)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.warning), textAlign: TextAlign.right)),
+                                  Expanded(flex: 2, child: Text('Net Revenue (60%)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.income), textAlign: TextAlign.right)),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              ...lifetimes.map((o) => Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 5),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          flex: 3,
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(o.outletName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                                              Text(o.outletCode, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)),
+                                            ],
+                                          ),
+                                        ),
+                                        Expanded(flex: 2, child: Text('UGX ${_numberFormat.format(o.totalGGR.round())}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontFamily: 'monospace'))),
+                                        Expanded(flex: 2, child: Text('UGX ${_numberFormat.format(o.totalOutletExpense.round())}', textAlign: TextAlign.right, style: TextStyle(fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.w600, color: AppColors.warning))),
+                                        Expanded(flex: 2, child: Text('UGX ${_numberFormat.format(o.netRevenue.round())}', textAlign: TextAlign.right, style: TextStyle(fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.w600, color: o.netRevenue >= 0 ? AppColors.income : AppColors.error))),
+                                      ],
+                                    ),
+                                  )),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                    loading: () => const SizedBox.shrink(),
+                    error: (_, __) => const SizedBox.shrink(),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ── Operational Expenditure Table ─────────────────────────
+                  Text('Operational Expenses', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                    ),
+                    child: Column(
+                      children: [
+                        // Table header
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                            border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
+                          ),
+                          child: const Row(
+                            children: [
+                              Expanded(flex: 2, child: Text('Outlet', style: TextStyle(fontWeight: FontWeight.bold))),
+                              Expanded(child: Text('Date', style: TextStyle(fontWeight: FontWeight.bold))),
+                              Expanded(child: Text('Type', style: TextStyle(fontWeight: FontWeight.bold))),
+                              Expanded(child: Text('Amount', style: TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
+                              Expanded(flex: 2, child: Text('Description', style: TextStyle(fontWeight: FontWeight.bold))),
+                              Expanded(child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+                            ],
+                          ),
+                        ),
+                        // Rows (shrinkWrap so they expand naturally inside SingleChildScrollView)
+                        expendituresAsync.when(
+                          data: (expenditures) {
+                            final outletsData = ref.watch(outletsStreamProvider).valueOrNull ?? [];
+                            final outletMap = {for (var o in outletsData) o.id: o};
+
+                            var filtered = expenditures.toList();
+                            if (_selectedOutletId != null) filtered = filtered.where((e) => e.outletId == _selectedOutletId).toList();
+                            if (_selectedStatus != 'All') filtered = filtered.where((e) => e.status == _selectedStatus).toList();
+                            filtered.sort((a, b) => b.date.compareTo(a.date));
+
+                            if (filtered.isEmpty) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 48),
+                                child: Center(
+                                  child: Column(
+                                    children: [
+                                      Icon(Icons.receipt_outlined, size: 64, color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
+                                      const SizedBox(height: 16),
+                                      Text('No expenditure records found', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.outline)),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }
+
+                            return Column(
+                              children: filtered.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final exp = entry.value;
+                                final outlet = outletMap[exp.outletId];
+                                final statusColor = exp.status == 'paid' ? AppColors.success : exp.status == 'approved' ? AppColors.info : AppColors.warning;
+
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: index.isEven ? null : Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.1),
+                                    border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.5))),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 2,
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(outlet?.name ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.w500)),
+                                            Text(outlet?.outletCode ?? '', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)),
+                                          ],
+                                        ),
+                                      ),
+                                      Expanded(child: Text(DateFormat('MMM d, yyyy').format(exp.date))),
+                                      Expanded(child: Text(exp.expenseType)),
+                                      Expanded(child: Text('UGX ${_numberFormat.format(exp.amount)}', textAlign: TextAlign.right, style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w500))),
+                                      Expanded(flex: 2, child: Text(exp.description, overflow: TextOverflow.ellipsis)),
+                                      Expanded(
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                                          child: Text(exp.status[0].toUpperCase() + exp.status.substring(1), style: TextStyle(fontSize: 12, color: statusColor)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
                             );
                           },
-                        );
-                      },
-                      loading: () => const Center(child: CircularProgressIndicator()),
-                      error: (e, _) => Center(child: Text('Error: $e')),
+                          loading: () => const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 32),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                          error: (e, _) => Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Text('Error: $e'),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 24),
         ],
       ),
     );
