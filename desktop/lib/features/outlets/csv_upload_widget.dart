@@ -106,6 +106,10 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
           _csvData = null;
           _fileName = null;
         });
+        // Invalidate all data providers so dashboard and reports reflect new data immediately
+        ref.invalidate(dashboardDataProvider);
+        ref.invalidate(outletRevenueSummaryProvider);
+        ref.invalidate(outletAnalyticsProvider);
       }
     } catch (e) {
       if (mounted) {
