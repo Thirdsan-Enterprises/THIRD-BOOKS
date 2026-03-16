@@ -39,7 +39,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
       final matchesSearch = _searchQuery.isEmpty ||
           account.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           account.code.contains(_searchQuery);
-      final matchesType = _selectedType == null || account.type.name == _selectedType;
+      final matchesType = _selectedType == null || _getTypeName(account.type) == _selectedType;
       return matchesSearch && matchesType;
     }).toList();
   }
