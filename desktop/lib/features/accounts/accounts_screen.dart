@@ -319,7 +319,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
                       ),
                     ),
                   ),
-                  DataCell(Text(account.subType?.name ?? '-')),
+                  DataCell(Text(account.subType?.displayName ?? '-')),
                   DataCell(
                     Text(
                       'UGX ${_currencyFormat.format(account.balance)}',
@@ -525,7 +525,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
                           items: AccountSubType.values
                               .map((type) => DropdownMenuItem(
                                     value: type,
-                                    child: Text(type.name),
+                                    child: Text(type.displayName),
                                   ))
                               .toList(),
                           onChanged: (value) => setDialogState(() => selectedSubType = value),
@@ -666,7 +666,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
                           items: AccountSubType.values
                               .map((type) => DropdownMenuItem(
                                     value: type,
-                                    child: Text(type.name),
+                                    child: Text(type.displayName),
                                   ))
                               .toList(),
                           onChanged: (value) => setDialogState(() => selectedSubType = value!),
