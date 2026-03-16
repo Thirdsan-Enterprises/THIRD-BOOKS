@@ -40,6 +40,33 @@ enum AccountSubType {
   otherExpense,
 }
 
+extension AccountSubTypeDisplay on AccountSubType {
+  String get displayName {
+    switch (this) {
+      case AccountSubType.cash:               return 'Cash';
+      case AccountSubType.bank:               return 'Bank';
+      case AccountSubType.accountsReceivable: return 'Accounts Receivable';
+      case AccountSubType.inventory:          return 'Inventory';
+      case AccountSubType.fixedAsset:         return 'Fixed Asset';
+      case AccountSubType.otherCurrentAsset:  return 'Other Current Asset';
+      case AccountSubType.otherAsset:         return 'Other Asset';
+      case AccountSubType.accountsPayable:    return 'Accounts Payable';
+      case AccountSubType.creditCard:         return 'Credit Card';
+      case AccountSubType.currentLiability:   return 'Current Liability';
+      case AccountSubType.longTermLiability:  return 'Long Term Liability';
+      case AccountSubType.ownersEquity:       return 'Owners Equity';
+      case AccountSubType.retainedEarnings:   return 'Retained Earnings';
+      case AccountSubType.salesRevenue:       return 'Sales Revenue';
+      case AccountSubType.serviceRevenue:     return 'Service Revenue';
+      case AccountSubType.otherIncome:        return 'Other Income';
+      case AccountSubType.costOfGoodsSold:    return 'Cost Of Goods Sold';
+      case AccountSubType.operatingExpense:   return 'Operating Expense';
+      case AccountSubType.payrollExpense:     return 'Payroll Expense';
+      case AccountSubType.otherExpense:       return 'Other Expense';
+    }
+  }
+}
+
 class Account {
   final String id;
   final String code;
