@@ -89,9 +89,11 @@ class InitializationService {
     }
   }
 
-  /// Check and run setup if needed
+  /// Check and run setup if needed.
   ///
-  /// Call this after user login to ensure system is initialized
+  /// Called after every login. Always ensures the 72 outlet locations are
+  /// present in the database (idempotent — seedOutlets only inserts missing
+  /// codes, so this is fast after the first run).
   static Future<bool> checkAndRunSetup(AppDatabase db) async {
     // Always purge demo data on upgrade (idempotent - only runs once)
     await purgeDemoData();
@@ -101,10 +103,14 @@ class InitializationService {
     if (!setupComplete) {
       print('First-time setup detected. Running MagicBet initialization...');
       await runMagicBetSetup(db);
-      return true; // Setup was run
+      return true; // Full setup was run
     }
 
-    print('MagicBet setup already complete.');
+    // Even when setup is flagged complete, always ensure outlets are seeded.
+    // Handles: clearAllData() called, DB migrated with stale codes, fresh DB
+    // on a new machine where onCreate already ran but old codes were used.
+    await db.seedOutlets();
+    print('MagicBet outlets verified.');
     return false; // Setup was already complete
   }
 }
