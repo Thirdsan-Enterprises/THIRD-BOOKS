@@ -58,6 +58,8 @@ class AppDatabase extends _$AppDatabase {
           await m.createTable(assetDepreciation);
           await m.createTable(depreciationEntries);
         }
+        // Always ensure the 72 real outlets are present after any schema upgrade
+        await seedOutlets();
       },
     );
   }
@@ -203,15 +205,31 @@ class AppDatabase extends _$AppDatabase {
   Future<int> deleteOutlet(String id) =>
       (delete(outlets)..where((o) => o.id.equals(id))).go();
 
-  /// Inserts the 72 pre-defined MagicBet outlet locations.
-  /// Safe to call multiple times — only runs when the outlets table is empty.
+  /// Inserts the 72 canonical MagicBet outlet locations from kOutletSeedData.
+  /// Idempotent: inserts only codes that do not yet exist, so calling this
+  /// after a schema upgrade or after clearAllData() is always safe.
+  /// If the DB contains only stale old-format codes (23101xxx), they are
+  /// removed first so the correct codes (23103xxx) can be seeded cleanly.
   Future<void> seedOutlets() async {
     final existing = await getAllOutlets();
-    if (existing.isNotEmpty) return;
+    final seedCodes = kOutletSeedData.map((r) => r[0]).toSet();
+    final existingCodes = existing.map((o) => o.outletCode).toSet();
+
+    // Detect stale data: if none of the existing codes match the seed codes,
+    // wipe the stale outlets table before re-seeding.
+    if (existing.isNotEmpty && existingCodes.intersection(seedCodes).isEmpty) {
+      await delete(outlets).go();
+      existing.clear();
+      existingCodes.clear();
+    }
+
+    final missingCodes = seedCodes.difference(existingCodes);
+    if (missingCodes.isEmpty) return;
 
     final now = DateTime.now();
     const uuid = Uuid();
     for (final row in kOutletSeedData) {
+      if (!missingCodes.contains(row[0])) continue;
       await into(outlets).insert(OutletsCompanion.insert(
         id: uuid.v4(),
         outletCode: row[0],
@@ -323,18 +341,19 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
-  /// Wipe EVERY row from every table and reset the sync sequence to zero.
-  /// Used by "Clear All Data" so the app is fully blank — same as a fresh install.
+  /// Wipe all transactional data (revenues, expenditures, etc.) and reset
+  /// the sync sequence to zero — same as a fresh install.
+  /// The 72 outlet location records are preserved and re-seeded automatically
+  /// so CSV imports continue to work after a data reset.
   Future<void> clearAllData() async {
     await transaction(() async {
-      // Child tables first (FK order)
+      // Child tables first (FK order) — revenues & expenditures only
       await delete(depreciationEntries).go();
       await delete(assetDepreciation).go();
       await delete(assets).go();
       await delete(commissionPayments).go();
       await delete(outletExpenditures).go();
       await delete(outletRevenues).go();
-      await delete(outlets).go();
       await delete(journalLines).go();
       await delete(journalEntries).go();
       await delete(invoiceLines).go();
@@ -355,6 +374,9 @@ class AppDatabase extends _$AppDatabase {
         ),
       );
     });
+    // Re-seed the 72 outlet locations outside the transaction so
+    // outlets are always available for CSV import after a data reset.
+    await seedOutlets();
   }
 }
 
