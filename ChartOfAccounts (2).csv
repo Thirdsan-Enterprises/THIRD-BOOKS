@@ -1,0 +1,79 @@
+*Code,*Name,*Type
+100,Petty Cash,Bank
+101,ABSA UGX Account,Bank
+102,MTN Momopay,Bank
+103,Stakes,Revenue
+104,Other Revenue,Other Income
+105,Responsible gambling expenses,Expense
+106,Interest Income,Expense
+107,Payouts,Revenue
+108,Gaming Tax,Direct Costs
+109,Offline Advertising,Expense
+110,Online Advertising,Expense
+111, Campaigns,Expense
+112,PR & Social Marketing,Expense
+113,Sponsorships,Expense
+114,Team Budget,Expense
+115,Entertainment,Expense
+116,All Risk Insurance,Expense
+117,WC Insurance,Expense
+118,Medical Insurance,Expense
+119,Interest Expense,Expense
+120,Audit fees,Expense
+121,Legal expenses,Expense
+122,Accounting and tax,Expense
+123,Consulting expense,Expense
+124,Share Capital Expenses,Expense
+125,Office Expenses,Expense
+126,Internet and Other services,Expense
+127,Utilities,Expense
+128,Corporate Social Responsibility,Direct Costs
+129,Rent,Expense
+130,Gambling License Fee,Direct Costs
+131,Other employment benefits,Expense
+132,Salaries ,Expense
+133,Meals & Refreshments,Expense
+134,Employee Learning and Development,Expense
+135,Employer contribution NSSF,Expense
+136,Travel Expenses,Expense
+137,Bank Charges,Expense
+138,Bank Revaluations,Bank Revaluations
+139,Unrealised Currency Gains,Unrealized Currency Gains
+140,Realised Currency Gains,Realized Currency Gains
+141,Tax Penalities,Expense
+142,Income Tax Expense,Expense
+143,Depreciation,Depreciation
+144,Withholding Tax,Expense
+145,VAT Expense,Direct Costs
+146,Withholding Tax Payable - Suppliers,Current Liability
+147,Gaming Tax Payable,Current Liability
+148,PAYE tax payable,Current Liability
+149,NSSF Payable,Current Liability
+150,Accounts Receivable,Accounts Receivable
+151,Deposits - Rent,Non-Current Asset
+152,Prepayments,Current Asset
+153,Accrued Income,Current Asset
+154,Office Equipment,Fixed Asset
+155,Less Accumulated Depreciation on Office Equipment,Fixed Asset
+156,Computer hardware Equipment,Fixed Asset
+157,Less Accumulated Depreciation on Computer Equipment,Fixed Asset
+158,Office furiniture,Fixed Asset
+159,Less Accumulated depreciation on Office Furniture,Fixed Asset
+160,Technical services fee,Expense
+161,Platform services fee,Expense
+162,Support services fee,Expense
+163,Directors' Fees,Expense
+164,Accounts Payable,Accounts Payable
+165,Wages Payable,Wages Payable
+166,Accruals,Current Liability
+167,Tax Liability,Sales Tax
+168,Employee Tax Payable,Current Liability
+169,Income Tax Payable,Current Liability
+170,Suspense,Current Liability
+171,Rounding,Rounding
+172,Loan,Non-current Liability
+173,Share Capital Receivable,Current Asset
+174,Accounts Payable- URA,Current Liability
+175,Retained Earnings,Retained Earnings
+176,Dividends Paid,Equity
+177,Share Capital,Equity
