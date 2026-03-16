@@ -37,6 +37,10 @@ enum AccountSubType {
   costOfGoodsSold,
   operatingExpense,
   payrollExpense,
+  staffCosts,
+  marketingExpense,
+  professionalFees,
+  bankRevaluation,
   otherExpense,
 }
 
@@ -62,6 +66,10 @@ extension AccountSubTypeDisplay on AccountSubType {
       case AccountSubType.costOfGoodsSold:    return 'Cost Of Goods Sold';
       case AccountSubType.operatingExpense:   return 'Operating Expense';
       case AccountSubType.payrollExpense:     return 'Payroll Expense';
+      case AccountSubType.staffCosts:         return 'Staff Costs';
+      case AccountSubType.marketingExpense:   return 'Marketing Expenses';
+      case AccountSubType.professionalFees:   return 'Professional Fees';
+      case AccountSubType.bankRevaluation:    return 'Bank Revaluation';
       case AccountSubType.otherExpense:       return 'Other Expense';
     }
   }

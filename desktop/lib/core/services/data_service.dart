@@ -35,7 +35,6 @@ final databaseProvider = Provider<AppDatabase>((ref) {
 List<Account> _magicBetDefaultAccounts() {
   final now = DateTime.now();
 
-  // Helper to build an Account concisely
   Account a(
     String code,
     String name,
@@ -56,266 +55,152 @@ List<Account> _magicBetDefaultAccounts() {
         updatedAt: now,
       );
 
+  // Chart of Accounts — sourced from client's COA.xlsx (codes 100–177)
+  // Organised into: Cash/Bank · Revenue · Direct Costs · Expenses ·
+  //                 Liabilities · Assets · Equity
   return [
     // ════════════════════════════════════════════════════════════════════════
-    // ASSETS  1000–1799
+    // CASH & BANK  (100–102)
     // ════════════════════════════════════════════════════════════════════════
-
-    // ── 1.1  Current Assets ─────────────────────────────────────────────────
-    a('1010', 'Cash on Hand — Head Office',         AccountType.asset, AccountSubType.cash,   system: true),
-    a('1011', 'Cash Float — Outlet Collections',    AccountType.asset, AccountSubType.cash,   system: true,
-      desc: 'Petty cash and float held at each outlet location'),
-    a('1012', 'Cash in Transit',                    AccountType.asset, AccountSubType.cash,
-      desc: 'Cash collected from outlets en route to head office'),
-    a('1020', 'Bank Account — Main Operating (UGX)',AccountType.asset, AccountSubType.bank,   system: true),
-    a('1021', 'Bank Account — Savings (UGX)',        AccountType.asset, AccountSubType.bank),
-    a('1030', 'Mobile Money Float (MTN/Airtel)',    AccountType.asset, AccountSubType.cash,
-      desc: 'Mobile money wallet balances used for outlet operations'),
-    a('1040', 'Outlet Cash Collections',            AccountType.asset, AccountSubType.cash,   system: true,
-      desc: 'Total stakes (Cash In) collected across all 72 outlets'),
-
-    a('1060', 'Accounts Receivable',                AccountType.asset, AccountSubType.accountsReceivable, system: true),
-    a('1061', 'Allowance for Doubtful Accounts',    AccountType.asset, AccountSubType.accountsReceivable,
-      desc: 'Contra-asset: estimated uncollectable receivables'),
-
-    a('1080', 'VAT Recoverable (Input Tax)',         AccountType.asset, AccountSubType.otherCurrentAsset,
-      desc: 'VAT paid on qualifying purchases recoverable from URA'),
-    a('1090', 'Prepaid Expenses',                   AccountType.asset, AccountSubType.otherCurrentAsset),
-    a('1091', 'Prepaid Rent',                       AccountType.asset, AccountSubType.otherCurrentAsset),
-    a('1092', 'Prepaid Insurance',                  AccountType.asset, AccountSubType.otherCurrentAsset),
-    a('1093', 'Prepaid Gaming License — GRB',       AccountType.asset, AccountSubType.otherCurrentAsset,
-      desc: 'GRB gaming/sports betting operating license prepaid portion'),
-    a('1094', 'Prepaid GRB Compliance Fees',        AccountType.asset, AccountSubType.otherCurrentAsset),
-    a('1100', 'Advances to Employees',              AccountType.asset, AccountSubType.otherCurrentAsset),
-    a('1101', 'Security Deposits',                  AccountType.asset, AccountSubType.otherCurrentAsset,
-      desc: 'Refundable deposits on outlet leases and utilities'),
-    a('1102', 'Other Current Assets',              AccountType.asset, AccountSubType.otherCurrentAsset),
-
-    // ── 1.2  Non-Current Assets — PP&E ──────────────────────────────────────
-    a('1510', 'Betting Terminals & Gaming Machines', AccountType.asset, AccountSubType.fixedAsset, system: true,
-      desc: 'All betting terminals, POBOs, and gaming equipment at outlets'),
-    a('1520', 'IT Equipment & Servers',              AccountType.asset, AccountSubType.fixedAsset),
-    a('1530', 'CCTV & Security Systems',             AccountType.asset, AccountSubType.fixedAsset),
-    a('1540', 'Office Furniture & Fixtures',          AccountType.asset, AccountSubType.fixedAsset),
-    a('1550', 'Motor Vehicles',                      AccountType.asset, AccountSubType.fixedAsset),
-    a('1560', 'Office Equipment',                    AccountType.asset, AccountSubType.fixedAsset),
-    a('1570', 'Leasehold Improvements',              AccountType.asset, AccountSubType.fixedAsset),
-
-    // ── 1.3  Accumulated Depreciation (contra-asset, debit balance reduces asset) ──
-    a('1610', 'Accum. Depreciation — Betting Terminals', AccountType.asset, AccountSubType.fixedAsset,
-      desc: 'Contra-asset accumulating depreciation on betting equipment'),
-    a('1620', 'Accum. Depreciation — IT Equipment',      AccountType.asset, AccountSubType.fixedAsset),
-    a('1630', 'Accum. Depreciation — Office Furniture',  AccountType.asset, AccountSubType.fixedAsset),
-    a('1640', 'Accum. Depreciation — Vehicles',          AccountType.asset, AccountSubType.fixedAsset),
-    a('1650', 'Accum. Depreciation — Office Equipment',  AccountType.asset, AccountSubType.fixedAsset),
-
-    // ── 1.4  Intangible Assets ───────────────────────────────────────────────
-    a('1710', 'GRB Gaming Operating License',       AccountType.asset, AccountSubType.otherAsset,
-      desc: 'Capitalized cost of gaming operating licence from GRB Uganda'),
-    a('1720', 'Betting Platform Software',          AccountType.asset, AccountSubType.otherAsset),
-    a('1730', 'Accum. Amortization — License & Software', AccountType.asset, AccountSubType.otherAsset,
-      desc: 'Contra-asset accumulating amortization on intangibles'),
+    a('100', 'Petty Cash',                              AccountType.asset,     AccountSubType.cash,         system: true),
+    a('101', 'ABSA UGX Account',                        AccountType.asset,     AccountSubType.bank,         system: true),
+    a('102', 'MTN Momopay',                             AccountType.asset,     AccountSubType.bank,         system: true),
 
     // ════════════════════════════════════════════════════════════════════════
-    // LIABILITIES  2000–2599
+    // REVENUE  (103–107)
     // ════════════════════════════════════════════════════════════════════════
-
-    // ── 2.1  Current Liabilities ─────────────────────────────────────────────
-    a('2000', 'Accounts Payable',                   AccountType.liability, AccountSubType.accountsPayable, system: true),
-    a('2010', 'Accrued Expenses',                   AccountType.liability, AccountSubType.currentLiability),
-    a('2011', 'Accrued Salaries & Wages',           AccountType.liability, AccountSubType.currentLiability),
-    a('2012', 'Accrued Utilities',                  AccountType.liability, AccountSubType.currentLiability),
-    a('2013', 'Accrued Rent',                       AccountType.liability, AccountSubType.currentLiability),
-
-    a('2020', 'Customer Payouts Payable',           AccountType.liability, AccountSubType.currentLiability, system: true,
-      desc: 'Winnings due to customers but not yet paid out (Total Out)'),
-    a('2030', 'Outlet Commission Payable',          AccountType.liability, AccountSubType.currentLiability, system: true,
-      desc: '40% of GGR owed to outlet location owners — calculated weekly'),
-    a('2031', 'Commission Accrual — Unpaid Periods', AccountType.liability, AccountSubType.currentLiability,
-      desc: 'Commission accrued for prior weeks not yet disbursed'),
-
-    // URA Taxes
-    a('2040', 'URA Taxes Payable',                  AccountType.liability, AccountSubType.currentLiability),
-    a('2041', 'GGR Tax Payable — 15% (URA)',        AccountType.liability, AccountSubType.currentLiability, system: true,
-      desc: 'Gaming tax at 15% of GGR per URA Gaming Act — remitted monthly'),
-    a('2042', 'PAYE Payable',                       AccountType.liability, AccountSubType.currentLiability,
-      desc: 'Pay As You Earn tax deducted from employees, payable to URA'),
-    a('2043', 'VAT Payable (Output Tax)',           AccountType.liability, AccountSubType.currentLiability,
-      desc: 'VAT collected on taxable supplies, net of input VAT'),
-    a('2044', 'NSSF Payable',                       AccountType.liability, AccountSubType.currentLiability,
-      desc: 'NSSF contributions: 10% employee + 10% employer'),
-    a('2045', 'Withholding Tax Payable',            AccountType.liability, AccountSubType.currentLiability),
-    a('2046', 'Income Tax Payable',                 AccountType.liability, AccountSubType.currentLiability),
-
-    // GRB Regulatory
-    a('2050', 'GRB Levy Payable',                   AccountType.liability, AccountSubType.currentLiability,
-      desc: 'Gaming Regulatory Board levy on gross gaming revenue'),
-
-    a('2060', 'Short-term Loans',                   AccountType.liability, AccountSubType.currentLiability),
-    a('2070', 'Bank Overdraft',                     AccountType.liability, AccountSubType.currentLiability),
-    a('2080', 'Deferred Revenue',                   AccountType.liability, AccountSubType.currentLiability),
-
-    // ── 2.2  Non-Current Liabilities ─────────────────────────────────────────
-    a('2500', 'Long-term Loans',                    AccountType.liability, AccountSubType.longTermLiability),
-    a('2510', 'Finance Lease Obligations',          AccountType.liability, AccountSubType.longTermLiability,
-      desc: 'Terminal/equipment leases classified as finance leases under IFRS 16'),
-    a('2520', 'Deferred Tax Liability',             AccountType.liability, AccountSubType.longTermLiability),
+    a('103', 'Stakes',                                  AccountType.revenue,   AccountSubType.salesRevenue, system: true,
+      desc: 'Gross cash wagered by customers across all 72 outlets'),
+    a('104', 'Other Revenue',                           AccountType.revenue,   AccountSubType.otherIncome),
+    a('106', 'Interest Income',                         AccountType.revenue,   AccountSubType.otherIncome),
+    a('107', 'Payouts',                                 AccountType.revenue,   AccountSubType.salesRevenue, system: true,
+      desc: 'Contra-revenue: total winnings paid out to customers (debit balance reduces Stakes)'),
 
     // ════════════════════════════════════════════════════════════════════════
-    // EQUITY  3000–3099
+    // DIRECT COSTS  (108, 130)
     // ════════════════════════════════════════════════════════════════════════
-    a('3000', 'Share Capital',                      AccountType.equity, AccountSubType.ownersEquity, system: true),
-    a('3010', 'Share Premium',                      AccountType.equity, AccountSubType.ownersEquity),
-    a('3020', "Owner's Drawings",                   AccountType.equity, AccountSubType.ownersEquity),
-    a('3030', 'Retained Earnings',                  AccountType.equity, AccountSubType.retainedEarnings, system: true),
-    a('3040', 'Current Year Earnings',              AccountType.equity, AccountSubType.retainedEarnings, system: true,
-      desc: 'Net income for the current financial year (auto-calculated)'),
-    a('3050', 'Revaluation Surplus',                AccountType.equity, AccountSubType.ownersEquity,
-      desc: 'Surplus arising from revaluation of fixed assets under IAS 16'),
+    a('108', 'Gaming Tax',                              AccountType.expense,   AccountSubType.costOfGoodsSold, system: true,
+      desc: '15% GGR gaming tax remitted monthly to Uganda Revenue Authority (URA)'),
+    a('130', 'Gambling License Fee',                    AccountType.expense,   AccountSubType.costOfGoodsSold,
+      desc: 'GRB gaming operating licence fee'),
 
     // ════════════════════════════════════════════════════════════════════════
-    // REVENUE  4000–4499
+    // MARKETING EXPENSES  (109–113, 128)
     // ════════════════════════════════════════════════════════════════════════
-
-    // ── 4.1  Gaming Revenue (core) ───────────────────────────────────────────
-    a('4100', 'Total Stakes — Cash In',             AccountType.revenue, AccountSubType.salesRevenue, system: true,
-      desc: 'Gross cash wagered by all customers across all 72 outlets'),
-    a('4110', 'Customer Winnings — Cash Out',       AccountType.revenue, AccountSubType.salesRevenue, system: true,
-      desc: 'Contra-revenue: total winnings paid to customers (reduces GGR)'),
-    a('4120', 'Gross Gaming Revenue (GGR)',          AccountType.revenue, AccountSubType.salesRevenue, system: true,
-      desc: 'Net: Total Stakes minus Customer Winnings = core revenue line'),
-    a('4130', 'GGR — Central Region',               AccountType.revenue, AccountSubType.salesRevenue,
-      desc: 'GGR from 48 Central region outlets'),
-    a('4140', 'GGR — North Region',                 AccountType.revenue, AccountSubType.salesRevenue),
-    a('4150', 'GGR — West Region',                  AccountType.revenue, AccountSubType.salesRevenue),
-    a('4160', 'GGR — East Region',                  AccountType.revenue, AccountSubType.salesRevenue),
-    a('4170', 'GGR — West Nile Region',             AccountType.revenue, AccountSubType.salesRevenue),
-    a('4180', 'GGR — South West Region',            AccountType.revenue, AccountSubType.salesRevenue),
-
-    // ── 4.2  Other Operating Income ──────────────────────────────────────────
-    a('4200', 'Commission Income',                  AccountType.revenue, AccountSubType.serviceRevenue,
-      desc: 'Commission earned on third-party services at outlets'),
-    a('4210', 'Airtime & Mobile Money Income',      AccountType.revenue, AccountSubType.serviceRevenue),
-    a('4220', 'Sponsorship & Advertising Income',   AccountType.revenue, AccountSubType.otherIncome),
-    a('4230', 'Other Operating Income',             AccountType.revenue, AccountSubType.otherIncome),
-
-    // ── 4.3  Non-Operating Income ─────────────────────────────────────────────
-    a('4400', 'Interest Income',                    AccountType.revenue, AccountSubType.otherIncome),
-    a('4410', 'Gain on Disposal of Assets',         AccountType.revenue, AccountSubType.otherIncome),
-    a('4420', 'Foreign Exchange Gain',              AccountType.revenue, AccountSubType.otherIncome),
+    a('109', 'Offline Advertising',                     AccountType.expense,   AccountSubType.marketingExpense),
+    a('110', 'Online Advertising',                      AccountType.expense,   AccountSubType.marketingExpense),
+    a('111', 'Campaigns',                               AccountType.expense,   AccountSubType.marketingExpense),
+    a('112', 'PR & Social Marketing',                   AccountType.expense,   AccountSubType.marketingExpense),
+    a('113', 'Sponsorships',                            AccountType.expense,   AccountSubType.marketingExpense),
+    a('128', 'Corporate Social Responsibility',         AccountType.expense,   AccountSubType.marketingExpense),
 
     // ════════════════════════════════════════════════════════════════════════
-    // COST OF REVENUE  5000–5499
+    // STAFF COSTS  (114–115, 117–118, 131–135)
     // ════════════════════════════════════════════════════════════════════════
-    a('5100', 'Customer Winnings — Payouts',        AccountType.expense, AccountSubType.costOfGoodsSold, system: true,
-      desc: 'Total cash paid out to winning customers across all outlets'),
-    a('5110', 'Jackpot & Bonus Payouts',            AccountType.expense, AccountSubType.costOfGoodsSold,
-      desc: 'Special jackpot prizes and promotional bonus payments'),
-    a('5200', 'GRB Levy on GGR',                   AccountType.expense, AccountSubType.costOfGoodsSold,
-      desc: 'Gaming Regulatory Board levy charged on gross gaming revenue'),
-    a('5300', 'Betting Platform & Game Content Fees', AccountType.expense, AccountSubType.costOfGoodsSold,
-      desc: 'Fees paid to platform/content providers per GGR'),
-
-    // ════════════════════════════════════════════════════════════════════════
-    // OPERATING EXPENSES  6000–6999
-    // ════════════════════════════════════════════════════════════════════════
-
-    // ── 6.0  Outlet Costs (primary operating cost) ───────────────────────────
-    a('6000', 'Outlet Commission Expense (40% GGR)', AccountType.expense, AccountSubType.operatingExpense, system: true,
-      desc: '40% of adjusted weekly GGR paid to outlet location owners'),
-    a('6010', 'Outlet Location Rent',               AccountType.expense, AccountSubType.operatingExpense,
-      desc: 'Monthly rent for the 72 outlet premises'),
-    a('6020', 'Outlet Maintenance & Repairs',       AccountType.expense, AccountSubType.operatingExpense,
-      desc: 'General repairs and maintenance at outlet locations'),
-    a('6030', 'Outlet Security Guards',             AccountType.expense, AccountSubType.operatingExpense),
-    a('6040', 'Outlet Utilities',                   AccountType.expense, AccountSubType.operatingExpense,
-      desc: 'Electricity, water and other utilities at outlet locations'),
-    a('6050', 'Outlet Staff Allowances',            AccountType.expense, AccountSubType.operatingExpense,
-      desc: 'Allowances paid to cashiers and agents at outlets'),
-
-    // ── 6.1  Staff & Payroll ─────────────────────────────────────────────────
-    a('6100', 'Salaries & Wages',                   AccountType.expense, AccountSubType.payrollExpense, system: true),
-    a('6101', 'Management Salaries',               AccountType.expense, AccountSubType.payrollExpense),
-    a('6102', 'Field Staff Salaries',              AccountType.expense, AccountSubType.payrollExpense),
-    a('6110', 'NSSF Employer Contribution',        AccountType.expense, AccountSubType.payrollExpense,
+    a('114', 'Team Budget',                             AccountType.expense,   AccountSubType.staffCosts),
+    a('115', 'Entertainment',                           AccountType.expense,   AccountSubType.staffCosts),
+    a('117', 'WC Insurance',                            AccountType.expense,   AccountSubType.staffCosts,
+      desc: "Worker's Compensation insurance for employees"),
+    a('118', 'Medical Insurance',                       AccountType.expense,   AccountSubType.staffCosts),
+    a('131', 'Other Employment Benefits',               AccountType.expense,   AccountSubType.staffCosts),
+    a('132', 'Salaries',                                AccountType.expense,   AccountSubType.staffCosts,   system: true),
+    a('133', 'Meals & Refreshments',                    AccountType.expense,   AccountSubType.staffCosts),
+    a('134', 'Employee Learning and Development',       AccountType.expense,   AccountSubType.staffCosts),
+    a('135', 'Employer Contribution NSSF',              AccountType.expense,   AccountSubType.staffCosts,
       desc: '10% employer NSSF contribution per NSSF Act Uganda'),
-    a('6120', 'Staff Medical & Group Insurance',   AccountType.expense, AccountSubType.payrollExpense),
-    a('6130', 'Staff Training & Development',      AccountType.expense, AccountSubType.payrollExpense),
-    a('6140', 'Staff Transport Allowance',         AccountType.expense, AccountSubType.payrollExpense),
-    a('6150', 'Staff Overtime',                    AccountType.expense, AccountSubType.payrollExpense),
-
-    // ── 6.2  Administration & Office ─────────────────────────────────────────
-    a('6200', 'Head Office Rent',                  AccountType.expense, AccountSubType.operatingExpense),
-    a('6210', 'Electricity',                       AccountType.expense, AccountSubType.operatingExpense),
-    a('6220', 'Water',                             AccountType.expense, AccountSubType.operatingExpense),
-    a('6230', 'Internet & Telephone',              AccountType.expense, AccountSubType.operatingExpense),
-    a('6240', 'Office Supplies & Stationery',      AccountType.expense, AccountSubType.operatingExpense),
-    a('6250', 'Printing & Postage',                AccountType.expense, AccountSubType.operatingExpense),
-    a('6260', 'Cleaning & Sanitation',             AccountType.expense, AccountSubType.operatingExpense),
-
-    // ── 6.3  Technology & Equipment ──────────────────────────────────────────
-    a('6300', 'Betting Terminal Servicing & Repairs', AccountType.expense, AccountSubType.operatingExpense,
-      desc: 'Maintenance and repair of all gaming terminals at outlets'),
-    a('6310', 'IT Support & Helpdesk',             AccountType.expense, AccountSubType.operatingExpense),
-    a('6320', 'Software Licenses & Subscriptions', AccountType.expense, AccountSubType.operatingExpense),
-    a('6330', 'Network & Connectivity Costs',      AccountType.expense, AccountSubType.operatingExpense,
-      desc: 'VPN, dedicated internet links and SIM data for terminals'),
-
-    // ── 6.4  Compliance, Regulatory & Legal ──────────────────────────────────
-    a('6400', 'GRB Annual Operating License Fee',  AccountType.expense, AccountSubType.operatingExpense, system: true,
-      desc: 'Annual gaming operating licence fee payable to GRB Uganda'),
-    a('6410', 'GRB Compliance & Inspection Fees',  AccountType.expense, AccountSubType.operatingExpense),
-    a('6420', 'URA Tax Advisory & Filing Costs',   AccountType.expense, AccountSubType.operatingExpense),
-    a('6430', 'Legal Fees',                        AccountType.expense, AccountSubType.operatingExpense),
-    a('6440', 'Audit Fees',                        AccountType.expense, AccountSubType.operatingExpense),
-    a('6450', 'Company Secretarial Fees',          AccountType.expense, AccountSubType.operatingExpense),
-
-    // ── 6.5  Marketing & Promotions ──────────────────────────────────────────
-    a('6500', 'Marketing & Advertising',           AccountType.expense, AccountSubType.operatingExpense),
-    a('6510', 'Customer Promotions & Free Bets',   AccountType.expense, AccountSubType.operatingExpense,
-      desc: 'Cost of promotional bets and customer incentive programs'),
-    a('6520', 'Branding & Signage',                AccountType.expense, AccountSubType.operatingExpense),
-    a('6530', 'Sponsorship Expense',               AccountType.expense, AccountSubType.operatingExpense),
-
-    // ── 6.6  Transport & Logistics ───────────────────────────────────────────
-    a('6600', 'Cash Transportation & CIT',         AccountType.expense, AccountSubType.operatingExpense,
-      desc: 'Cash-in-transit (CIT) costs for collecting outlet revenues'),
-    a('6610', 'Vehicle Running Costs — Fuel',      AccountType.expense, AccountSubType.operatingExpense),
-    a('6620', 'Vehicle Insurance & Road Tax',      AccountType.expense, AccountSubType.operatingExpense),
-    a('6630', 'Travel & Accommodation',            AccountType.expense, AccountSubType.operatingExpense),
-
-    // ── 6.7  Depreciation & Amortization ─────────────────────────────────────
-    a('6700', 'Depreciation — Betting Terminals',  AccountType.expense, AccountSubType.operatingExpense, system: true,
-      desc: 'Straight-line depreciation on gaming machines (3–5 yr useful life)'),
-    a('6710', 'Depreciation — IT Equipment',       AccountType.expense, AccountSubType.operatingExpense),
-    a('6720', 'Depreciation — Office Assets',      AccountType.expense, AccountSubType.operatingExpense),
-    a('6730', 'Depreciation — Vehicles',           AccountType.expense, AccountSubType.operatingExpense),
-    a('6740', 'Amortization — GRB Gaming License', AccountType.expense, AccountSubType.operatingExpense),
-    a('6750', 'Amortization — Betting Software',   AccountType.expense, AccountSubType.operatingExpense),
-
-    // ── 6.8  Insurance ────────────────────────────────────────────────────────
-    a('6800', 'Business Insurance',                AccountType.expense, AccountSubType.operatingExpense),
-    a('6810', 'Equipment & Asset Insurance',       AccountType.expense, AccountSubType.operatingExpense),
-    a('6820', 'Public Liability Insurance',        AccountType.expense, AccountSubType.operatingExpense),
-
-    // ── 6.9  Other Operating Expenses ────────────────────────────────────────
-    a('6900', 'Bank Charges & Transaction Fees',   AccountType.expense, AccountSubType.otherExpense),
-    a('6910', 'Bad Debt Expense',                  AccountType.expense, AccountSubType.otherExpense),
-    a('6920', 'Miscellaneous Operating Expenses',  AccountType.expense, AccountSubType.otherExpense),
 
     // ════════════════════════════════════════════════════════════════════════
-    // TAXATION & FINANCE COSTS  7000–7099
+    // PROFESSIONAL FEES  (120–123)
     // ════════════════════════════════════════════════════════════════════════
-    a('7000', 'GGR Tax Expense — 15% (URA)',       AccountType.expense, AccountSubType.otherExpense, system: true,
-      desc: 'Gaming tax at 15% of monthly GGR remitted to Uganda Revenue Authority'),
-    a('7010', 'Corporate Income Tax Expense',      AccountType.expense, AccountSubType.otherExpense,
-      desc: 'Corporation tax on taxable profits per Income Tax Act Uganda'),
-    a('7020', 'Deferred Tax Expense',              AccountType.expense, AccountSubType.otherExpense),
-    a('7030', 'Interest Expense — Loans',          AccountType.expense, AccountSubType.otherExpense),
-    a('7040', 'Finance Lease Interest',            AccountType.expense, AccountSubType.otherExpense,
-      desc: 'Interest component of IFRS 16 finance lease payments'),
-    a('7050', 'Foreign Exchange Loss',             AccountType.expense, AccountSubType.otherExpense),
-    a('7060', 'Loss on Disposal of Assets',        AccountType.expense, AccountSubType.otherExpense),
+    a('120', 'Audit Fees',                              AccountType.expense,   AccountSubType.professionalFees),
+    a('121', 'Legal Expenses',                          AccountType.expense,   AccountSubType.professionalFees),
+    a('122', 'Accounting and Tax',                      AccountType.expense,   AccountSubType.professionalFees),
+    a('123', 'Consulting Expense',                      AccountType.expense,   AccountSubType.professionalFees),
+    a('163', "Directors' Fees",                         AccountType.expense,   AccountSubType.professionalFees),
+
+    // ════════════════════════════════════════════════════════════════════════
+    // OPERATING EXPENSES  (105, 116, 119, 124–127, 129, 136–137, 141–145, 160–162)
+    // ════════════════════════════════════════════════════════════════════════
+    a('105', 'Responsible Gambling Expenses',           AccountType.expense,   AccountSubType.operatingExpense,
+      desc: 'GRB-required responsible gambling programme costs'),
+    a('116', 'All Risk Insurance',                      AccountType.expense,   AccountSubType.operatingExpense),
+    a('119', 'Interest Expense',                        AccountType.expense,   AccountSubType.otherExpense),
+    a('124', 'Share Capital Expenses',                  AccountType.expense,   AccountSubType.otherExpense),
+    a('125', 'Office Expenses',                         AccountType.expense,   AccountSubType.operatingExpense),
+    a('126', 'Internet and Other Services',             AccountType.expense,   AccountSubType.operatingExpense),
+    a('127', 'Utilities',                               AccountType.expense,   AccountSubType.operatingExpense),
+    a('129', 'Rent',                                    AccountType.expense,   AccountSubType.operatingExpense),
+    a('136', 'Travel Expenses',                         AccountType.expense,   AccountSubType.operatingExpense),
+    a('137', 'Bank Charges',                            AccountType.expense,   AccountSubType.operatingExpense),
+    a('141', 'Tax Penalties',                           AccountType.expense,   AccountSubType.operatingExpense),
+    a('142', 'Income Tax Expense',                      AccountType.expense,   AccountSubType.otherExpense),
+    a('143', 'Depreciation',                            AccountType.expense,   AccountSubType.operatingExpense),
+    a('144', 'Withholding Tax',                         AccountType.expense,   AccountSubType.operatingExpense),
+    a('145', 'VAT Expense',                             AccountType.expense,   AccountSubType.operatingExpense),
+    a('160', 'Technical Services Fee',                  AccountType.expense,   AccountSubType.operatingExpense),
+    a('161', 'Platform Services Fee',                   AccountType.expense,   AccountSubType.operatingExpense),
+    a('162', 'Support Services Fee',                    AccountType.expense,   AccountSubType.operatingExpense),
+
+    // ════════════════════════════════════════════════════════════════════════
+    // BANK REVALUATIONS & CURRENCY  (138–140)
+    // ════════════════════════════════════════════════════════════════════════
+    a('138', 'Bank Revaluations',                       AccountType.expense,   AccountSubType.bankRevaluation,
+      desc: 'FX revaluation adjustments on foreign currency bank balances'),
+    a('139', 'Unrealised Currency Gains',               AccountType.revenue,   AccountSubType.otherIncome),
+    a('140', 'Realised Currency Gains',                 AccountType.revenue,   AccountSubType.otherIncome),
+
+    // ════════════════════════════════════════════════════════════════════════
+    // CURRENT LIABILITIES  (146–150, 164–170)
+    // ════════════════════════════════════════════════════════════════════════
+    a('146', 'Withholding Tax Payable — Suppliers',     AccountType.liability, AccountSubType.currentLiability),
+    a('147', 'Gaming Tax Payable',                      AccountType.liability, AccountSubType.currentLiability, system: true,
+      desc: '15% GGR gaming tax accrued, payable to URA'),
+    a('148', 'PAYE Tax Payable',                        AccountType.liability, AccountSubType.currentLiability,
+      desc: 'Pay As You Earn deducted from employees payable to URA'),
+    a('149', 'NSSF Payable',                            AccountType.liability, AccountSubType.currentLiability,
+      desc: 'Employee + employer NSSF contributions payable'),
+    a('164', 'Accounts Payable',                        AccountType.liability, AccountSubType.accountsPayable, system: true),
+    a('165', 'Wages Payable',                           AccountType.liability, AccountSubType.currentLiability),
+    a('166', 'Accruals',                                AccountType.liability, AccountSubType.currentLiability),
+    a('168', 'Employee Tax Payable',                    AccountType.liability, AccountSubType.currentLiability),
+    a('169', 'Income Tax Payable',                      AccountType.liability, AccountSubType.currentLiability),
+    a('170', 'Suspense',                                AccountType.liability, AccountSubType.currentLiability),
+    a('171', 'Rounding',                                AccountType.expense,   AccountSubType.otherExpense),
+
+    // ════════════════════════════════════════════════════════════════════════
+    // NON-CURRENT LIABILITY  (172)
+    // ════════════════════════════════════════════════════════════════════════
+    a('172', 'Loan',                                    AccountType.liability, AccountSubType.longTermLiability),
+
+    // ════════════════════════════════════════════════════════════════════════
+    // ASSETS — RECEIVABLES, PREPAYMENTS & DEPOSITS  (150–153, 173)
+    // ════════════════════════════════════════════════════════════════════════
+    a('150', 'Accounts Receivable',                     AccountType.asset,     AccountSubType.accountsReceivable, system: true),
+    a('151', 'Deposits — Rent',                         AccountType.asset,     AccountSubType.otherAsset,
+      desc: 'Refundable rent deposits held at outlet premises'),
+    a('152', 'Prepayments',                             AccountType.asset,     AccountSubType.otherCurrentAsset),
+    a('153', 'Accrued Income',                          AccountType.asset,     AccountSubType.otherCurrentAsset),
+    a('173', 'Share Capital Receivable',                AccountType.asset,     AccountSubType.otherCurrentAsset),
+
+    // ════════════════════════════════════════════════════════════════════════
+    // FIXED ASSETS  (154–159)
+    // ════════════════════════════════════════════════════════════════════════
+    a('154', 'Office Equipment',                        AccountType.asset,     AccountSubType.fixedAsset),
+    a('155', 'Less Accum. Depreciation — Office Equipment',   AccountType.asset, AccountSubType.fixedAsset,
+      desc: 'Contra-asset: accumulated depreciation on office equipment'),
+    a('156', 'Computer Hardware Equipment',             AccountType.asset,     AccountSubType.fixedAsset),
+    a('157', 'Less Accum. Depreciation — Computer Equipment', AccountType.asset, AccountSubType.fixedAsset,
+      desc: 'Contra-asset: accumulated depreciation on computer hardware'),
+    a('158', 'Office Furniture & Fittings',             AccountType.asset,     AccountSubType.fixedAsset),
+    a('159', 'Less Accum. Depreciation — Office Furniture',   AccountType.asset, AccountSubType.fixedAsset,
+      desc: 'Contra-asset: accumulated depreciation on furniture & fittings'),
+
+    // ════════════════════════════════════════════════════════════════════════
+    // EQUITY  (175–177)
+    // ════════════════════════════════════════════════════════════════════════
+    a('175', 'Retained Earnings',                       AccountType.equity,    AccountSubType.retainedEarnings, system: true),
+    a('176', 'Dividends Paid',                          AccountType.equity,    AccountSubType.ownersEquity),
+    a('177', 'Share Capital',                           AccountType.equity,    AccountSubType.ownersEquity, system: true),
   ];
 }
 
@@ -564,28 +449,35 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
   Future<void> _initializeData() async {
     state = state.copyWith(isLoading: true);
 
-    // Load from local storage only (no API - MagicBet is offline-first)
+    // Load from local storage (offline-first)
     try {
       final localAccounts = await _localStorage.loadAccounts();
       if (localAccounts.isNotEmpty) {
-        state = state.copyWith(accounts: localAccounts, isLoading: false);
-        debugPrint('Loaded ${localAccounts.length} accounts from local storage');
-        return;
+        // Detect old 4-digit IFRS codes (1000+) — migrate to client's COA.xlsx codes
+        final needsMigration = localAccounts.every(
+          (a) => (int.tryParse(a.code) ?? 0) >= 1000,
+        );
+        if (!needsMigration) {
+          state = state.copyWith(accounts: localAccounts, isLoading: false);
+          debugPrint('Loaded ${localAccounts.length} accounts from local storage');
+          return;
+        }
+        debugPrint('Old 4-digit IFRS codes detected — migrating to client CoA...');
       }
     } catch (e) {
       debugPrint('Error loading accounts from local storage: $e');
     }
 
-    // Seed professional MagicBet IFRS chart of accounts on first run
+    // Seed client's Chart of Accounts (COA.xlsx, codes 100–177)
     final defaults = _magicBetDefaultAccounts();
     try {
       await _localStorage.saveAccounts(defaults);
-      debugPrint('Seeded ${defaults.length} default accounts to local storage.');
+      debugPrint('Seeded ${defaults.length} accounts from client CoA.');
     } catch (e) {
       debugPrint('Warning: could not persist default accounts: $e');
     }
     state = state.copyWith(accounts: defaults, isLoading: false);
-    debugPrint('Chart of Accounts initialised with ${defaults.length} IFRS accounts.');
+    debugPrint('Chart of Accounts ready: ${defaults.length} accounts.');
   }
 
   Future<void> loadAccounts() async {
