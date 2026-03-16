@@ -1289,10 +1289,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         final weeks = analytics.allWeeks;
         final grouped = <String, Map<String, double>>{};
         for (final w in weeks) {
-          grouped[w.week] = (grouped[w.week] ?? {});
-          grouped[w.week]!['ggr'] = (grouped[w.week]!['ggr'] ?? 0) + w.adjustedGGR;
-          grouped[w.week]!['commission'] = (grouped[w.week]!['commission'] ?? 0) + w.outletExpense;
-          grouped[w.week]!['net'] = (grouped[w.week]!['net'] ?? 0) + w.netRevenue;
+          final key = '${w.year}-W${w.weekNumber.toString().padLeft(2, '0')}';
+          grouped[key] = (grouped[key] ?? {});
+          grouped[key]!['ggr'] = (grouped[key]!['ggr'] ?? 0) + w.adjustedGGR;
+          grouped[key]!['commission'] = (grouped[key]!['commission'] ?? 0) + w.outletExpense;
+          grouped[key]!['net'] = (grouped[key]!['net'] ?? 0) + w.netRevenue;
         }
         final sortedWeeks = grouped.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
 
