@@ -10,6 +10,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
+import '../../core/services/theme_service.dart';
 import '../../core/models/bill.dart';
 import '../../core/models/account.dart';
 import '../../core/models/payment.dart';
@@ -471,8 +472,9 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
+          final enableVAT = ref.read(appSettingsProvider).enableVAT;
           double subtotal = lines.fold(0, (sum, l) => sum + l.amount);
-          double vat = subtotal * 0.18;
+          double vat = enableVAT ? subtotal * 0.18 : 0.0;
           double total = subtotal + vat;
           final fmt = NumberFormat('#,###');
 
@@ -685,7 +687,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                           children: [
                             Text(
                                 '$selectedCurrency Subtotal: ${fmt.format(subtotal)}'),
-                            Text(
+                            if (ref.read(appSettingsProvider).enableVAT)
+                              Text(
                                 '$selectedCurrency VAT (18%): ${fmt.format(vat)}'),
                             const SizedBox(height: 4),
                             Text(
@@ -813,7 +816,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                   }
 
                   final subtotal = validLines.fold<double>(0, (s, l) => s + l.amount);
-                  final taxAmount = subtotal * 0.18;
+                  final taxAmount = enableVAT ? subtotal * 0.18 : 0.0;
                   final total = subtotal + taxAmount;
                   final now = DateTime.now();
                   final billId = now.millisecondsSinceEpoch.toString();
@@ -840,8 +843,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                       accountId: l.accountId,
                       description: l.description,
                       amount: l.amount,
-                      taxRate: 0.18,
-                      taxAmount: l.amount * 0.18,
+                      taxRate: enableVAT ? 0.18 : 0.0,
+                      taxAmount: enableVAT ? l.amount * 0.18 : 0.0,
                     )).toList(),
                     createdAt: now,
                     updatedAt: now,
@@ -908,7 +911,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
               _DetailRow('Items', '${bill.lines.length} items'),
               const Divider(),
               _DetailRow('Subtotal', 'UGX ${_currencyFormat.format(bill.subtotal)}'),
-              _DetailRow('Tax (18%)', 'UGX ${_currencyFormat.format(bill.taxAmount)}'),
+              if (bill.taxAmount > 0)
+                _DetailRow('VAT (18%)', 'UGX ${_currencyFormat.format(bill.taxAmount)}'),
               _DetailRow('Total', 'UGX ${_currencyFormat.format(bill.total)}'),
               _DetailRow('Amount Paid', 'UGX ${_currencyFormat.format(bill.amountPaid)}'),
               _DetailRow('Balance Due', 'UGX ${_currencyFormat.format(bill.total - bill.amountPaid)}'),

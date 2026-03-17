@@ -13,8 +13,10 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
+import '../../core/database/app_database.dart' show Outlet;
 import '../../core/models/invoice.dart';
 import '../../core/models/bill.dart';
+import '../../core/models/models.dart';
 import 'banking_screen.dart';
 
 // ---------------------------------------------------------------------------
@@ -31,7 +33,8 @@ class BankStatementLine {
   final String? reference;
   MatchStatus status;
   String? matchedRecordId;
-  String? matchedRecordType; // 'invoice' | 'bill' | 'journal'
+  String? matchedRecordType; // 'invoice' | 'bill' | 'account' | 'outlet'
+  String? matchedLabel; // human-readable description of the match
 
   BankStatementLine({
     required this.id,
@@ -42,6 +45,7 @@ class BankStatementLine {
     this.status = MatchStatus.unmatched,
     this.matchedRecordId,
     this.matchedRecordType,
+    this.matchedLabel,
   });
 }
 
@@ -467,10 +471,238 @@ class _BankReconciliationScreenState
     );
   }
 
+  // ── Deposit categorization dialog ────────────────────────────────────────
+  // Shown for credit lines (money in) — lets user tag to Chart of Accounts
+  // or an Outlet. Debit lines continue to use _showManualMatchDialog().
+  void _showDepositCategorizationDialog(BankStatementLine line) {
+    final accountsState = ref.read(accountsProvider);
+    final db = ref.read(databaseProvider);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => DefaultTabController(
+        length: 2,
+        child: StatefulBuilder(
+          builder: (ctx, setDlgState) => AlertDialog(
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Categorize Deposit'),
+                const SizedBox(height: 4),
+                Text(
+                  '${line.description}  •  + UGX ${_fmt.format(line.amount)}  •  ${_dateFmt.format(line.date)}',
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.normal),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 620,
+              height: 460,
+              child: Column(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceVariant,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const TabBar(
+                      tabs: [
+                        Tab(
+                          icon: Icon(Icons.account_tree_outlined, size: 16),
+                          text: 'Chart of Accounts',
+                        ),
+                        Tab(
+                          icon: Icon(Icons.store_outlined, size: 16),
+                          text: 'Outlet',
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        // ── Tab 1: Chart of Accounts ─────────────────────
+                        Builder(builder: (ctx) {
+                          final accts = accountsState.accounts
+                              .where((a) =>
+                                  a.type == AccountType.asset ||
+                                  a.type == AccountType.revenue ||
+                                  a.type == AccountType.equity)
+                              .toList()
+                            ..sort((a, b) => a.code.compareTo(b.code));
+                          if (accts.isEmpty) {
+                            return const Center(
+                                child: Text('No accounts available'));
+                          }
+                          return ListView.separated(
+                            itemCount: accts.length,
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 1),
+                            itemBuilder: (_, i) {
+                              final acct = accts[i];
+                              return ListTile(
+                                dense: true,
+                                leading: CircleAvatar(
+                                  radius: 14,
+                                  backgroundColor: AppColors.primary
+                                      .withOpacity(0.1),
+                                  child: Text(
+                                    acct.code.substring(
+                                        0,
+                                        acct.code.length < 3
+                                            ? acct.code.length
+                                            : 3),
+                                    style: TextStyle(
+                                        fontSize: 9,
+                                        color: AppColors.primary,
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                title: Text('${acct.code} — ${acct.name}',
+                                    style:
+                                        const TextStyle(fontSize: 13)),
+                                subtitle: Text(acct.type.name,
+                                    style:
+                                        const TextStyle(fontSize: 11)),
+                                onTap: () {
+                                  setState(() {
+                                    line.status = MatchStatus.matched;
+                                    line.matchedRecordId = acct.id;
+                                    line.matchedRecordType = 'account';
+                                    line.matchedLabel =
+                                        '${acct.code} ${acct.name}';
+                                  });
+                                  ref
+                                      .read(_reconciliationLinesProvider
+                                          .notifier)
+                                      .state = [
+                                    ...ref
+                                        .read(_reconciliationLinesProvider)
+                                  ];
+                                  Navigator.pop(ctx);
+                                  ScaffoldMessenger.of(context)
+                                      .showSnackBar(const SnackBar(
+                                    content: Text(
+                                        'Deposit categorized to account'),
+                                    backgroundColor: AppColors.success,
+                                  ));
+                                },
+                              );
+                            },
+                          );
+                        }),
+
+                        // ── Tab 2: Outlets ────────────────────────────────
+                        FutureBuilder<List<Outlet>>(
+                          future: db.getAllOutlets(),
+                          builder: (ctx, snap) {
+                            if (snap.connectionState ==
+                                ConnectionState.waiting) {
+                              return const Center(
+                                  child: CircularProgressIndicator());
+                            }
+                            final outs = snap.data ?? [];
+                            if (outs.isEmpty) {
+                              return const Center(
+                                  child: Text('No outlets found'));
+                            }
+                            return ListView.separated(
+                              itemCount: outs.length,
+                              separatorBuilder: (_, __) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (_, i) {
+                                final out = outs[i];
+                                return ListTile(
+                                  dense: true,
+                                  leading: CircleAvatar(
+                                    radius: 14,
+                                    backgroundColor: AppColors.income
+                                        .withOpacity(0.1),
+                                    child: Icon(Icons.store,
+                                        size: 14,
+                                        color: AppColors.income),
+                                  ),
+                                  title: Text(out.name,
+                                      style:
+                                          const TextStyle(fontSize: 13)),
+                                  subtitle: Text(
+                                      '${out.outletCode}${out.city != null ? '  •  ${out.city}' : ''}',
+                                      style:
+                                          const TextStyle(fontSize: 11)),
+                                  onTap: () {
+                                    setState(() {
+                                      line.status = MatchStatus.matched;
+                                      line.matchedRecordId = out.id;
+                                      line.matchedRecordType = 'outlet';
+                                      line.matchedLabel =
+                                          '${out.name} (${out.outletCode})';
+                                    });
+                                    ref
+                                        .read(
+                                            _reconciliationLinesProvider
+                                                .notifier)
+                                        .state = [
+                                      ...ref.read(
+                                          _reconciliationLinesProvider)
+                                    ];
+                                    Navigator.pop(ctx);
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(const SnackBar(
+                                      content: Text(
+                                          'Deposit matched to outlet'),
+                                      backgroundColor: AppColors.success,
+                                    ));
+                                  },
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel')),
+              if (line.status == MatchStatus.matched)
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.link_off, size: 16),
+                  label: const Text('Remove Category'),
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.error),
+                  onPressed: () {
+                    setState(() {
+                      line.status = MatchStatus.unmatched;
+                      line.matchedRecordId = null;
+                      line.matchedRecordType = null;
+                      line.matchedLabel = null;
+                    });
+                    ref
+                        .read(_reconciliationLinesProvider.notifier)
+                        .state = [
+                      ...ref.read(_reconciliationLinesProvider)
+                    ];
+                    Navigator.pop(ctx);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ── Finalise reconciliation ──────────────────────────────────────────────
   void _finaliseReconciliation() {
     final lines = ref.read(_reconciliationLinesProvider);
-    final matched = lines.where((l) => l.status == MatchStatus.matched).length;
+    final matched = lines.where((l) => l.status == MatchStatus.matched).toList();
     final unmatched = lines.where((l) => l.status == MatchStatus.unmatched).length;
 
     showDialog(
@@ -483,7 +715,7 @@ class _BankReconciliationScreenState
           children: [
             Text('Account: ${_selectedAccount?.bankName ?? "—"} (${_selectedAccount?.currency ?? ""})'),
             const SizedBox(height: 16),
-            _summaryRow('Matched lines', '$matched', AppColors.success),
+            _summaryRow('Matched lines', '${matched.length}', AppColors.success),
             _summaryRow('Unmatched lines', '$unmatched',
                 unmatched > 0 ? AppColors.warning : AppColors.success),
             if (unmatched > 0) ...[
@@ -509,21 +741,52 @@ class _BankReconciliationScreenState
               child: const Text('Cancel')),
           FilledButton.icon(
             icon: const Icon(Icons.check_circle_outline),
-            label: const Text('Mark as Reconciled'),
+            label: const Text('Confirm & Settle'),
             onPressed: () {
               Navigator.pop(ctx);
-              ref.read(_reconciliationLinesProvider.notifier).state = [];
-              setState(() => _fileName = null);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Reconciliation completed and saved'),
-                  backgroundColor: AppColors.success,
-                  duration: Duration(seconds: 4),
-                ),
-              );
+              _commitReconciliation(matched, lines);
             },
           ),
         ],
+      ),
+    );
+  }
+
+  void _commitReconciliation(
+      List<BankStatementLine> matched, List<BankStatementLine> allLines) {
+    // Mark matched bills as Paid
+    final billsNotifier = ref.read(billsProvider.notifier);
+    final billsState = ref.read(billsProvider);
+
+    for (final line in matched) {
+      if (line.matchedRecordType == 'bill' && line.matchedRecordId != null) {
+        final bill = billsState.bills.cast<Bill?>().firstWhere(
+          (b) => b?.id == line.matchedRecordId,
+          orElse: () => null,
+        );
+        if (bill != null && bill.status != BillStatus.paid) {
+          billsNotifier.updateBill(bill.copyWith(
+            status: BillStatus.paid,
+            amountPaid: bill.total,
+            updatedAt: DateTime.now(),
+          ));
+        }
+      }
+    }
+
+    // Show settlement summary
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _SettlementSummaryDialog(
+        matched: matched,
+        allLines: allLines,
+        account: _selectedAccount,
+        onClose: () {
+          Navigator.pop(ctx);
+          ref.read(_reconciliationLinesProvider.notifier).state = [];
+          setState(() => _fileName = null);
+        },
       ),
     );
   }
@@ -879,7 +1142,8 @@ class _BankReconciliationScreenState
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            '${line.matchedRecordType?.toUpperCase()} matched',
+                            line.matchedLabel ??
+                                '${line.matchedRecordType?.toUpperCase()} matched',
                             style: TextStyle(
                                 fontSize: 12, color: AppColors.success),
                             overflow: TextOverflow.ellipsis,
@@ -908,17 +1172,31 @@ class _BankReconciliationScreenState
             const SizedBox(width: 12),
 
             // Actions
-            if (line.status != MatchStatus.matched)
-              OutlinedButton.icon(
-                icon: const Icon(Icons.link, size: 14),
-                label: const Text('Match'),
-                style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
-                    visualDensity: VisualDensity.compact),
-                onPressed: () => _showManualMatchDialog(line),
-              )
-            else
+            if (line.status != MatchStatus.matched) ...[
+              // Credits (deposits): show categorize button
+              if (isCredit)
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.category_outlined, size: 14),
+                  label: const Text('Categorize'),
+                  style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
+                      visualDensity: VisualDensity.compact,
+                      foregroundColor: AppColors.primary),
+                  onPressed: () =>
+                      _showDepositCategorizationDialog(line),
+                ),
+              if (!isCredit)
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.link, size: 14),
+                  label: const Text('Match'),
+                  style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
+                      visualDensity: VisualDensity.compact),
+                  onPressed: () => _showManualMatchDialog(line),
+                ),
+            ] else
               OutlinedButton.icon(
                 icon: const Icon(Icons.link_off, size: 14),
                 label: const Text('Unmatch'),
@@ -932,6 +1210,7 @@ class _BankReconciliationScreenState
                     line.status = MatchStatus.unmatched;
                     line.matchedRecordId = null;
                     line.matchedRecordType = null;
+                    line.matchedLabel = null;
                   });
                   ref
                       .read(_reconciliationLinesProvider.notifier)
@@ -985,4 +1264,334 @@ class _BankReconciliationScreenState
           ),
         ),
       );
+}
+
+// ---------------------------------------------------------------------------
+// Settlement Summary Dialog
+// ---------------------------------------------------------------------------
+
+class _SettlementSummaryDialog extends StatelessWidget {
+  final List<BankStatementLine> matched;
+  final List<BankStatementLine> allLines;
+  final BankAccount? account;
+  final VoidCallback onClose;
+
+  const _SettlementSummaryDialog({
+    required this.matched,
+    required this.allLines,
+    required this.account,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = NumberFormat('#,###');
+    final dateFmt = DateFormat('MMM d, yyyy');
+
+    // Group matched deposits by source type
+    final deposits = matched.where((l) => l.amount > 0).toList();
+    final debits = matched.where((l) => l.amount < 0).toList();
+
+    final totalDeposits = deposits.fold(0.0, (s, l) => s + l.amount);
+    final totalDebits = debits.fold(0.0, (s, l) => s + l.amount.abs());
+    final netChange = totalDeposits - totalDebits;
+    final unmatched =
+        allLines.where((l) => l.status != MatchStatus.matched).length;
+
+    // Build source breakdown
+    final sourceMap = <String, double>{};
+    for (final l in matched) {
+      final src = _sourceLabel(l);
+      sourceMap[src] = (sourceMap[src] ?? 0) + l.amount.abs();
+    }
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: SizedBox(
+        width: 700,
+        height: 600,
+        child: Column(
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppColors.success.withOpacity(0.08),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.check_circle,
+                        color: AppColors.success, size: 28),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Reconciliation Complete',
+                            style: TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.bold)),
+                        Text(
+                          'Account: ${account?.bankName ?? "—"}  •  ${DateFormat("MMM d, yyyy").format(DateTime.now())}',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Summary Stats
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+              child: Row(
+                children: [
+                  _summaryTile('Total Settled', '${matched.length} lines',
+                      Icons.done_all, AppColors.success, context),
+                  const SizedBox(width: 12),
+                  _summaryTile('Total Deposits',
+                      'UGX ${fmt.format(totalDeposits)}',
+                      Icons.arrow_downward, AppColors.success, context),
+                  const SizedBox(width: 12),
+                  _summaryTile('Total Payments',
+                      'UGX ${fmt.format(totalDebits)}',
+                      Icons.arrow_upward, AppColors.expense, context),
+                  const SizedBox(width: 12),
+                  _summaryTile(
+                    'Net Bank Change',
+                    '${netChange >= 0 ? "+" : ""}UGX ${fmt.format(netChange.abs())}',
+                    netChange >= 0 ? Icons.trending_up : Icons.trending_down,
+                    netChange >= 0 ? AppColors.success : AppColors.expense,
+                    context,
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+            const Divider(),
+
+            // Matched Lines List
+            Expanded(
+              child: matched.isEmpty
+                  ? const Center(child: Text('No matched lines'))
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 8),
+                      itemCount: matched.length,
+                      itemBuilder: (ctx, i) {
+                        final line = matched[i];
+                        final isCredit = line.amount > 0;
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color: Theme.of(context).dividerColor),
+                          ),
+                          child: Row(
+                            children: [
+                              // Source type icon
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: _sourceColor(line)
+                                      .withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(_sourceIcon(line),
+                                    size: 16, color: _sourceColor(line)),
+                              ),
+                              const SizedBox(width: 12),
+                              // Description & source
+                              Expanded(
+                                flex: 3,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(line.description,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w500,
+                                            fontSize: 13),
+                                        overflow: TextOverflow.ellipsis),
+                                    Text(
+                                      'Source: ${_sourceLabel(line)}',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: _sourceColor(line)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              // Date
+                              SizedBox(
+                                width: 90,
+                                child: Text(dateFmt.format(line.date),
+                                    style:
+                                        const TextStyle(fontSize: 12)),
+                              ),
+                              // Amount
+                              Text(
+                                '${isCredit ? "+" : "-"} UGX ${fmt.format(line.amount.abs())}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: isCredit
+                                      ? AppColors.success
+                                      : AppColors.expense,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+
+            if (unmatched > 0)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: AppColors.warning.withOpacity(0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded,
+                          color: AppColors.warning, size: 16),
+                      const SizedBox(width: 8),
+                      Text(
+                        '$unmatched line(s) left unmatched — flagged for review',
+                        style: TextStyle(
+                            fontSize: 12, color: AppColors.warning),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // Footer
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text(
+                    'Bills matched to bank payments have been marked Paid.',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.success,
+                        fontStyle: FontStyle.italic),
+                  ),
+                  const Spacer(),
+                  FilledButton.icon(
+                    icon: const Icon(Icons.close),
+                    label: const Text('Close'),
+                    onPressed: onClose,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _sourceLabel(BankStatementLine line) {
+    switch (line.matchedRecordType) {
+      case 'invoice':
+        return 'Invoice';
+      case 'bill':
+        return 'Bill Payment';
+      case 'account':
+        return line.matchedLabel ?? 'Chart of Accounts';
+      case 'outlet':
+        return line.matchedLabel ?? 'Outlet';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  Color _sourceColor(BankStatementLine line) {
+    switch (line.matchedRecordType) {
+      case 'invoice':
+        return AppColors.success;
+      case 'bill':
+        return AppColors.expense;
+      case 'account':
+        return AppColors.primary;
+      case 'outlet':
+        return AppColors.income;
+      default:
+        return AppColors.warning;
+    }
+  }
+
+  IconData _sourceIcon(BankStatementLine line) {
+    switch (line.matchedRecordType) {
+      case 'invoice':
+        return Icons.receipt_long;
+      case 'bill':
+        return Icons.description;
+      case 'account':
+        return Icons.account_tree_outlined;
+      case 'outlet':
+        return Icons.store_outlined;
+      default:
+        return Icons.help_outline;
+    }
+  }
+
+  Widget _summaryTile(String label, String value, IconData icon, Color color,
+      BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.07),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: TextStyle(
+                          fontSize: 10,
+                          color: Theme.of(context).colorScheme.outline)),
+                  Text(value,
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: color),
+                      overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
