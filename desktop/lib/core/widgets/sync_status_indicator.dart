@@ -136,9 +136,9 @@ class SyncStatusIndicator extends ConsumerWidget {
     if (connectivity.isOnline) {
       buffer.writeln('Connected to server');
     } else {
-      buffer.writeln('Working offline');
+      buffer.writeln('Working offline — changes will sync when reconnected');
       if (connectivity.lastError != null) {
-        buffer.writeln('Reason: ${connectivity.lastError}');
+        buffer.writeln('(${connectivity.lastError})');
       }
     }
 

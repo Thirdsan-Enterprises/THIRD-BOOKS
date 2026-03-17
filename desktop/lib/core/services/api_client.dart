@@ -38,6 +38,7 @@ class ApiClient {
   late final Dio _dio;
   final Logger _logger = Logger();
   String? _authToken;
+  String? _tenantId;
 
   ApiClient() {
     _dio = Dio(
@@ -64,6 +65,10 @@ class ApiClient {
         // Add auth token if available
         if (_authToken != null) {
           options.headers['Authorization'] = 'Bearer $_authToken';
+        }
+        // Add tenant identifier so backend tenant middleware can resolve the DB
+        if (_tenantId != null) {
+          options.headers['X-Tenant-ID'] = _tenantId;
         }
 
         _logger.d('API Request: ${options.method} ${options.path}');
@@ -95,6 +100,16 @@ class ApiClient {
   // Clear auth token
   void clearAuthToken() {
     _authToken = null;
+  }
+
+  // Set tenant ID (injected into X-Tenant-ID header for every request)
+  void setTenantId(String? tenantId) {
+    _tenantId = tenantId;
+  }
+
+  // Clear tenant ID
+  void clearTenantId() {
+    _tenantId = null;
   }
 
   // Check if has auth token

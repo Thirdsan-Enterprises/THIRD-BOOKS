@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -7,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import 'api_client.dart';
 import 'local_storage_service.dart';
 import 'data_service.dart';
+import '../models/models.dart';
 
 // ============================================================================
 // Connectivity State
@@ -99,8 +101,8 @@ class ConnectivityNotifier extends StateNotifier<ConnectivityState> {
 
   Future<void> checkConnectivity() async {
     try {
-      // Try to reach the server with a simple ping
-      final response = await _apiClient.get('/ping').timeout(
+      // Try to reach the server with a health check
+      final response = await _apiClient.get('/health').timeout(
         const Duration(seconds: 5),
         onTimeout: () => throw TimeoutException('Connection timeout'),
       );
@@ -128,13 +130,38 @@ class ConnectivityNotifier extends StateNotifier<ConnectivityState> {
       state = state.copyWith(
         status: ConnectivityStatus.offline,
         lastChecked: DateTime.now(),
-        lastError: 'Connection timeout',
+        lastError: 'Connection timed out',
       );
-    } catch (e) {
+    } on DioException catch (e) {
+      // Translate Dio errors into user-friendly messages
+      final String friendlyError;
+      switch (e.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+          friendlyError = 'Connection timed out';
+          break;
+        case DioExceptionType.connectionError:
+          friendlyError = 'Unable to reach server';
+          break;
+        case DioExceptionType.badResponse:
+          friendlyError = 'Server unavailable (${e.response?.statusCode ?? 'unknown'})';
+          break;
+        default:
+          friendlyError = 'Unable to reach server';
+      }
+      debugPrint('Connectivity check failed: $e');
       state = state.copyWith(
         status: ConnectivityStatus.offline,
         lastChecked: DateTime.now(),
-        lastError: e.toString(),
+        lastError: friendlyError,
+      );
+    } catch (e) {
+      debugPrint('Connectivity check error: $e');
+      state = state.copyWith(
+        status: ConnectivityStatus.offline,
+        lastChecked: DateTime.now(),
+        lastError: 'Unable to reach server',
       );
     }
   }
@@ -259,31 +286,43 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
     } catch (e) {
       state = state.copyWith(
         isSyncing: false,
-        error: 'Sync failed: ${e.toString()}',
+        error: 'Sync failed. Changes will retry automatically.',
       );
     }
   }
 
-  Future<void> _processSingleItem(SyncQueueItem item) async {
-    try {
-      final endpoint = _getEndpoint(item.entityType);
+  Future<void> _processSingleItem(SyncQueueItem item, {int maxAttempts = 3}) async {
+    final endpoint = _getEndpoint(item.entityType);
+    int attempt = 0;
+    Duration delay = const Duration(seconds: 2);
 
-      switch (item.action) {
-        case SyncAction.create:
-          await _apiClient.post(endpoint, data: item.data);
-          break;
-        case SyncAction.update:
-          await _apiClient.put('$endpoint/${item.entityId}', data: item.data);
-          break;
-        case SyncAction.delete:
-          await _apiClient.delete('$endpoint/${item.entityId}');
-          break;
+    while (attempt < maxAttempts) {
+      try {
+        switch (item.action) {
+          case SyncAction.create:
+            await _apiClient.post(endpoint, data: item.data);
+            break;
+          case SyncAction.update:
+            await _apiClient.put('$endpoint/${item.entityId}', data: item.data);
+            break;
+          case SyncAction.delete:
+            await _apiClient.delete('$endpoint/${item.entityId}');
+            break;
+        }
+
+        await _localStorage.removeFromSyncQueue(item.id);
+        return; // success
+      } catch (e) {
+        attempt++;
+        if (attempt >= maxAttempts) {
+          debugPrint('Failed to sync item ${item.id} after $maxAttempts attempts: $e');
+          // Item stays in queue for the next auto-sync cycle
+          return;
+        }
+        debugPrint('Sync attempt $attempt failed for ${item.id}, retrying in ${delay.inSeconds}s: $e');
+        await Future.delayed(delay);
+        delay *= 2; // exponential backoff
       }
-
-      await _localStorage.removeFromSyncQueue(item.id);
-    } catch (e) {
-      debugPrint('Failed to sync item ${item.id}: $e');
-      // Item stays in queue for retry
     }
   }
 
@@ -308,18 +347,81 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
 
   Future<void> _pullFromServer() async {
     try {
-      // Refresh all data from server
       await Future.wait([
-        _ref.read(accountsProvider.notifier).loadAccounts(),
-        _ref.read(customersProvider.notifier).loadCustomers(),
-        _ref.read(vendorsProvider.notifier).loadVendors(),
-        _ref.read(invoicesProvider.notifier).loadInvoices(),
-        _ref.read(billsProvider.notifier).loadBills(),
-        _ref.read(journalsProvider.notifier).loadJournals(),
-        _ref.read(paymentsProvider.notifier).loadPayments(),
+        _pullEntityFromServer<Account>(
+          endpoint: '/accounts',
+          fromJson: (j) => Account.fromJson(j),
+          save: (items) => _localStorage.saveAccounts(items),
+          reload: () => _ref.read(accountsProvider.notifier).loadAccounts(),
+        ),
+        _pullEntityFromServer<Customer>(
+          endpoint: '/customers',
+          fromJson: (j) => Customer.fromJson(j),
+          save: (items) => _localStorage.saveCustomers(items),
+          reload: () => _ref.read(customersProvider.notifier).loadCustomers(),
+        ),
+        _pullEntityFromServer<Vendor>(
+          endpoint: '/vendors',
+          fromJson: (j) => Vendor.fromJson(j),
+          save: (items) => _localStorage.saveVendors(items),
+          reload: () => _ref.read(vendorsProvider.notifier).loadVendors(),
+        ),
+        _pullEntityFromServer<Invoice>(
+          endpoint: '/invoices',
+          fromJson: (j) => Invoice.fromJson(j),
+          save: (items) => _localStorage.saveInvoices(items),
+          reload: () => _ref.read(invoicesProvider.notifier).loadInvoices(),
+        ),
+        _pullEntityFromServer<Bill>(
+          endpoint: '/bills',
+          fromJson: (j) => Bill.fromJson(j),
+          save: (items) => _localStorage.saveBills(items),
+          reload: () => _ref.read(billsProvider.notifier).loadBills(),
+        ),
+        _pullEntityFromServer<JournalEntry>(
+          endpoint: '/journals',
+          fromJson: (j) => JournalEntry.fromJson(j),
+          save: (items) => _localStorage.saveJournalEntries(items),
+          reload: () => _ref.read(journalsProvider.notifier).loadJournals(),
+        ),
+        _pullEntityFromServer<Payment>(
+          endpoint: '/payments',
+          fromJson: (j) => Payment.fromJson(j),
+          save: (items) => _localStorage.savePayments(items),
+          reload: () => _ref.read(paymentsProvider.notifier).loadPayments(),
+        ),
       ]);
     } catch (e) {
       debugPrint('Error pulling data from server: $e');
+    }
+  }
+
+  /// Fetches a collection from [endpoint], persists it to local storage via
+  /// [save], then triggers a provider reload via [reload].
+  Future<void> _pullEntityFromServer<T>({
+    required String endpoint,
+    required T Function(Map<String, dynamic>) fromJson,
+    required Future<void> Function(List<T>) save,
+    required Future<void> Function() reload,
+  }) async {
+    try {
+      final response = await _apiClient.get(endpoint);
+      if (response.statusCode == 200) {
+        final body = response.data;
+        // Support both { data: [...] } and bare [...] response shapes
+        final List<dynamic> rawList = body is Map && body.containsKey('data')
+            ? (body['data'] as List<dynamic>)
+            : (body as List<dynamic>);
+        final items = rawList
+            .whereType<Map<String, dynamic>>()
+            .map((j) => fromJson(j))
+            .toList();
+        await save(items);
+        await reload();
+      }
+    } catch (e) {
+      debugPrint('Error pulling $endpoint from server: $e');
+      // Fall back to local data — do not rethrow
     }
   }
 
@@ -355,11 +457,19 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
   // Load Local Data
   // ============================================================================
 
+  /// Populate all providers from local storage — called at app start when offline.
   Future<void> loadDataFromLocal() async {
     try {
-      // This would be used to populate providers from local storage
-      // when app starts and is offline
-      debugPrint('Loading data from local storage...');
+      await Future.wait([
+        _ref.read(accountsProvider.notifier).loadAccounts(),
+        _ref.read(customersProvider.notifier).loadCustomers(),
+        _ref.read(vendorsProvider.notifier).loadVendors(),
+        _ref.read(invoicesProvider.notifier).loadInvoices(),
+        _ref.read(billsProvider.notifier).loadBills(),
+        _ref.read(journalsProvider.notifier).loadJournals(),
+        _ref.read(paymentsProvider.notifier).loadPayments(),
+      ]);
+      debugPrint('Loaded all data from local storage.');
     } catch (e) {
       debugPrint('Error loading local data: $e');
     }

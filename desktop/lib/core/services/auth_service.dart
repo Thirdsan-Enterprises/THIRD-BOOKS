@@ -130,6 +130,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (isAuthenticated) {
         final user = await _authService.getCurrentUser();
         final token = await _authService.getToken();
+        // Restore auth token and tenant on the API client (e.g. after app restart)
+        if (token != null) {
+          _authService.restoreApiClientSession(user);
+        }
         state = AuthState(
           isAuthenticated: true,
           user: user,
@@ -289,12 +293,16 @@ class AuthService {
         final expiry = DateTime.now().add(const Duration(hours: 24));
         await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
 
-        // Update API client with token
+        // Update API client with token and tenant
         _apiClient.setAuthToken(token);
+        final user = User.fromJson(userData);
+        if (user.tenantId != null) {
+          _apiClient.setTenantId(user.tenantId);
+        }
 
         return {
           'token': token,
-          'user': User.fromJson(userData),
+          'user': user,
         };
       }
 
@@ -345,6 +353,10 @@ class AuthService {
       final expiry = DateTime.now().add(const Duration(days: 365)); // 1 year
       await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
 
+      // Set tenant on the API client even for offline mode so that once
+      // connectivity is restored the correct X-Tenant-ID header is sent.
+      _apiClient.setTenantId('magicbet');
+
       return {
         'token': marionToken,
         'user': User.fromJson(marionUser),
@@ -393,12 +405,16 @@ class AuthService {
         final expiry = DateTime.now().add(const Duration(hours: 24));
         await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
 
-        // Update API client with token
+        // Update API client with token and tenant
         _apiClient.setAuthToken(token);
+        final user = User.fromJson(userData);
+        if (user.tenantId != null) {
+          _apiClient.setTenantId(user.tenantId);
+        }
 
         return {
           'token': token,
-          'user': User.fromJson(userData),
+          'user': user,
         };
       }
 
@@ -414,6 +430,18 @@ class AuthService {
         }
       }
       throw Exception('Registration failed. Please try again.');
+    }
+  }
+
+  /// Re-applies auth token and tenant ID to the API client.
+  /// Called after app restart when a stored session is found.
+  Future<void> restoreApiClientSession(User? user) async {
+    final token = await getToken();
+    if (token != null) {
+      _apiClient.setAuthToken(token);
+    }
+    if (user?.tenantId != null) {
+      _apiClient.setTenantId(user!.tenantId);
     }
   }
 
@@ -436,8 +464,9 @@ class AuthService {
     await _storage.delete(key: _userKey);
     await _storage.delete(key: _tokenExpiryKey);
 
-    // Clear API client token
+    // Clear API client token and tenant
     _apiClient.clearAuthToken();
+    _apiClient.clearTenantId();
   }
 
   // Forgot password
