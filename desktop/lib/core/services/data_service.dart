@@ -1307,6 +1307,8 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
       _ref
           .read(billsProvider.notifier)
           .applyPaymentToVendor(payment.vendorId!, payment.amount);
+      // Auto-generate WHT JE (6% on supplier payment) if enabled
+      _createWHTJE(payment);
     }
 
     _ref.read(syncServiceProvider.notifier).queueChange(
@@ -1315,6 +1317,59 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
       entityId: payment.id,
       data: payment.toJson(),
     );
+  }
+
+  /// Auto-creates a 6% Withholding Tax JE for supplier payments (Uganda WHT).
+  /// Triggered only when autoWHTJE is enabled in settings.
+  /// DR 144 Withholding Tax / CR 146 Withholding Tax Payable — Suppliers.
+  void _createWHTJE(Payment payment) {
+    if (!_ref.read(appSettingsProvider).autoWHTJE) return;
+    if (payment.amount <= 0) return;
+
+    // Idempotency: one WHT JE per payment
+    final refKey = 'JE-WHT-${payment.id}';
+    final existingEntries = _ref.read(journalsProvider).entries;
+    if (existingEntries.any((e) => e.reference == refKey)) return;
+
+    final whtAmount = payment.amount * 0.06;
+    final now = DateTime.now();
+    final jeId = const Uuid().v4();
+
+    final whtJE = JournalEntry(
+      id: jeId,
+      entryNumber: 'AUTO-WHT-${now.millisecondsSinceEpoch}',
+      date: payment.paymentDate,
+      description: 'Auto: WHT (6%) on supplier payment '
+          '${payment.reference ?? payment.id}. '
+          'Gross: UGX ${payment.amount.toStringAsFixed(0)}, '
+          'WHT: UGX ${whtAmount.toStringAsFixed(0)}.',
+      reference: refKey,
+      status: JournalEntryStatus.posted,
+      lines: [
+        JournalLine(
+          id: '$jeId-1',
+          journalEntryId: jeId,
+          accountId: 'acct-144',
+          accountCode: '144',
+          accountName: 'Withholding Tax',
+          debit: whtAmount,
+          credit: 0,
+        ),
+        JournalLine(
+          id: '$jeId-2',
+          journalEntryId: jeId,
+          accountId: 'acct-146',
+          accountCode: '146',
+          accountName: 'Withholding Tax Payable — Suppliers',
+          debit: 0,
+          credit: whtAmount,
+        ),
+      ],
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    _ref.read(journalsProvider.notifier).addEntry(whtJE);
   }
 }
 

@@ -594,53 +594,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Tax Preferences', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 16),
-                  SwitchListTile(
-                    title: const Text('Enable VAT tracking'),
-                    subtitle: const Text('Track VAT on sales and purchases'),
-                    value: true,
-                    onChanged: (v) {},
-                  ),
-                  SwitchListTile(
-                    title: const Text('Prices include tax'),
-                    subtitle: const Text('Default prices entered include tax'),
-                    value: false,
-                    onChanged: (v) {},
-                  ),
-                  SwitchListTile(
-                    title: const Text('Show tax on invoices'),
-                    subtitle: const Text('Display tax breakdown on printed invoices'),
-                    value: true,
-                    onChanged: (v) {},
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      FilledButton(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Tax settings saved'),
-                              backgroundColor: AppColors.success,
-                            ),
-                          );
-                        },
-                        child: const Text('Save Tax Settings'),
-                      ),
-                    ],
-                  ),
-                ],
+          Builder(builder: (context) {
+            final taxSettings = ref.watch(appSettingsProvider);
+            final taxNotifier = ref.read(appSettingsProvider.notifier);
+            return Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Tax Preferences', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 16),
+                    SwitchListTile(
+                      title: const Text('Enable VAT tracking'),
+                      subtitle: const Text('Track VAT on sales and purchases'),
+                      value: taxSettings.enableVAT,
+                      onChanged: (v) => taxNotifier.setEnableVAT(v),
+                    ),
+                    SwitchListTile(
+                      title: const Text('Prices include tax'),
+                      subtitle: const Text('Default prices entered include tax'),
+                      value: taxSettings.pricesIncludeTax,
+                      onChanged: (v) => taxNotifier.setPricesIncludeTax(v),
+                    ),
+                    SwitchListTile(
+                      title: const Text('Show tax on invoices'),
+                      subtitle: const Text('Display tax breakdown on printed invoices'),
+                      value: taxSettings.showTaxOnInvoices,
+                      onChanged: (v) => taxNotifier.setShowTaxOnInvoices(v),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
+            );
+          }),
           const SizedBox(height: 24),
           _buildAutoJECard(context),
         ],
@@ -788,6 +775,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _buildCurrencySettings(BuildContext context) {
+    final currencySettings = ref.watch(appSettingsProvider);
+    final currencyNotifier = ref.read(appSettingsProvider.notifier);
+
+    // Map display strings ↔ currency codes
+    const currencyOptions = {
+      'UGX - Ugandan Shilling': 'UGX',
+      'USD - US Dollar': 'USD',
+      'EUR - Euro': 'EUR',
+      'GBP - British Pound': 'GBP',
+      'KES - Kenyan Shilling': 'KES',
+      'TZS - Tanzanian Shilling': 'TZS',
+    };
+    final currentCurrencyDisplay = currencyOptions.entries
+        .firstWhere((e) => e.value == currencySettings.currency,
+            orElse: () => const MapEntry('UGX - Ugandan Shilling', 'UGX'))
+        .key;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
       child: Column(
@@ -808,29 +812,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       Expanded(
                         child: DropdownButtonFormField<String>(
                           decoration: const InputDecoration(labelText: 'Base Currency'),
-                          value: 'UGX - Ugandan Shilling',
-                          items: [
-                            'UGX - Ugandan Shilling',
-                            'USD - US Dollar',
-                            'EUR - Euro',
-                            'GBP - British Pound',
-                            'KES - Kenyan Shilling',
-                            'TZS - Tanzanian Shilling',
-                          ].map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                          onChanged: (v) {},
+                          value: currentCurrencyDisplay,
+                          items: currencyOptions.keys
+                              .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                              .toList(),
+                          onChanged: (v) {
+                            if (v != null) {
+                              currencyNotifier.setCurrency(currencyOptions[v] ?? 'UGX');
+                            }
+                          },
                         ),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          decoration: const InputDecoration(labelText: 'Currency Format'),
-                          value: 'UGX 1,000,000',
-                          items: [
-                            'UGX 1,000,000',
-                            '1,000,000 UGX',
-                            'UGX 1.000.000',
-                          ].map((f) => DropdownMenuItem(value: f, child: Text(f))).toList(),
-                          onChanged: (v) {},
+                          decoration: const InputDecoration(labelText: 'Date Format'),
+                          value: currencySettings.dateFormat,
+                          items: ['dd/MM/yyyy', 'MM/dd/yyyy', 'yyyy-MM-dd', 'd MMM yyyy']
+                              .map((f) => DropdownMenuItem(value: f, child: Text(f)))
+                              .toList(),
+                          onChanged: (v) {
+                            if (v != null) currencyNotifier.setDateFormat(v);
+                          },
                         ),
                       ),
                     ],
@@ -1569,20 +1572,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   SwitchListTile(
                     title: const Text('Compact sidebar'),
                     subtitle: const Text('Use icons-only sidebar when collapsed'),
-                    value: true,
-                    onChanged: (v) {},
+                    value: ref.watch(appSettingsProvider).compactMode,
+                    onChanged: (v) => ref.read(appSettingsProvider.notifier).setCompactMode(v),
                   ),
                   SwitchListTile(
                     title: const Text('Show account codes'),
                     subtitle: const Text('Display account numbers in lists'),
-                    value: true,
-                    onChanged: (v) {},
+                    value: ref.watch(appSettingsProvider).showAccountCodes,
+                    onChanged: (v) => ref.read(appSettingsProvider.notifier).setShowAccountCodes(v),
                   ),
                   SwitchListTile(
                     title: const Text('Animations'),
                     subtitle: const Text('Enable UI animations'),
-                    value: true,
-                    onChanged: (v) {},
+                    value: ref.watch(appSettingsProvider).enableAnimations,
+                    onChanged: (v) => ref.read(appSettingsProvider.notifier).setEnableAnimations(v),
                   ),
                 ],
               ),

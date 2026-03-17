@@ -12,6 +12,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/models/bill.dart';
 import '../../core/models/account.dart';
+import '../../core/models/payment.dart';
 import '../../core/providers/asset_drafts_provider.dart';
 
 class BillsScreen extends ConsumerStatefulWidget {
@@ -456,6 +457,9 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
     final accountsState = ref.read(accountsProvider);
     String selectedCurrency = 'UGX';
     String? selectedCategory;
+    String? selectedVendorId;
+    final referenceCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
     final List<_BillLineData> lines = [_BillLineData()];
     DateTime billDate = DateTime.now();
     DateTime dueDate = DateTime.now().add(const Duration(days: 30));
@@ -501,11 +505,12 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                         Expanded(
                           flex: 2,
                           child: DropdownButtonFormField<String>(
-                            decoration: const InputDecoration(labelText: 'Vendor'),
+                            decoration: const InputDecoration(labelText: 'Vendor *'),
+                            value: selectedVendorId,
                             items: vendorsState.vendors
                                 .map((v) => DropdownMenuItem(value: v.id, child: Text(v.name)))
                                 .toList(),
-                            onChanged: (v) {},
+                            onChanged: (v) => setDialogState(() => selectedVendorId = v),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -787,24 +792,76 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
               ),
               FilledButton(
                 onPressed: () {
+                  if (selectedVendorId == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please select a vendor.'),
+                        backgroundColor: AppColors.warning,
+                      ),
+                    );
+                    return;
+                  }
+                  final validLines = lines.where((l) => l.amount > 0).toList();
+                  if (validLines.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Add at least one line item with an amount.'),
+                        backgroundColor: AppColors.warning,
+                      ),
+                    );
+                    return;
+                  }
+
+                  final subtotal = validLines.fold<double>(0, (s, l) => s + l.amount);
+                  final taxAmount = subtotal * 0.18;
+                  final total = subtotal + taxAmount;
+                  final now = DateTime.now();
+                  final billId = now.millisecondsSinceEpoch.toString();
+                  final vendor = vendorsState.vendors.firstWhere((v) => v.id == selectedVendorId);
+
+                  final bill = Bill(
+                    id: billId,
+                    billNumber: 'BILL-${now.millisecondsSinceEpoch}',
+                    vendorId: selectedVendorId!,
+                    vendorName: vendor.name,
+                    date: billDate,
+                    dueDate: dueDate,
+                    subtotal: subtotal,
+                    taxAmount: taxAmount,
+                    total: total,
+                    status: BillStatus.pending,
+                    currencyCode: selectedCurrency,
+                    category: selectedCategory,
+                    reference: referenceCtrl.text.trim().isEmpty ? null : referenceCtrl.text.trim(),
+                    notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
+                    lines: validLines.map((l) => BillLine(
+                      id: l.id,
+                      billId: billId,
+                      accountId: l.accountId,
+                      description: l.description,
+                      amount: l.amount,
+                      taxRate: 0.18,
+                      taxAmount: l.amount * 0.18,
+                    )).toList(),
+                    createdAt: now,
+                    updatedAt: now,
+                  );
+
+                  ref.read(billsProvider.notifier).addBill(bill);
                   Navigator.pop(ctx);
-                  // If category is an asset type, auto-create a draft asset
+
                   if (isAssetCategory(selectedCategory)) {
-                    final totalAmt = lines.fold<double>(
-                        0, (s, l) => s + l.amount);
                     ref.read(assetDraftsProvider.notifier).addFromBill(
-                          id: DateTime.now().millisecondsSinceEpoch.toString(),
-                          assetName:
-                              '${selectedCategory ?? 'Asset'} (from bill)',
-                          category: selectedCategory!,
-                          amount: totalAmt,
-                          currency: selectedCurrency,
-                          date: billDate,
-                        );
+                      id: billId,
+                      assetName: '${selectedCategory ?? 'Asset'} (from bill)',
+                      category: selectedCategory!,
+                      amount: subtotal,
+                      currency: selectedCurrency,
+                      date: billDate,
+                    );
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text(
-                            'Bill created. "$selectedCategory" added as a draft asset in Assets.'),
+                        content: Text('Bill saved. "$selectedCategory" added as draft asset.'),
                         backgroundColor: AppColors.info,
                         duration: const Duration(seconds: 4),
                       ),
@@ -813,8 +870,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(attachedFileName != null
-                            ? 'Bill created with attachment: $attachedFileName'
-                            : 'Bill created'),
+                            ? 'Bill saved with attachment: $attachedFileName'
+                            : 'Bill saved — queued for sync'),
                       ),
                     );
                   }
@@ -884,69 +941,126 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
         a.subType.toString().contains('bank') ||
         a.subType.toString().contains('cash')).toList();
 
+    final amountCtrl = TextEditingController(text: balance.toStringAsFixed(0));
+    final refCtrl = TextEditingController();
+    String? selectedMethod = 'Bank Transfer';
+    String? selectedAccountId = bankAccounts.isNotEmpty ? bankAccounts.first.id : null;
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Pay Bill - ${bill.billNumber}'),
-        content: SizedBox(
-          width: 400,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Balance Due: UGX ${_currencyFormat.format(balance)}',
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 16),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Payment Amount'),
-                keyboardType: TextInputType.number,
-                initialValue: balance.toStringAsFixed(0),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Payment Date'),
-                readOnly: true,
-                initialValue: DateFormat('MMM d, yyyy').format(DateTime.now()),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Pay From Account'),
-                items: bankAccounts.isNotEmpty
-                    ? bankAccounts.map((a) => DropdownMenuItem(value: a.id, child: Text(a.name))).toList()
-                    : ['Bank Account - UGX', 'Bank Account - USD', 'Cash on Hand', 'Petty Cash']
-                        .map((a) => DropdownMenuItem(value: a, child: Text(a)))
-                        .toList(),
-                onChanged: (v) {},
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Payment Method'),
-                items: ['Bank Transfer', 'Cash', 'Mobile Money', 'Cheque']
-                    .map((m) => DropdownMenuItem(value: m, child: Text(m)))
-                    .toList(),
-                onChanged: (v) {},
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Reference (Optional)'),
-              ),
-            ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text('Pay Bill — ${bill.billNumber}'),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Balance Due:', style: TextStyle(fontWeight: FontWeight.w600)),
+                      Text('UGX ${_currencyFormat.format(balance)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: amountCtrl,
+                  decoration: const InputDecoration(labelText: 'Payment Amount', prefixText: 'UGX '),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(labelText: 'Pay From Account'),
+                  value: selectedAccountId,
+                  items: bankAccounts.isNotEmpty
+                      ? bankAccounts.map((a) => DropdownMenuItem(value: a.id, child: Text(a.name))).toList()
+                      : const [
+                          DropdownMenuItem(value: 'cash', child: Text('Cash on Hand')),
+                          DropdownMenuItem(value: 'bank', child: Text('Bank Account')),
+                        ],
+                  onChanged: (v) => setDialogState(() => selectedAccountId = v),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(labelText: 'Payment Method'),
+                  value: selectedMethod,
+                  items: ['Bank Transfer', 'Cash', 'Mobile Money', 'Cheque']
+                      .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                      .toList(),
+                  onChanged: (v) => setDialogState(() => selectedMethod = v),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: refCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Reference (Optional)',
+                    hintText: 'Cheque no. / transfer ref',
+                  ),
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final amount = double.tryParse(
+                    amountCtrl.text.replaceAll(',', '').trim());
+                if (amount == null || amount <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Enter a valid payment amount.'),
+                    backgroundColor: AppColors.warning,
+                  ));
+                  return;
+                }
+                if (amount > balance + 0.01) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('Amount exceeds balance due (UGX ${_currencyFormat.format(balance)}).'),
+                    backgroundColor: AppColors.warning,
+                  ));
+                  return;
+                }
+
+                final now = DateTime.now();
+                final payment = Payment(
+                  id: now.millisecondsSinceEpoch.toString(),
+                  paymentNumber: 'PAY-${now.millisecondsSinceEpoch}',
+                  paymentDate: now,
+                  amount: amount,
+                  paymentType: PaymentType.made,
+                  vendorId: bill.vendorId,
+                  vendorName: bill.vendorName,
+                  accountId: selectedAccountId,
+                  paymentMethod: selectedMethod ?? 'Bank Transfer',
+                  reference: refCtrl.text.trim().isEmpty ? null : refCtrl.text.trim(),
+                  notes: 'Payment for ${bill.billNumber}',
+                  createdAt: now,
+                  updatedAt: now,
+                );
+
+                ref.read(paymentsProvider.notifier).addPayment(payment);
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('Payment of UGX ${_currencyFormat.format(amount)} recorded.'),
+                  backgroundColor: AppColors.success,
+                ));
+              },
+              child: const Text('Record Payment'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Payment recorded (will sync when online)')),
-              );
-            },
-            child: const Text('Record Payment'),
-          ),
-        ],
       ),
     );
   }

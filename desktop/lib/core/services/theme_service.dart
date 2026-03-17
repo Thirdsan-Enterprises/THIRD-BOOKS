@@ -61,6 +61,15 @@ class AppSettings {
   final bool autoSync;
   final int syncIntervalMinutes;
 
+  // Tax preferences
+  final bool enableVAT;
+  final bool pricesIncludeTax;
+  final bool showTaxOnInvoices;
+
+  // Appearance preferences
+  final bool showAccountCodes;
+  final bool enableAnimations;
+
   // Auto-journalization controls
   final bool autoGamingTaxJE;
   final bool autoPayrollNSSFJE;
@@ -75,6 +84,11 @@ class AppSettings {
     this.enableNotifications = true,
     this.autoSync = true,
     this.syncIntervalMinutes = 15,
+    this.enableVAT = true,
+    this.pricesIncludeTax = false,
+    this.showTaxOnInvoices = true,
+    this.showAccountCodes = true,
+    this.enableAnimations = true,
     this.autoGamingTaxJE = true,
     this.autoPayrollNSSFJE = true,
     this.autoWHTJE = true,
@@ -89,6 +103,11 @@ class AppSettings {
     bool? enableNotifications,
     bool? autoSync,
     int? syncIntervalMinutes,
+    bool? enableVAT,
+    bool? pricesIncludeTax,
+    bool? showTaxOnInvoices,
+    bool? showAccountCodes,
+    bool? enableAnimations,
     bool? autoGamingTaxJE,
     bool? autoPayrollNSSFJE,
     bool? autoWHTJE,
@@ -102,6 +121,11 @@ class AppSettings {
       enableNotifications: enableNotifications ?? this.enableNotifications,
       autoSync: autoSync ?? this.autoSync,
       syncIntervalMinutes: syncIntervalMinutes ?? this.syncIntervalMinutes,
+      enableVAT: enableVAT ?? this.enableVAT,
+      pricesIncludeTax: pricesIncludeTax ?? this.pricesIncludeTax,
+      showTaxOnInvoices: showTaxOnInvoices ?? this.showTaxOnInvoices,
+      showAccountCodes: showAccountCodes ?? this.showAccountCodes,
+      enableAnimations: enableAnimations ?? this.enableAnimations,
       autoGamingTaxJE: autoGamingTaxJE ?? this.autoGamingTaxJE,
       autoPayrollNSSFJE: autoPayrollNSSFJE ?? this.autoPayrollNSSFJE,
       autoWHTJE: autoWHTJE ?? this.autoWHTJE,
@@ -129,6 +153,11 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     final enableNotifications = await _storage.read(key: 'notifications') != 'false';
     final autoSync = await _storage.read(key: 'auto_sync') != 'false';
     final syncInterval = int.tryParse(await _storage.read(key: 'sync_interval') ?? '15') ?? 15;
+    final enableVAT = await _storage.read(key: 'enable_vat') != 'false';
+    final pricesIncludeTax = await _storage.read(key: 'prices_include_tax') == 'true';
+    final showTaxOnInvoices = await _storage.read(key: 'show_tax_on_invoices') != 'false';
+    final showAccountCodes = await _storage.read(key: 'show_account_codes') != 'false';
+    final enableAnimations = await _storage.read(key: 'enable_animations') != 'false';
     final autoGamingTaxJE = await _storage.read(key: 'auto_gaming_tax_je') != 'false';
     final autoPayrollNSSFJE = await _storage.read(key: 'auto_payroll_nssf_je') != 'false';
     final autoWHTJE = await _storage.read(key: 'auto_wht_je') != 'false';
@@ -142,6 +171,11 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
       enableNotifications: enableNotifications,
       autoSync: autoSync,
       syncIntervalMinutes: syncInterval,
+      enableVAT: enableVAT,
+      pricesIncludeTax: pricesIncludeTax,
+      showTaxOnInvoices: showTaxOnInvoices,
+      showAccountCodes: showAccountCodes,
+      enableAnimations: enableAnimations,
       autoGamingTaxJE: autoGamingTaxJE,
       autoPayrollNSSFJE: autoPayrollNSSFJE,
       autoWHTJE: autoWHTJE,
@@ -186,6 +220,31 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
   Future<void> setSyncInterval(int minutes) async {
     state = state.copyWith(syncIntervalMinutes: minutes);
     await _storage.write(key: 'sync_interval', value: minutes.toString());
+  }
+
+  Future<void> setEnableVAT(bool enabled) async {
+    state = state.copyWith(enableVAT: enabled);
+    await _storage.write(key: 'enable_vat', value: enabled.toString());
+  }
+
+  Future<void> setPricesIncludeTax(bool enabled) async {
+    state = state.copyWith(pricesIncludeTax: enabled);
+    await _storage.write(key: 'prices_include_tax', value: enabled.toString());
+  }
+
+  Future<void> setShowTaxOnInvoices(bool enabled) async {
+    state = state.copyWith(showTaxOnInvoices: enabled);
+    await _storage.write(key: 'show_tax_on_invoices', value: enabled.toString());
+  }
+
+  Future<void> setShowAccountCodes(bool enabled) async {
+    state = state.copyWith(showAccountCodes: enabled);
+    await _storage.write(key: 'show_account_codes', value: enabled.toString());
+  }
+
+  Future<void> setEnableAnimations(bool enabled) async {
+    state = state.copyWith(enableAnimations: enabled);
+    await _storage.write(key: 'enable_animations', value: enabled.toString());
   }
 
   Future<void> setAutoGamingTaxJE(bool enabled) async {
