@@ -11,6 +11,8 @@ import '../models/invoice.dart';
 import '../models/bill.dart';
 import '../models/journal_entry.dart';
 import '../models/payment.dart';
+import '../models/bank_transaction.dart';
+import '../models/credit_debit_note.dart';
 
 // ============================================================================
 // Local Storage Service - Persists data to local filesystem
@@ -132,6 +134,38 @@ class LocalStorageService {
 
   Future<List<Payment>> loadPayments() async {
     return loadData('payments', Payment.fromJson);
+  }
+
+  Future<void> saveBankTransactions(List<BankTransaction> txns) async {
+    await saveData('bank_transactions', txns, (t) => t.toJson());
+  }
+
+  Future<List<BankTransaction>> loadBankTransactions() async {
+    return loadData('bank_transactions', BankTransaction.fromJson);
+  }
+
+  Future<void> saveOutletSettlements(List<OutletSettlement> settlements) async {
+    await saveData('outlet_settlements', settlements, (s) => s.toJson());
+  }
+
+  Future<List<OutletSettlement>> loadOutletSettlements() async {
+    return loadData('outlet_settlements', OutletSettlement.fromJson);
+  }
+
+  Future<void> saveCreditNotes(List<CreditNote> notes) async {
+    await saveData('credit_notes', notes, (n) => n.toJson());
+  }
+
+  Future<List<CreditNote>> loadCreditNotes() async {
+    return loadData('credit_notes', CreditNote.fromJson);
+  }
+
+  Future<void> saveDebitNotes(List<DebitNote> notes) async {
+    await saveData('debit_notes', notes, (n) => n.toJson());
+  }
+
+  Future<List<DebitNote>> loadDebitNotes() async {
+    return loadData('debit_notes', DebitNote.fromJson);
   }
 
   // ============================================================================

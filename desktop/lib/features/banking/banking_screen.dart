@@ -5,9 +5,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
+import '../../core/services/local_storage_service.dart';
+import '../../core/models/bank_transaction.dart';
 
 // ---------------------------------------------------------------------------
 // Simple in-memory bank account model (persisted via Riverpod state)
@@ -53,6 +56,8 @@ class BankingState {
 }
 
 class BankingNotifier extends StateNotifier<BankingState> {
+  final LocalStorageService _localStorage = LocalStorageService.instance;
+
   BankingNotifier() : super(BankingState(accounts: _defaultAccounts()));
 
   static List<BankAccount> _defaultAccounts() => [
@@ -93,11 +98,86 @@ class BankingNotifier extends StateNotifier<BankingState> {
       accounts: state.accounts.where((a) => a.id != id).toList(),
     );
   }
+
+  /// Apply a running-balance update to a bank account after reconciliation.
+  void updateBalance(String bankAccountId, double delta) {
+    state = state.copyWith(
+      accounts: state.accounts.map((a) {
+        if (a.id == bankAccountId) {
+          return a.copyWith(balance: a.balance + delta);
+        }
+        return a;
+      }).toList(),
+    );
+  }
+
+  /// Record a transaction and persist it; returns the saved transaction.
+  Future<BankTransaction> recordTransaction({
+    required String bankAccountId,
+    required DateTime date,
+    required String description,
+    required BankTxType type,
+    required double amount,
+    String? reference,
+    String? sourceType,
+    String? sourceId,
+    String? sourceLabel,
+  }) async {
+    final existing = await _localStorage.loadBankTransactions();
+    final accountTxns = existing
+        .where((t) => t.bankAccountId == bankAccountId)
+        .toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    final lastBalance = accountTxns.isNotEmpty
+        ? accountTxns.last.runningBalance
+        : (state.accounts
+                .cast<BankAccount?>()
+                .firstWhere((a) => a?.id == bankAccountId, orElse: () => null)
+                ?.balance ??
+            0);
+
+    final newBalance = type == BankTxType.credit
+        ? lastBalance + amount
+        : lastBalance - amount;
+
+    final tx = BankTransaction(
+      id: const Uuid().v4(),
+      bankAccountId: bankAccountId,
+      date: date,
+      description: description,
+      type: type,
+      amount: amount,
+      runningBalance: newBalance,
+      reference: reference,
+      sourceType: sourceType,
+      sourceId: sourceId,
+      sourceLabel: sourceLabel,
+      createdAt: DateTime.now(),
+    );
+
+    await _localStorage.saveBankTransactions([...existing, tx]);
+
+    // Update the in-memory account balance
+    final delta = type == BankTxType.credit ? amount : -amount;
+    updateBalance(bankAccountId, delta);
+
+    return tx;
+  }
 }
 
 final bankingProvider = StateNotifierProvider<BankingNotifier, BankingState>(
   (ref) => BankingNotifier(),
 );
+
+/// Provider for reading all transactions for a specific bank account.
+final bankTransactionsProvider =
+    FutureProvider.family<List<BankTransaction>, String>((ref, bankAccountId) async {
+  final ls = LocalStorageService.instance;
+  final all = await ls.loadBankTransactions();
+  return all.where((t) => t.bankAccountId == bankAccountId).toList()
+    ..sort((a, b) => a.date.compareTo(b.date));
+});
 
 // ---------------------------------------------------------------------------
 // Banking Screen
@@ -150,7 +230,7 @@ class _BankingScreenState extends ConsumerState<BankingScreen> {
                   : GridView.builder(
                       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                         maxCrossAxisExtent: 340,
-                        mainAxisExtent: 200,
+                        mainAxisExtent: 230,
                         crossAxisSpacing: 16,
                         mainAxisSpacing: 16,
                       ),
@@ -602,11 +682,38 @@ class _BankTile extends ConsumerWidget {
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () => _showStatementDialog(context, ref),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.receipt_long, color: Colors.white70, size: 12),
+                        SizedBox(width: 4),
+                        Text('View Statement',
+                            style: TextStyle(color: Colors.white70, fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  void _showStatementDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _BankStatementDialog(account: account),
     );
   }
 
@@ -631,6 +738,256 @@ class _BankTile extends ConsumerWidget {
             child: const Text('Remove'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bank Statement Dialog
+// ---------------------------------------------------------------------------
+class _BankStatementDialog extends ConsumerWidget {
+  final BankAccount account;
+
+  const _BankStatementDialog({required this.account});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final txnAsync = ref.watch(bankTransactionsProvider(account.id));
+    final fmt = NumberFormat('#,###');
+    final dateFmt = DateFormat('MMM d, yyyy');
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: SizedBox(
+        width: 740,
+        height: 580,
+        child: Column(
+          children: [
+            // ── Header ────────────────────────────────────────────────────
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.account_balance, color: Colors.white, size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(account.bankName,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold)),
+                        Text(
+                            '${account.accountType}  •  ${account.currency}  •  ****${account.accountNumber.length > 4 ? account.accountNumber.substring(account.accountNumber.length - 4) : account.accountNumber}',
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      const Text('Current Balance',
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 11)),
+                      Text(
+                        '${account.currency} ${fmt.format(account.balance)}',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // ── Column headers ─────────────────────────────────────────────
+            Container(
+              color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 90,
+                    child: Text('Date',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Theme.of(context).colorScheme.outline)),
+                  ),
+                  const Expanded(
+                    flex: 3,
+                    child: Text('Description',
+                        style: TextStyle(
+                            fontSize: 11, fontWeight: FontWeight.w600)),
+                  ),
+                  SizedBox(
+                    width: 100,
+                    child: Text('Debit',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.expense),
+                        textAlign: TextAlign.right),
+                  ),
+                  SizedBox(
+                    width: 100,
+                    child: Text('Credit',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.income),
+                        textAlign: TextAlign.right),
+                  ),
+                  SizedBox(
+                    width: 110,
+                    child: Text('Balance',
+                        style: const TextStyle(
+                            fontSize: 11, fontWeight: FontWeight.w600),
+                        textAlign: TextAlign.right),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // ── Transactions ───────────────────────────────────────────────
+            Expanded(
+              child: txnAsync.when(
+                data: (txns) {
+                  if (txns.isEmpty) {
+                    return const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.receipt_long_outlined,
+                              size: 48, color: Colors.grey),
+                          SizedBox(height: 12),
+                          Text(
+                            'No transactions recorded yet.\nTransactions appear here after reconciling bank statements.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  return ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    itemCount: txns.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final tx = txns[i];
+                      final isCredit = tx.type == BankTxType.credit;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 90,
+                              child: Text(dateFmt.format(tx.date),
+                                  style: const TextStyle(fontSize: 12)),
+                            ),
+                            Expanded(
+                              flex: 3,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(tx.description,
+                                      style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500),
+                                      overflow: TextOverflow.ellipsis),
+                                  if (tx.reference != null &&
+                                      tx.reference!.isNotEmpty)
+                                    Text('Ref: ${tx.reference}',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .outline)),
+                                ],
+                              ),
+                            ),
+                            SizedBox(
+                              width: 100,
+                              child: isCredit
+                                  ? const SizedBox.shrink()
+                                  : Text(
+                                      fmt.format(tx.amount),
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.expense,
+                                          fontFamily: 'monospace'),
+                                      textAlign: TextAlign.right,
+                                    ),
+                            ),
+                            SizedBox(
+                              width: 100,
+                              child: isCredit
+                                  ? Text(
+                                      fmt.format(tx.amount),
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.income,
+                                          fontFamily: 'monospace'),
+                                      textAlign: TextAlign.right,
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
+                            SizedBox(
+                              width: 110,
+                              child: Text(
+                                fmt.format(tx.runningBalance),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  fontFamily: 'monospace',
+                                  color: tx.runningBalance >= 0
+                                      ? null
+                                      : AppColors.error,
+                                ),
+                                textAlign: TextAlign.right,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, _) => Center(child: Text('Error: $e')),
+              ),
+            ),
+            // ── Footer ─────────────────────────────────────────────────────
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

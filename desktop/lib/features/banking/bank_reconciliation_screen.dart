@@ -13,10 +13,12 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
+import '../../core/services/local_storage_service.dart';
 import '../../core/database/app_database.dart' show Outlet;
 import '../../core/models/invoice.dart';
 import '../../core/models/bill.dart';
 import '../../core/models/models.dart';
+import '../../core/models/bank_transaction.dart';
 import 'banking_screen.dart';
 
 // ---------------------------------------------------------------------------
@@ -471,231 +473,376 @@ class _BankReconciliationScreenState
     );
   }
 
-  // ── Deposit categorization dialog ────────────────────────────────────────
-  // Shown for credit lines (money in) — lets user tag to Chart of Accounts
-  // or an Outlet. Debit lines continue to use _showManualMatchDialog().
-  void _showDepositCategorizationDialog(BankStatementLine line) {
+  // ── Categorization dialog ─────────────────────────────────────────────────
+  // Handles both credit lines (deposits) and debit lines (bank charges/payments).
+  // Credit: Tab 1 = Chart of Accounts (asset/revenue/equity), Tab 2 = Outlet
+  // Debit:  Tab 1 = Chart of Accounts (expense/liability/asset), Tab 2 = Bills
+  void _showCategorizationDialog(BankStatementLine line) {
+    final isDebit = line.amount < 0;
     final accountsState = ref.read(accountsProvider);
     final db = ref.read(databaseProvider);
+    final billsState = ref.read(billsProvider);
+
+    // Search query strings — live in closure, updated via setS
+    String acctQuery = '';
+    String tab2Query = '';
+
+    final acctTypes = isDebit
+        ? [AccountType.expense, AccountType.liability, AccountType.asset]
+        : [AccountType.asset, AccountType.revenue, AccountType.equity];
 
     showDialog(
       context: context,
       builder: (ctx) => DefaultTabController(
         length: 2,
         child: StatefulBuilder(
-          builder: (ctx, setDlgState) => AlertDialog(
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('Categorize Deposit'),
-                const SizedBox(height: 4),
-                Text(
-                  '${line.description}  •  + UGX ${_fmt.format(line.amount)}  •  ${_dateFmt.format(line.date)}',
-                  style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.normal),
-                ),
-              ],
-            ),
-            content: SizedBox(
-              width: 620,
-              height: 460,
-              child: Column(
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceVariant,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const TabBar(
-                      tabs: [
-                        Tab(
-                          icon: Icon(Icons.account_tree_outlined, size: 16),
-                          text: 'Chart of Accounts',
-                        ),
-                        Tab(
-                          icon: Icon(Icons.store_outlined, size: 16),
-                          text: 'Outlet',
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        // ── Tab 1: Chart of Accounts ─────────────────────
-                        Builder(builder: (ctx) {
-                          final accts = accountsState.accounts
-                              .where((a) =>
-                                  a.type == AccountType.asset ||
-                                  a.type == AccountType.revenue ||
-                                  a.type == AccountType.equity)
-                              .toList()
-                            ..sort((a, b) => a.code.compareTo(b.code));
-                          if (accts.isEmpty) {
-                            return const Center(
-                                child: Text('No accounts available'));
-                          }
-                          return ListView.separated(
-                            itemCount: accts.length,
-                            separatorBuilder: (_, __) =>
-                                const Divider(height: 1),
-                            itemBuilder: (_, i) {
-                              final acct = accts[i];
-                              return ListTile(
-                                dense: true,
-                                leading: CircleAvatar(
-                                  radius: 14,
-                                  backgroundColor: AppColors.primary
-                                      .withOpacity(0.1),
-                                  child: Text(
-                                    acct.code.substring(
-                                        0,
-                                        acct.code.length < 3
-                                            ? acct.code.length
-                                            : 3),
-                                    style: TextStyle(
-                                        fontSize: 9,
-                                        color: AppColors.primary,
-                                        fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                                title: Text('${acct.code} — ${acct.name}',
-                                    style:
-                                        const TextStyle(fontSize: 13)),
-                                subtitle: Text(acct.type.name,
-                                    style:
-                                        const TextStyle(fontSize: 11)),
-                                onTap: () {
-                                  setState(() {
-                                    line.status = MatchStatus.matched;
-                                    line.matchedRecordId = acct.id;
-                                    line.matchedRecordType = 'account';
-                                    line.matchedLabel =
-                                        '${acct.code} ${acct.name}';
-                                  });
-                                  ref
-                                      .read(_reconciliationLinesProvider
-                                          .notifier)
-                                      .state = [
-                                    ...ref
-                                        .read(_reconciliationLinesProvider)
-                                  ];
-                                  Navigator.pop(ctx);
-                                  ScaffoldMessenger.of(context)
-                                      .showSnackBar(const SnackBar(
-                                    content: Text(
-                                        'Deposit categorized to account'),
-                                    backgroundColor: AppColors.success,
-                                  ));
-                                },
-                              );
-                            },
-                          );
-                        }),
+          builder: (ctx, setS) {
+            // Filtered accounts list
+            final allAccts = accountsState.accounts
+                .where((a) => acctTypes.contains(a.type))
+                .toList()
+              ..sort((a, b) => a.code.compareTo(b.code));
+            final filteredAccts = acctQuery.isEmpty
+                ? allAccts
+                : allAccts
+                    .where((a) =>
+                        a.name.toLowerCase().contains(acctQuery) ||
+                        a.code.toLowerCase().contains(acctQuery))
+                    .toList();
 
-                        // ── Tab 2: Outlets ────────────────────────────────
-                        FutureBuilder<List<Outlet>>(
-                          future: db.getAllOutlets(),
-                          builder: (ctx, snap) {
-                            if (snap.connectionState ==
-                                ConnectionState.waiting) {
-                              return const Center(
-                                  child: CircularProgressIndicator());
-                            }
-                            final outs = snap.data ?? [];
-                            if (outs.isEmpty) {
-                              return const Center(
-                                  child: Text('No outlets found'));
-                            }
-                            return ListView.separated(
-                              itemCount: outs.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (_, i) {
-                                final out = outs[i];
-                                return ListTile(
-                                  dense: true,
-                                  leading: CircleAvatar(
-                                    radius: 14,
-                                    backgroundColor: AppColors.income
-                                        .withOpacity(0.1),
-                                    child: Icon(Icons.store,
-                                        size: 14,
-                                        color: AppColors.income),
-                                  ),
-                                  title: Text(out.name,
-                                      style:
-                                          const TextStyle(fontSize: 13)),
-                                  subtitle: Text(
-                                      '${out.outletCode}${out.city != null ? '  •  ${out.city}' : ''}',
-                                      style:
-                                          const TextStyle(fontSize: 11)),
-                                  onTap: () {
-                                    setState(() {
-                                      line.status = MatchStatus.matched;
-                                      line.matchedRecordId = out.id;
-                                      line.matchedRecordType = 'outlet';
-                                      line.matchedLabel =
-                                          '${out.name} (${out.outletCode})';
-                                    });
-                                    ref
-                                        .read(
-                                            _reconciliationLinesProvider
-                                                .notifier)
-                                        .state = [
-                                      ...ref.read(
-                                          _reconciliationLinesProvider)
-                                    ];
-                                    Navigator.pop(ctx);
-                                    ScaffoldMessenger.of(context)
-                                        .showSnackBar(const SnackBar(
-                                      content: Text(
-                                          'Deposit matched to outlet'),
-                                      backgroundColor: AppColors.success,
-                                    ));
-                                  },
-                                );
-                              },
-                            );
-                          },
-                        ),
-                      ],
-                    ),
+            return AlertDialog(
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(isDebit
+                      ? 'Categorize Expense / Payment'
+                      : 'Categorize Deposit'),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${line.description}  •  ${isDebit ? "-" : "+"} UGX ${_fmt.format(line.amount.abs())}  •  ${_dateFmt.format(line.date)}',
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.normal),
                   ),
                 ],
               ),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancel')),
-              if (line.status == MatchStatus.matched)
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.link_off, size: 16),
-                  label: const Text('Remove Category'),
-                  style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.error),
-                  onPressed: () {
-                    setState(() {
-                      line.status = MatchStatus.unmatched;
-                      line.matchedRecordId = null;
-                      line.matchedRecordType = null;
-                      line.matchedLabel = null;
-                    });
-                    ref
-                        .read(_reconciliationLinesProvider.notifier)
-                        .state = [
-                      ...ref.read(_reconciliationLinesProvider)
-                    ];
-                    Navigator.pop(ctx);
-                  },
+              content: SizedBox(
+                width: 640,
+                height: 500,
+                child: Column(
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color:
+                            Theme.of(context).colorScheme.surfaceVariant,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: TabBar(
+                        tabs: [
+                          const Tab(
+                            icon: Icon(Icons.account_tree_outlined,
+                                size: 16),
+                            text: 'Chart of Accounts',
+                          ),
+                          Tab(
+                            icon: Icon(
+                                isDebit
+                                    ? Icons.description_outlined
+                                    : Icons.store_outlined,
+                                size: 16),
+                            text: isDebit ? 'Bills' : 'Outlet',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: TabBarView(
+                        children: [
+                          // ── Tab 1: Chart of Accounts ───────────────────
+                          Column(
+                            children: [
+                              TextField(
+                                decoration: InputDecoration(
+                                  hintText: 'Search accounts...',
+                                  prefixIcon: const Icon(Icons.search,
+                                      size: 18),
+                                  isDense: true,
+                                  contentPadding:
+                                      const EdgeInsets.symmetric(
+                                          vertical: 8),
+                                  border: OutlineInputBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(8),
+                                  ),
+                                ),
+                                onChanged: (v) => setS(
+                                    () => acctQuery =
+                                        v.trim().toLowerCase()),
+                              ),
+                              const SizedBox(height: 8),
+                              Expanded(
+                                child: filteredAccts.isEmpty
+                                    ? const Center(
+                                        child: Text('No accounts found'))
+                                    : ListView.separated(
+                                        itemCount: filteredAccts.length,
+                                        separatorBuilder: (_, __) =>
+                                            const Divider(height: 1),
+                                        itemBuilder: (_, i) {
+                                          final acct = filteredAccts[i];
+                                          return ListTile(
+                                            dense: true,
+                                            leading: CircleAvatar(
+                                              radius: 14,
+                                              backgroundColor:
+                                                  AppColors.primary
+                                                      .withOpacity(0.1),
+                                              child: Text(
+                                                acct.code.length >= 3
+                                                    ? acct.code
+                                                        .substring(0, 3)
+                                                    : acct.code,
+                                                style: TextStyle(
+                                                    fontSize: 9,
+                                                    color: AppColors
+                                                        .primary,
+                                                    fontWeight:
+                                                        FontWeight.bold),
+                                              ),
+                                            ),
+                                            title: Text(
+                                                '${acct.code} — ${acct.name}',
+                                                style: const TextStyle(
+                                                    fontSize: 13)),
+                                            subtitle: Text(
+                                                acct.type.name,
+                                                style: const TextStyle(
+                                                    fontSize: 11)),
+                                            onTap: () {
+                                              setState(() {
+                                                line.status =
+                                                    MatchStatus.matched;
+                                                line.matchedRecordId =
+                                                    acct.id;
+                                                line.matchedRecordType =
+                                                    'account';
+                                                line.matchedLabel =
+                                                    '${acct.code} ${acct.name}';
+                                              });
+                                              ref
+                                                  .read(
+                                                      _reconciliationLinesProvider
+                                                          .notifier)
+                                                  .state = [
+                                                ...ref.read(
+                                                    _reconciliationLinesProvider)
+                                              ];
+                                              Navigator.pop(ctx);
+                                              ScaffoldMessenger.of(
+                                                      context)
+                                                  .showSnackBar(SnackBar(
+                                                content: Text(isDebit
+                                                    ? 'Expense categorized to account'
+                                                    : 'Deposit categorized to account'),
+                                                backgroundColor:
+                                                    AppColors.success,
+                                              ));
+                                            },
+                                          );
+                                        },
+                                      ),
+                              ),
+                            ],
+                          ),
+
+                          // ── Tab 2: Outlets (credits) / Bills (debits) ──
+                          isDebit
+                              ? _buildBillsTab(
+                                  line, billsState, tab2Query, ctx,
+                                  (q) => setS(() => tab2Query = q))
+                              : _buildOutletsTab(
+                                  line, db, tab2Query, ctx,
+                                  (q) => setS(() => tab2Query = q)),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-            ],
-          ),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Cancel')),
+                if (line.status == MatchStatus.matched)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.link_off, size: 16),
+                    label: const Text('Remove Category'),
+                    style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.error),
+                    onPressed: () {
+                      setState(() {
+                        line.status = MatchStatus.unmatched;
+                        line.matchedRecordId = null;
+                        line.matchedRecordType = null;
+                        line.matchedLabel = null;
+                      });
+                      ref
+                          .read(_reconciliationLinesProvider.notifier)
+                          .state = [
+                        ...ref.read(_reconciliationLinesProvider)
+                      ];
+                      Navigator.pop(ctx);
+                    },
+                  ),
+              ],
+            );
+          },
         ),
       ),
+    );
+  }
+
+  Widget _buildOutletsTab(BankStatementLine line, dynamic db, String query,
+      BuildContext ctx, void Function(String) onSearch) {
+    return Column(
+      children: [
+        TextField(
+          decoration: InputDecoration(
+            hintText: 'Search outlets...',
+            prefixIcon: const Icon(Icons.search, size: 18),
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(vertical: 8),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          onChanged: (v) => onSearch(v.trim().toLowerCase()),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: FutureBuilder<List<Outlet>>(
+            future: db.getAllOutlets(),
+            builder: (ctx2, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final outs = (snap.data ?? [])
+                  .where((o) =>
+                      query.isEmpty ||
+                      o.name.toLowerCase().contains(query) ||
+                      o.outletCode.toLowerCase().contains(query))
+                  .toList();
+              if (outs.isEmpty) {
+                return const Center(child: Text('No outlets found'));
+              }
+              return ListView.separated(
+                itemCount: outs.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (_, i) {
+                  final out = outs[i];
+                  return ListTile(
+                    dense: true,
+                    leading: CircleAvatar(
+                      radius: 14,
+                      backgroundColor: AppColors.income.withOpacity(0.1),
+                      child:
+                          Icon(Icons.store, size: 14, color: AppColors.income),
+                    ),
+                    title:
+                        Text(out.name, style: const TextStyle(fontSize: 13)),
+                    subtitle: Text(
+                        '${out.outletCode}${out.city != null ? '  •  ${out.city}' : ''}',
+                        style: const TextStyle(fontSize: 11)),
+                    onTap: () {
+                      setState(() {
+                        line.status = MatchStatus.matched;
+                        line.matchedRecordId = out.id;
+                        line.matchedRecordType = 'outlet';
+                        line.matchedLabel = '${out.name} (${out.outletCode})';
+                      });
+                      ref.read(_reconciliationLinesProvider.notifier).state =
+                          [...ref.read(_reconciliationLinesProvider)];
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Deposit matched to outlet'),
+                        backgroundColor: AppColors.success,
+                      ));
+                    },
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBillsTab(BankStatementLine line, dynamic billsState,
+      String query, BuildContext ctx, void Function(String) onSearch) {
+    final bills = (billsState.bills as List<Bill>)
+        .where((b) =>
+            b.status != BillStatus.paid &&
+            (query.isEmpty ||
+                b.billNumber.toLowerCase().contains(query) ||
+                (b.vendorName ?? '').toLowerCase().contains(query)))
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    return Column(
+      children: [
+        TextField(
+          decoration: InputDecoration(
+            hintText: 'Search bills...',
+            prefixIcon: const Icon(Icons.search, size: 18),
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(vertical: 8),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          onChanged: (v) => onSearch(v.trim().toLowerCase()),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: bills.isEmpty
+              ? const Center(child: Text('No unpaid bills found'))
+              : ListView.separated(
+                  itemCount: bills.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (_, i) {
+                    final bill = bills[i];
+                    return ListTile(
+                      dense: true,
+                      leading: CircleAvatar(
+                        radius: 14,
+                        backgroundColor: AppColors.expense.withOpacity(0.1),
+                        child: Icon(Icons.description,
+                            size: 14, color: AppColors.expense),
+                      ),
+                      title: Text(
+                          '${bill.billNumber} — ${bill.vendorName ?? "Vendor"}',
+                          style: const TextStyle(fontSize: 13)),
+                      subtitle: Text(
+                          'UGX ${_fmt.format(bill.total)}  •  ${_dateFmt.format(bill.date)}',
+                          style: const TextStyle(fontSize: 11)),
+                      onTap: () {
+                        setState(() {
+                          line.status = MatchStatus.matched;
+                          line.matchedRecordId = bill.id;
+                          line.matchedRecordType = 'bill';
+                          line.matchedLabel =
+                              '${bill.billNumber} — ${bill.vendorName ?? "Vendor"}';
+                        });
+                        ref.read(_reconciliationLinesProvider.notifier).state =
+                            [...ref.read(_reconciliationLinesProvider)];
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Payment matched to bill'),
+                          backgroundColor: AppColors.success,
+                        ));
+                      },
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 
@@ -752,9 +899,9 @@ class _BankReconciliationScreenState
     );
   }
 
-  void _commitReconciliation(
-      List<BankStatementLine> matched, List<BankStatementLine> allLines) {
-    // Mark matched bills as Paid
+  Future<void> _commitReconciliation(
+      List<BankStatementLine> matched, List<BankStatementLine> allLines) async {
+    // 1. Mark matched bills as Paid
     final billsNotifier = ref.read(billsProvider.notifier);
     final billsState = ref.read(billsProvider);
 
@@ -774,7 +921,116 @@ class _BankReconciliationScreenState
       }
     }
 
-    // Show settlement summary
+    // 2. Record bank transactions, journal entries, and outlet settlements
+    if (_selectedAccount != null) {
+      final bankingNotifier = ref.read(bankingProvider.notifier);
+      final journalsNotifier = ref.read(journalsProvider.notifier);
+      final accountsState = ref.read(accountsProvider);
+      final ls = LocalStorageService.instance;
+      final existingSettlements = await ls.loadOutletSettlements();
+      final newSettlements = <OutletSettlement>[];
+      final now = DateTime.now();
+
+      for (final line in matched) {
+        final txType =
+            line.amount >= 0 ? BankTxType.credit : BankTxType.debit;
+
+        // Record bank transaction (updates running balance)
+        final tx = await bankingNotifier.recordTransaction(
+          bankAccountId: _selectedAccount!.id,
+          date: line.date,
+          description: line.description,
+          type: txType,
+          amount: line.amount.abs(),
+          reference: line.reference,
+          sourceType: line.matchedRecordType,
+          sourceId: line.matchedRecordId,
+          sourceLabel: line.matchedLabel,
+        );
+
+        // Create journal entry for account-matched lines (double-entry)
+        if (line.matchedRecordType == 'account' &&
+            line.matchedRecordId != null) {
+          final matchedAcct = accountsState.accounts
+              .cast<Account?>()
+              .firstWhere((a) => a?.id == line.matchedRecordId,
+                  orElse: () => null);
+          if (matchedAcct != null) {
+            final jeId = const Uuid().v4();
+            final isCredit = line.amount >= 0;
+            // Credit line: DR Bank, CR matched account
+            // Debit line:  DR matched account, CR Bank
+            final je = JournalEntry(
+              id: jeId,
+              entryNumber: 'BANK-REC-${now.millisecondsSinceEpoch}',
+              date: line.date,
+              description: 'Bank reconciliation: ${line.description}',
+              reference: line.reference,
+              status: JournalEntryStatus.posted,
+              lines: [
+                JournalLine(
+                  id: '$jeId-1',
+                  journalEntryId: jeId,
+                  accountId: _selectedAccount!.id,
+                  accountName: _selectedAccount!.bankName,
+                  accountCode: 'BANK',
+                  debit: isCredit ? line.amount.abs() : 0,
+                  credit: isCredit ? 0 : line.amount.abs(),
+                ),
+                JournalLine(
+                  id: '$jeId-2',
+                  journalEntryId: jeId,
+                  accountId: matchedAcct.id,
+                  accountName: matchedAcct.name,
+                  accountCode: matchedAcct.code,
+                  debit: isCredit ? 0 : line.amount.abs(),
+                  credit: isCredit ? line.amount.abs() : 0,
+                ),
+              ],
+              createdAt: now,
+              updatedAt: now,
+            );
+            journalsNotifier.addEntry(je);
+          }
+        }
+
+        // Save outlet settlement record
+        if (line.matchedRecordType == 'outlet' &&
+            line.matchedRecordId != null) {
+          String outletCode = '';
+          String outletName = line.matchedLabel ?? '';
+          final parenIdx = line.matchedLabel?.lastIndexOf('(') ?? -1;
+          if (parenIdx >= 0) {
+            outletName =
+                line.matchedLabel!.substring(0, parenIdx).trim();
+            outletCode = line.matchedLabel!
+                .substring(parenIdx + 1)
+                .replaceAll(')', '')
+                .trim();
+          }
+          newSettlements.add(OutletSettlement(
+            id: const Uuid().v4(),
+            bankTransactionId: tx.id,
+            outletId: line.matchedRecordId!,
+            outletCode: outletCode,
+            outletName: outletName,
+            amount: line.amount.abs(),
+            date: line.date,
+            bankAccountName: _selectedAccount!.bankName,
+            reference: line.reference,
+          ));
+        }
+      }
+
+      if (newSettlements.isNotEmpty) {
+        await ls.saveOutletSettlements(
+            [...existingSettlements, ...newSettlements]);
+      }
+    }
+
+    if (!mounted) return;
+
+    // 3. Show settlement summary
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1173,29 +1429,16 @@ class _BankReconciliationScreenState
 
             // Actions
             if (line.status != MatchStatus.matched) ...[
-              // Credits (deposits): show categorize button
-              if (isCredit)
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.category_outlined, size: 14),
-                  label: const Text('Categorize'),
-                  style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 4),
-                      visualDensity: VisualDensity.compact,
-                      foregroundColor: AppColors.primary),
-                  onPressed: () =>
-                      _showDepositCategorizationDialog(line),
-                ),
-              if (!isCredit)
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.link, size: 14),
-                  label: const Text('Match'),
-                  style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 4),
-                      visualDensity: VisualDensity.compact),
-                  onPressed: () => _showManualMatchDialog(line),
-                ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.category_outlined, size: 14),
+                label: const Text('Categorize'),
+                style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: AppColors.primary),
+                onPressed: () => _showCategorizationDialog(line),
+              ),
             ] else
               OutlinedButton.icon(
                 icon: const Icon(Icons.link_off, size: 14),

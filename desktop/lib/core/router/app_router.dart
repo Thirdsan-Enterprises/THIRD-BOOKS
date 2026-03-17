@@ -23,6 +23,8 @@ import '../../features/banking/bank_reconciliation_screen.dart';
 import '../../features/assets/assets_screen.dart';
 import '../../features/assets/depreciation_screen.dart';
 import '../../features/banking/banking_screen.dart';
+import '../../features/outlets/outlet_settled_screen.dart';
+import '../../features/notes/credit_debit_notes_screen.dart';
 import '../../widgets/app_shell.dart';
 import '../services/auth_service.dart';
 
@@ -171,6 +173,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/outlet-analytics',
             name: 'outlet-analytics',
             builder: (context, state) => const OutletAnalyticsScreen(),
+          ),
+          GoRoute(
+            path: '/outlet-settled',
+            name: 'outlet-settled',
+            builder: (context, state) => const OutletSettledScreen(),
+          ),
+          GoRoute(
+            path: '/credit-notes',
+            name: 'credit-notes',
+            builder: (context, state) => const CreditDebitNotesScreen(),
           ),
 
           // MAGIC BET - Asset Management Routes
