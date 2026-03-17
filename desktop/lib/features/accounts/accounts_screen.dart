@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -18,6 +19,7 @@ class AccountsScreen extends ConsumerStatefulWidget {
 
 class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  final ScrollController _scrollController = ScrollController();
   String _searchQuery = '';
   String? _selectedType;
   final _currencyFormat = NumberFormat('#,###', 'en_US');
@@ -31,7 +33,21 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
   @override
   void dispose() {
     _tabController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Jump the accounts list to the first account whose name starts with [letter].
+  void _jumpToLetter(String letter, List<Account> filtered) {
+    final idx = filtered.indexWhere(
+        (a) => a.name.toUpperCase().startsWith(letter.toUpperCase()));
+    if (idx < 0 || !_scrollController.hasClients) return;
+    // Each row is approximately 52px tall
+    const rowHeight = 52.0;
+    final offset = (idx * rowHeight).clamp(
+        0.0, _scrollController.position.maxScrollExtent);
+    _scrollController.animateTo(offset,
+        duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
   }
 
   List<Account> _filterAccounts(List<Account> accounts) {
@@ -93,7 +109,8 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
             Expanded(
               child: accountsState.isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : _buildAccountsTable(context, _filterAccounts(accountsState.accounts)),
+                  : _buildAccountsWithAlphaJump(
+                      context, _filterAccounts(accountsState.accounts)),
             ),
           ],
         ),
@@ -135,6 +152,12 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
               onPressed: _importAccounts,
               icon: const Icon(Icons.file_upload_outlined, size: 18),
               label: const Text('Import'),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: () => context.go('/bills'),
+              icon: const Icon(Icons.receipt_long_outlined, size: 18),
+              label: const Text('Add Bill'),
             ),
             const SizedBox(width: 12),
             FilledButton.icon(
@@ -252,6 +275,73 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
     );
   }
 
+  /// Wraps the accounts table with an A–Z alphabetical sidebar on the right.
+  Widget _buildAccountsWithAlphaJump(
+      BuildContext context, List<Account> filtered) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    final availableLetters = filtered
+        .map((a) => a.name.isNotEmpty ? a.name[0].toUpperCase() : '')
+        .toSet();
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: _buildAccountsTable(context, filtered)),
+        const SizedBox(width: 8),
+        // Alpha jump sidebar
+        Container(
+          width: 26,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceVariant,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: ListView(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            children: alphabet.split('').map((letter) {
+              final isActive = availableLetters.contains(letter);
+              final isSelected =
+                  _searchQuery.toUpperCase() == letter;
+              return GestureDetector(
+                onTap: isActive
+                    ? () => setState(() {
+                          _searchQuery =
+                              isSelected ? '' : letter;
+                          _jumpToLetter(letter, filtered);
+                        })
+                    : null,
+                child: Container(
+                  height: 20,
+                  alignment: Alignment.center,
+                  decoration: isSelected
+                      ? BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(4),
+                        )
+                      : null,
+                  child: Text(
+                    letter,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: isSelected
+                          ? Colors.white
+                          : isActive
+                              ? AppColors.primary
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .outline
+                                  .withOpacity(0.4),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildAccountsTable(BuildContext context, List<Account> accounts) {
     if (accounts.isEmpty) {
       return Center(
@@ -272,6 +362,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: SingleChildScrollView(
+          controller: _scrollController,
           child: DataTable(
             columnSpacing: 24,
             horizontalMargin: 24,

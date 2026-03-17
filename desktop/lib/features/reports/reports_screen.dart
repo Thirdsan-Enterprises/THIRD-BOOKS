@@ -565,14 +565,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       ));
     } else if (reportName == 'GGR Tax Report' || reportName == 'Tax Summary') {
       final ggr = dashData?.totalRevenue ?? 0;
-      final taxDue = ggr * 0.15;
 
       pdf.addPage(pw.Page(
         pageFormat: PdfPageFormat.a4,
         build: (pw.Context ctx) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            buildHeader('GGR TAX REPORT — UGANDA REVENUE AUTHORITY'),
+            buildHeader('GGR REVENUE REPORT'),
             pw.Text('GAMING REVENUE', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
             pw.SizedBox(height: 4),
             _pdfRow('  Total Stakes (Cash In)', 'UGX ${numFmt.format(dashData?.cashIn ?? 0)}'),
@@ -580,14 +579,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             _pdfDivider(),
             _pdfRow('Gross Gaming Revenue (GGR)', 'UGX ${numFmt.format(ggr)}', bold: true),
             pw.SizedBox(height: 12),
-            pw.Text('TAX COMPUTATION', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+            pw.Text('REVENUE DISTRIBUTION', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
             pw.SizedBox(height: 4),
-            _pdfRow('  Gaming Tax @ 15% of GGR', 'UGX ${numFmt.format(taxDue)}'),
-            _pdfDivider(),
-            _pdfRow('GGR After Gaming Tax', 'UGX ${numFmt.format(ggr - taxDue)}', bold: true),
             _pdfRow('  Outlet Commission (40%)', '(UGX ${numFmt.format(dashData?.totalExpenses ?? 0)})'),
             _pdfDivider(),
-            _pdfRow('NET INCOME AFTER TAX & COMMISSION', 'UGX ${numFmt.format((ggr - taxDue) - (dashData?.totalExpenses ?? 0))}', bold: true, size: 13),
+            _pdfRow('NET REVENUE AFTER COMMISSION', 'UGX ${numFmt.format(ggr - (dashData?.totalExpenses ?? 0))}', bold: true, size: 13),
           ],
         ),
       ));
@@ -1356,13 +1352,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     return dashboardAsync.when(
       data: (data) {
         final ggr = data.totalRevenue;
-        // Uganda GGR tax rate: 15% per URA Gaming Act
-        const taxRate = 0.15;
-        final taxDue = ggr * taxRate;
-        final ggrAfterTax = ggr - taxDue;
 
         if (ggr == 0) {
-          return Center(child: Text('No data yet. Import CSV data to see the tax report.',
+          return Center(child: Text('No data yet. Import CSV data to see the revenue report.',
               style: TextStyle(color: Theme.of(context).colorScheme.outline, fontStyle: FontStyle.italic)));
         }
 
@@ -1370,9 +1362,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('MAGIC BET LTD — GGR TAX REPORT',
+              Text('MAGIC BET LTD — GGR REVENUE REPORT',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              Text('Uganda Revenue Authority — Gaming Tax Computation',
+              Text('Gross Gaming Revenue and Distribution Summary',
                   style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12)),
               const SizedBox(height: 16),
               _ReportSection(title: 'Gross Gaming Revenue', items: [
@@ -1380,27 +1372,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 {'name': 'Less: Customer Winnings (Payouts)', 'amount': -data.cashOut},
               ], total: ggr, isPositive: true),
               const Divider(height: 24),
-              _ReportSection(title: 'Gaming Tax Computation (URA)', items: [
-                {'name': 'GGR Subject to Tax', 'amount': ggr},
-                {'name': 'Applicable Tax Rate', 'amount': 0.0},
-              ], total: 0.0, isPositive: false),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('  Gaming Tax @ 15% of GGR'),
-                    Text('UGX ${NumberFormat('#,##0').format(taxDue)}',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'monospace', color: AppColors.expense)),
-                  ],
-                ),
-              ),
-              const Divider(height: 24),
-              _ReportTotalRow(label: 'GGR After Tax', amount: ggrAfterTax, isHighlight: true),
+              _ReportTotalRow(label: 'Gross Gaming Revenue (GGR)', amount: ggr, isHighlight: true),
               const SizedBox(height: 8),
               _ReportTotalRow(label: 'Less: Outlet Commission (40% of GGR)', amount: -data.totalExpenses, isHighlight: false),
               const Divider(height: 16),
-              _ReportTotalRow(label: 'NET INCOME AFTER TAX AND COMMISSION', amount: ggrAfterTax - data.totalExpenses, isHighlight: true, isFinal: true),
+              _ReportTotalRow(label: 'NET REVENUE AFTER COMMISSION', amount: ggr - data.totalExpenses, isHighlight: true, isFinal: true),
             ],
           ),
         );
@@ -1598,19 +1574,16 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ];
       } else if (reportName == 'GGR Tax Report' || reportName == 'Tax Summary') {
         final ggr = dashData?.totalRevenue ?? 0;
-        final taxDue = ggr * 0.15;
         csvRows = [
-          ['MAGIC BET LTD — GGR TAX REPORT'],
+          ['MAGIC BET LTD — GGR REVENUE REPORT'],
           ['Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}'],
           [],
           ['Item', 'Amount (UGX)'],
           ['Total Stakes (Cash In)', numFmt.format(dashData?.cashIn ?? 0)],
           ['Less: Customer Winnings', '(${numFmt.format(dashData?.cashOut ?? 0)})'],
           ['Gross Gaming Revenue (GGR)', numFmt.format(ggr)],
-          ['Gaming Tax @ 15%', numFmt.format(taxDue)],
-          ['GGR After Tax', numFmt.format(ggr - taxDue)],
           ['Outlet Commission (40% of GGR)', '(${numFmt.format(dashData?.totalExpenses ?? 0)})'],
-          ['Net Income After Tax & Commission', numFmt.format((ggr - taxDue) - (dashData?.totalExpenses ?? 0))],
+          ['Net Revenue After Commission', numFmt.format(ggr - (dashData?.totalExpenses ?? 0))],
         ];
       } else if (reportName == 'Income Statement' || reportName == 'GGR by Month') {
         final cashIn = dashData?.cashIn ?? 0;
@@ -1750,16 +1723,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         sheet.appendRow([xl.TextCellValue('Summary'), xl.TextCellValue('CLOSING CASH BALANCE'), xl.DoubleCellValue(netCash)]);
       } else if (reportName == 'GGR Tax Report' || reportName == 'Tax Summary') {
         final ggr = dashData?.totalRevenue ?? 0;
-        final taxDue = ggr * 0.15;
-        addTitle('MAGIC BET LTD — GGR TAX REPORT');
+        addTitle('MAGIC BET LTD — GGR REVENUE REPORT');
         addHeader(['Item', 'Amount (UGX)']);
         sheet.appendRow([xl.TextCellValue('Total Stakes (Cash In)'), xl.DoubleCellValue(dashData?.cashIn ?? 0)]);
         sheet.appendRow([xl.TextCellValue('Less: Customer Winnings'), xl.DoubleCellValue(-(dashData?.cashOut ?? 0))]);
         sheet.appendRow([xl.TextCellValue('Gross Gaming Revenue (GGR)'), xl.DoubleCellValue(ggr)]);
-        sheet.appendRow([xl.TextCellValue('Gaming Tax @ 15%'), xl.DoubleCellValue(taxDue)]);
-        sheet.appendRow([xl.TextCellValue('GGR After Tax'), xl.DoubleCellValue(ggr - taxDue)]);
         sheet.appendRow([xl.TextCellValue('Outlet Commission (40%)'), xl.DoubleCellValue(-(dashData?.totalExpenses ?? 0))]);
-        sheet.appendRow([xl.TextCellValue('Net Income After Tax & Commission'), xl.DoubleCellValue((ggr - taxDue) - (dashData?.totalExpenses ?? 0))]);
+        sheet.appendRow([xl.TextCellValue('Net Revenue After Commission'), xl.DoubleCellValue(ggr - (dashData?.totalExpenses ?? 0))]);
       } else if (reportName == 'Income Statement' || reportName == 'GGR by Month') {
         addTitle('MAGIC BET LTD — INCOME STATEMENT');
         addHeader(['Category', 'Item', 'Amount (UGX)']);

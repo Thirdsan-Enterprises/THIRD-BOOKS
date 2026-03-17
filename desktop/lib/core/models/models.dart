@@ -6,3 +6,4 @@ export 'vendor.dart';
 export 'invoice.dart';
 export 'bill.dart';
 export 'payment.dart';
+export 'credit_debit_note.dart';

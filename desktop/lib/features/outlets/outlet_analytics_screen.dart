@@ -974,7 +974,6 @@ class _WeeklyTabState extends State<_WeeklyTab> {
 
   TableRow _weekRow(BuildContext context, OutletWeekSummary w) {
     final hasCarry = w.adjustedGGR < w.rawGGR && w.rawGGR >= 0;
-    final netColor = w.netRevenue >= 0 ? AppColors.income : AppColors.expense;
     return TableRow(
       decoration: BoxDecoration(
         color: w.rawGGR < 0 ? AppColors.warning.withOpacity(0.06) : null,
@@ -986,7 +985,12 @@ class _WeeklyTabState extends State<_WeeklyTab> {
         _cell(widget.fc(w.rawGGR), context, color: w.rawGGR < 0 ? AppColors.expense : null),
         _cell(widget.fc(w.adjustedGGR), context, color: w.adjustedGGR < 0 ? AppColors.expense : null),
         _cell(w.outletExpense > 0 ? widget.fc(w.outletExpense) : '—', context, color: AppColors.warning),
-        _cell(widget.fc(w.netRevenue), context, color: netColor, bold: true),
+        // Net revenue cannot be negative — show N/A when carry-forward makes it < 0
+        _cell(w.netRevenue < 0 ? 'N/A' : widget.fc(w.netRevenue), context,
+            color: w.netRevenue < 0
+                ? Theme.of(context).colorScheme.outline
+                : AppColors.income,
+            bold: true),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
           child: w.rawGGR < 0

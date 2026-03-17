@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
+import '../../core/services/theme_service.dart';
 import '../../core/models/invoice.dart';
 import '../../core/services/pdf_invoice_service.dart';
 import '../../core/services/company_settings_service.dart';
@@ -348,8 +349,9 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
+          final enableVAT = ref.read(appSettingsProvider).enableVAT;
           double subtotal = lines.fold(0, (sum, l) => sum + l.amount);
-          double vat = subtotal * 0.18;
+          double vat = enableVAT ? subtotal * 0.18 : 0.0;
           double total = subtotal + vat;
           final fmt = NumberFormat('#,###');
 
@@ -523,7 +525,8 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text('$selectedCurrency Subtotal: ${fmt.format(subtotal)}'),
-                            Text('$selectedCurrency VAT (18%): ${fmt.format(vat)}'),
+                            if (ref.read(appSettingsProvider).enableVAT)
+                              Text('$selectedCurrency VAT (18%): ${fmt.format(vat)}'),
                             const SizedBox(height: 4),
                             Text(
                               '$selectedCurrency Total: ${fmt.format(total)}',
@@ -566,8 +569,10 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
 
     final id = const Uuid().v4();
     final invoiceNumber = 'INV-${DateFormat('yyyyMM').format(invoiceDate)}-${DateTime.now().millisecondsSinceEpoch % 10000}';
+    final enableVAT = ref.read(appSettingsProvider).enableVAT;
+    final vatRate = enableVAT ? 18.0 : 0.0;
     final subtotal = lines.fold<double>(0, (s, l) => s + l.amount);
-    final taxAmount = subtotal * 0.18;
+    final taxAmount = enableVAT ? subtotal * 0.18 : 0.0;
     final total = subtotal + taxAmount;
 
     final invoiceLines = lines.where((l) => l.description.isNotEmpty && l.amount > 0).map((l) {
@@ -577,8 +582,8 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
         description: l.description,
         quantity: l.qty,
         unitPrice: l.unitPrice,
-        taxRate: 18.0,
-        taxAmount: l.amount * 0.18,
+        taxRate: vatRate,
+        taxAmount: enableVAT ? l.amount * 0.18 : 0.0,
         amount: l.amount,
       );
     }).toList();
@@ -651,7 +656,8 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                   const Divider(),
                 ],
                 _DetailRow('Subtotal', 'UGX ${_currencyFormat.format(invoice.subtotal)}'),
-                _DetailRow('Tax (18%)', 'UGX ${_currencyFormat.format(invoice.taxAmount)}'),
+                if (invoice.taxAmount > 0)
+                  _DetailRow('VAT (18%)', 'UGX ${_currencyFormat.format(invoice.taxAmount)}'),
                 _DetailRow('Total', 'UGX ${_currencyFormat.format(invoice.total)}'),
                 _DetailRow('Amount Paid', 'UGX ${_currencyFormat.format(invoice.amountPaid)}'),
                 _DetailRow('Balance Due', 'UGX ${_currencyFormat.format(invoice.total - invoice.amountPaid)}'),

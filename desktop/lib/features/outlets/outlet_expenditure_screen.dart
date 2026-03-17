@@ -213,7 +213,31 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
                                         ),
                                         Expanded(flex: 2, child: Text('UGX ${_numberFormat.format(o.totalGGR.round())}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontFamily: 'monospace'))),
                                         Expanded(flex: 2, child: Text('UGX ${_numberFormat.format(o.totalOutletExpense.round())}', textAlign: TextAlign.right, style: TextStyle(fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.w600, color: AppColors.warning))),
-                                        Expanded(flex: 2, child: Text('UGX ${_numberFormat.format(o.netRevenue.round())}', textAlign: TextAlign.right, style: TextStyle(fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.w600, color: o.netRevenue >= 0 ? AppColors.income : AppColors.error))),
+                                        Expanded(
+                                          flex: 2,
+                                          child: o.netRevenue < 0
+                                              ? Text(
+                                                  'N/A',
+                                                  textAlign: TextAlign.right,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontFamily: 'monospace',
+                                                    fontWeight: FontWeight.w600,
+                                                    color: Theme.of(context).colorScheme.outline,
+                                                    fontStyle: FontStyle.italic,
+                                                  ),
+                                                )
+                                              : Text(
+                                                  'UGX ${_numberFormat.format(o.netRevenue.round())}',
+                                                  textAlign: TextAlign.right,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontFamily: 'monospace',
+                                                    fontWeight: FontWeight.w600,
+                                                    color: AppColors.income,
+                                                  ),
+                                                ),
+                                        ),
                                       ],
                                     ),
                                   )),

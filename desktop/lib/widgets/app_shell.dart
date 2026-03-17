@@ -182,6 +182,14 @@ class _AppShellState extends ConsumerState<AppShell> {
                   path: '/outlet-upload',
                   isActive: currentPath == '/outlet-upload',
                 ),
+                _buildNavItem(
+                  context,
+                  icon: Icons.handshake_outlined,
+                  activeIcon: Icons.handshake,
+                  label: 'Settled',
+                  path: '/outlet-settled',
+                  isActive: currentPath == '/outlet-settled',
+                ),
 
                 const SizedBox(height: 16),
                 _buildNavSection('ACCOUNTING'),
@@ -219,6 +227,14 @@ class _AppShellState extends ConsumerState<AppShell> {
                   label: 'Invoices',
                   path: '/invoices',
                   isActive: currentPath == '/invoices',
+                ),
+                _buildNavItem(
+                  context,
+                  icon: Icons.receipt_outlined,
+                  activeIcon: Icons.receipt,
+                  label: 'Credit/Debit Notes',
+                  path: '/credit-notes',
+                  isActive: currentPath == '/credit-notes',
                 ),
 
                 const SizedBox(height: 16),
