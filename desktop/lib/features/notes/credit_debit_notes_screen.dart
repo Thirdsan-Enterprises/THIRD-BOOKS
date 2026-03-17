@@ -299,7 +299,7 @@ class _CreditDebitNotesScreenState
           borderRadius: BorderRadius.circular(10),
           child: SingleChildScrollView(
             child: DataTable(
-              headingRowColor: WidgetStateProperty.all(
+              headingRowColor: MaterialStateProperty.all(
                 Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
               ),
               columns: const [
@@ -391,7 +391,7 @@ class _CreditDebitNotesScreenState
           borderRadius: BorderRadius.circular(10),
           child: SingleChildScrollView(
             child: DataTable(
-              headingRowColor: WidgetStateProperty.all(
+              headingRowColor: MaterialStateProperty.all(
                 Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
               ),
               columns: const [
