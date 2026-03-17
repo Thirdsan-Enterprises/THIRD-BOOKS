@@ -641,7 +641,148 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 24),
+          _buildAutoJECard(context),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAutoJECard(BuildContext context) {
+    final settings = ref.watch(appSettingsProvider);
+    final notifier = ref.read(appSettingsProvider.notifier);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.auto_awesome, size: 20),
+                const SizedBox(width: 8),
+                Text('Auto-Journalization', style: Theme.of(context).textTheme.titleMedium),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'When enabled, the system automatically creates double-entry journal entries '
+              'for the selected transactions. Disable any item to post entries manually instead.',
+              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline),
+            ),
+            const Divider(height: 28),
+            SwitchListTile(
+              title: const Text('Gaming Tax (GRB) — 15% of monthly GGR'),
+              subtitle: const Text(
+                'Auto-posts DR 108 Gaming Tax / CR 147 Gaming Tax Payable at month-end '
+                'when CSV data is imported.',
+              ),
+              secondary: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: settings.autoGamingTaxJE
+                      ? AppColors.success.withOpacity(0.12)
+                      : Theme.of(context).colorScheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  settings.autoGamingTaxJE ? 'AUTO' : 'MANUAL',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: settings.autoGamingTaxJE
+                        ? AppColors.success
+                        : Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+              ),
+              value: settings.autoGamingTaxJE,
+              onChanged: (v) => notifier.setAutoGamingTaxJE(v),
+            ),
+            const Divider(height: 1),
+            SwitchListTile(
+              title: const Text('Payroll — Employer NSSF (10% of gross salary)'),
+              subtitle: const Text(
+                'Auto-posts DR 135 Employer NSSF / CR 149 NSSF Payable whenever a '
+                'journal entry debiting account 132 (Salaries) is posted. '
+                'PAYE and employee NSSF (5%) amounts are noted in the entry description.',
+              ),
+              secondary: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: settings.autoPayrollNSSFJE
+                      ? AppColors.success.withOpacity(0.12)
+                      : Theme.of(context).colorScheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  settings.autoPayrollNSSFJE ? 'AUTO' : 'MANUAL',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: settings.autoPayrollNSSFJE
+                        ? AppColors.success
+                        : Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+              ),
+              value: settings.autoPayrollNSSFJE,
+              onChanged: (v) => notifier.setAutoPayrollNSSFJE(v),
+            ),
+            const Divider(height: 1),
+            SwitchListTile(
+              title: const Text('Withholding Tax (WHT) — 6% on supplier payments'),
+              subtitle: const Text(
+                'Auto-posts DR 144 Withholding Tax / CR 146 WHT Payable — Suppliers '
+                'when a bill payment is recorded for a WHT-liable vendor.',
+              ),
+              secondary: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: settings.autoWHTJE
+                      ? AppColors.success.withOpacity(0.12)
+                      : Theme.of(context).colorScheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  settings.autoWHTJE ? 'AUTO' : 'MANUAL',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: settings.autoWHTJE
+                        ? AppColors.success
+                        : Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+              ),
+              value: settings.autoWHTJE,
+              onChanged: (v) => notifier.setAutoWHTJE(v),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceVariant,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: Theme.of(context).colorScheme.outline),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Settings take effect immediately. Turning off auto-journalization does not '
+                      'reverse previously created entries. Use the Journal Entries screen to '
+                      'void any unwanted auto-entries.',
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

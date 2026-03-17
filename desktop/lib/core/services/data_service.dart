@@ -14,6 +14,7 @@ import 'api_client.dart';
 import 'auth_service.dart';
 import 'local_storage_service.dart';
 import 'sync_service.dart';
+import 'theme_service.dart';
 import '../models/models.dart';
 import '../database/app_database.dart' hide Account, Customer, Vendor, Invoice, Bill, JournalEntry, JournalLine;
 
@@ -1143,6 +1144,9 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
   /// journal entry that debits account 132 (Salaries). Also notes PAYE and
   /// employee NSSF (5%) amounts in the description for URA filing reference.
   void _createPayrollTaxJEs(JournalEntry salaryEntry) {
+    // Respect user setting — skip if auto-journalization is disabled
+    if (!_ref.read(appSettingsProvider).autoPayrollNSSFJE) return;
+
     final grossSalary = salaryEntry.lines
         .where((l) => l.accountId == 'acct-132')
         .fold(0.0, (s, l) => s + l.debit);
@@ -1716,6 +1720,9 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
     }
 
     // ── 2. Monthly gaming tax JEs (15% of company-wide GGR) ─────────────────
+    // Skip if auto-journalization is disabled for gaming tax in settings
+    if (!_ref.read(appSettingsProvider).autoGamingTaxJE) return result;
+
     final monthGGR = <String, double>{};
     final monthEndDate = <String, DateTime>{};
     for (final rev in allRevenues) {

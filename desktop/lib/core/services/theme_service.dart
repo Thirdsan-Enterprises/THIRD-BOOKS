@@ -61,6 +61,11 @@ class AppSettings {
   final bool autoSync;
   final int syncIntervalMinutes;
 
+  // Auto-journalization controls
+  final bool autoGamingTaxJE;
+  final bool autoPayrollNSSFJE;
+  final bool autoWHTJE;
+
   const AppSettings({
     this.currency = 'UGX',
     this.dateFormat = 'dd/MM/yyyy',
@@ -70,6 +75,9 @@ class AppSettings {
     this.enableNotifications = true,
     this.autoSync = true,
     this.syncIntervalMinutes = 15,
+    this.autoGamingTaxJE = true,
+    this.autoPayrollNSSFJE = true,
+    this.autoWHTJE = true,
   });
 
   AppSettings copyWith({
@@ -81,6 +89,9 @@ class AppSettings {
     bool? enableNotifications,
     bool? autoSync,
     int? syncIntervalMinutes,
+    bool? autoGamingTaxJE,
+    bool? autoPayrollNSSFJE,
+    bool? autoWHTJE,
   }) {
     return AppSettings(
       currency: currency ?? this.currency,
@@ -91,6 +102,9 @@ class AppSettings {
       enableNotifications: enableNotifications ?? this.enableNotifications,
       autoSync: autoSync ?? this.autoSync,
       syncIntervalMinutes: syncIntervalMinutes ?? this.syncIntervalMinutes,
+      autoGamingTaxJE: autoGamingTaxJE ?? this.autoGamingTaxJE,
+      autoPayrollNSSFJE: autoPayrollNSSFJE ?? this.autoPayrollNSSFJE,
+      autoWHTJE: autoWHTJE ?? this.autoWHTJE,
     );
   }
 }
@@ -115,6 +129,9 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     final enableNotifications = await _storage.read(key: 'notifications') != 'false';
     final autoSync = await _storage.read(key: 'auto_sync') != 'false';
     final syncInterval = int.tryParse(await _storage.read(key: 'sync_interval') ?? '15') ?? 15;
+    final autoGamingTaxJE = await _storage.read(key: 'auto_gaming_tax_je') != 'false';
+    final autoPayrollNSSFJE = await _storage.read(key: 'auto_payroll_nssf_je') != 'false';
+    final autoWHTJE = await _storage.read(key: 'auto_wht_je') != 'false';
 
     state = AppSettings(
       currency: currency,
@@ -125,6 +142,9 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
       enableNotifications: enableNotifications,
       autoSync: autoSync,
       syncIntervalMinutes: syncInterval,
+      autoGamingTaxJE: autoGamingTaxJE,
+      autoPayrollNSSFJE: autoPayrollNSSFJE,
+      autoWHTJE: autoWHTJE,
     );
   }
 
@@ -166,5 +186,20 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
   Future<void> setSyncInterval(int minutes) async {
     state = state.copyWith(syncIntervalMinutes: minutes);
     await _storage.write(key: 'sync_interval', value: minutes.toString());
+  }
+
+  Future<void> setAutoGamingTaxJE(bool enabled) async {
+    state = state.copyWith(autoGamingTaxJE: enabled);
+    await _storage.write(key: 'auto_gaming_tax_je', value: enabled.toString());
+  }
+
+  Future<void> setAutoPayrollNSSFJE(bool enabled) async {
+    state = state.copyWith(autoPayrollNSSFJE: enabled);
+    await _storage.write(key: 'auto_payroll_nssf_je', value: enabled.toString());
+  }
+
+  Future<void> setAutoWHTJE(bool enabled) async {
+    state = state.copyWith(autoWHTJE: enabled);
+    await _storage.write(key: 'auto_wht_je', value: enabled.toString());
   }
 }
