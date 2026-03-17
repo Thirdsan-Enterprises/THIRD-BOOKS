@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -129,13 +130,38 @@ class ConnectivityNotifier extends StateNotifier<ConnectivityState> {
       state = state.copyWith(
         status: ConnectivityStatus.offline,
         lastChecked: DateTime.now(),
-        lastError: 'Connection timeout',
+        lastError: 'Connection timed out',
       );
-    } catch (e) {
+    } on DioException catch (e) {
+      // Translate Dio errors into user-friendly messages
+      final String friendlyError;
+      switch (e.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+          friendlyError = 'Connection timed out';
+          break;
+        case DioExceptionType.connectionError:
+          friendlyError = 'Unable to reach server';
+          break;
+        case DioExceptionType.badResponse:
+          friendlyError = 'Server unavailable (${e.response?.statusCode ?? 'unknown'})';
+          break;
+        default:
+          friendlyError = 'Unable to reach server';
+      }
+      debugPrint('Connectivity check failed: $e');
       state = state.copyWith(
         status: ConnectivityStatus.offline,
         lastChecked: DateTime.now(),
-        lastError: e.toString(),
+        lastError: friendlyError,
+      );
+    } catch (e) {
+      debugPrint('Connectivity check error: $e');
+      state = state.copyWith(
+        status: ConnectivityStatus.offline,
+        lastChecked: DateTime.now(),
+        lastError: 'Unable to reach server',
       );
     }
   }
@@ -260,7 +286,7 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
     } catch (e) {
       state = state.copyWith(
         isSyncing: false,
-        error: 'Sync failed: ${e.toString()}',
+        error: 'Sync failed. Changes will retry automatically.',
       );
     }
   }
