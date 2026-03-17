@@ -781,14 +781,19 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
   void addInvoice(Invoice invoice) {
     final updatedInvoices = [...state.invoices, invoice];
     state = state.copyWith(invoices: updatedInvoices);
-
     _localStorage.saveInvoices(updatedInvoices);
+
+    // create_journal_entry: true tells the backend DoubleEntryService to post
+    // DR Accounts Receivable / CR Revenue automatically on sync.
+    final payload = invoice.toJson()
+      ..['create_journal_entry'] = true
+      ..['auto_post'] = true;
 
     _ref.read(syncServiceProvider.notifier).queueChange(
       action: SyncAction.create,
       entityType: SyncEntityType.invoice,
       entityId: invoice.id,
-      data: invoice.toJson(),
+      data: payload,
     );
   }
 
@@ -941,14 +946,19 @@ class BillsNotifier extends StateNotifier<BillsState> {
   void addBill(Bill bill) {
     final updatedBills = [...state.bills, bill];
     state = state.copyWith(bills: updatedBills);
-
     _localStorage.saveBills(updatedBills);
+
+    // create_journal_entry: true tells the backend DoubleEntryService to post
+    // DR Expense / CR Accounts Payable automatically on sync.
+    final payload = bill.toJson()
+      ..['create_journal_entry'] = true
+      ..['auto_post'] = true;
 
     _ref.read(syncServiceProvider.notifier).queueChange(
       action: SyncAction.create,
       entityType: SyncEntityType.bill,
       entityId: bill.id,
-      data: bill.toJson(),
+      data: payload,
     );
   }
 
@@ -1039,6 +1049,18 @@ final billsProvider = StateNotifierProvider<BillsNotifier, BillsState>((ref) {
 });
 
 // ============================================================================
+// Uganda PAYE computation (monthly gross salary → monthly PAYE deduction)
+// Source: Income Tax Act (Uganda), effective 2024 monthly bands
+// ============================================================================
+
+double _computeUgandaPAYE(double grossMonthly) {
+  if (grossMonthly <= 235000) return 0;
+  if (grossMonthly <= 335000) return (grossMonthly - 235000) * 0.10;
+  if (grossMonthly <= 410000) return (100000 * 0.10) + (grossMonthly - 335000) * 0.20;
+  return (100000 * 0.10) + (75000 * 0.20) + (grossMonthly - 410000) * 0.30;
+}
+
+// ============================================================================
 // Journal Entries Service - OFFLINE-FIRST
 // ============================================================================
 
@@ -1110,6 +1132,70 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
       entityId: entry.id,
       data: entry.toJson(),
     );
+
+    // Auto-generate employer NSSF JE for posted salary entries (Uganda NSSF Act)
+    if (entry.status == JournalEntryStatus.posted) {
+      _createPayrollTaxJEs(entry);
+    }
+  }
+
+  /// Generates the employer NSSF expense JE (10% of gross salary) for any posted
+  /// journal entry that debits account 132 (Salaries). Also notes PAYE and
+  /// employee NSSF (5%) amounts in the description for URA filing reference.
+  void _createPayrollTaxJEs(JournalEntry salaryEntry) {
+    final grossSalary = salaryEntry.lines
+        .where((l) => l.accountId == 'acct-132')
+        .fold(0.0, (s, l) => s + l.debit);
+    if (grossSalary <= 0) return;
+
+    // Idempotency guard — don't create twice for the same salary JE
+    final refKey = 'JE-PAYR-${salaryEntry.id}';
+    if (state.entries.any((e) => e.reference == refKey)) return;
+
+    final paye = _computeUgandaPAYE(grossSalary);
+    final empNSSF = grossSalary * 0.05;
+    final emplrNSSF = grossSalary * 0.10;
+    final now = DateTime.now();
+    final jeId = const Uuid().v4();
+
+    // Employer NSSF: DR 135 Employer Contribution NSSF, CR 149 NSSF Payable
+    // (Employee NSSF 5% and PAYE are employee deductions recorded in original JE;
+    //  amounts listed here for URA/NSSF filing reference.)
+    final payrollJE = JournalEntry(
+      id: jeId,
+      entryNumber: 'AUTO-PAYR-${now.millisecondsSinceEpoch}',
+      date: salaryEntry.date,
+      description: 'Auto: Employer NSSF (10%) for ${salaryEntry.entryNumber}. '
+          'Ref: PAYE due UGX ${paye.toStringAsFixed(0)}, '
+          'Employee NSSF (5%) UGX ${empNSSF.toStringAsFixed(0)}, '
+          'Employer NSSF (10%) UGX ${emplrNSSF.toStringAsFixed(0)}.',
+      reference: refKey,
+      status: JournalEntryStatus.posted,
+      lines: [
+        JournalLine(
+          id: '$jeId-1',
+          journalEntryId: jeId,
+          accountId: 'acct-135',
+          accountCode: '135',
+          accountName: 'Employer Contribution NSSF',
+          debit: emplrNSSF,
+          credit: 0,
+        ),
+        JournalLine(
+          id: '$jeId-2',
+          journalEntryId: jeId,
+          accountId: 'acct-149',
+          accountCode: '149',
+          accountName: 'NSSF Payable',
+          debit: 0,
+          credit: emplrNSSF,
+        ),
+      ],
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    addEntry(payrollJE);
   }
 
   void postEntry(String entryId) {
@@ -1499,6 +1585,17 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
           if (ancillaryJEs.isNotEmpty) {
             allEntries = [...allEntries, ...ancillaryJEs];
             journalEntriesCreated += ancillaryJEs.length;
+
+            // Queue commission + gaming-tax JEs for backend GL sync.
+            // Daily revenue JEs are local-only (too many to queue individually).
+            for (final je in ancillaryJEs) {
+              _ref.read(syncServiceProvider.notifier).queueChange(
+                action: SyncAction.create,
+                entityType: SyncEntityType.journalEntry,
+                entityId: je.id,
+                data: je.toJson(),
+              );
+            }
           }
 
           await _localStorage.saveJournalEntries(allEntries);

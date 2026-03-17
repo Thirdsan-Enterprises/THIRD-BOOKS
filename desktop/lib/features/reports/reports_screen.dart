@@ -12,6 +12,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
+import '../../core/models/models.dart';
 import '../../core/database/app_database.dart' hide Account, Customer, Vendor, Invoice, Bill, JournalEntry, JournalLine;
 
 class ReportsScreen extends ConsumerStatefulWidget {
@@ -70,6 +71,28 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       ],
     },
   ];
+
+  // ---------------------------------------------------------------------------
+  // Ledger helpers — compute real account balances from posted journal entries
+  // ---------------------------------------------------------------------------
+
+  /// Returns {accountId → (totalDebits − totalCredits)} for every posted JE.
+  Map<String, double> _computeLedgerBalances(List<JournalEntry> entries) {
+    final raw = <String, double>{};
+    for (final entry in entries) {
+      if (entry.status != JournalEntryStatus.posted) continue;
+      for (final line in entry.lines) {
+        raw[line.accountId] = (raw[line.accountId] ?? 0) + line.debit - line.credit;
+      }
+    }
+    return raw;
+  }
+
+  /// Presentational balance for [account] — positive means normal direction.
+  double _acctBal(Account account, Map<String, double> raw) {
+    final r = raw['acct-${account.code}'] ?? 0.0;
+    return account.isDebitNormal ? r : -r;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -401,9 +424,29 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ),
       ));
     } else if (reportName == 'Balance Sheet') {
-      final cashIn = dashData?.cashIn ?? 0;
-      final cashOut = dashData?.cashOut ?? 0;
-      final ggr = dashData?.totalRevenue ?? 0;
+      final bsAccounts = ref.read(accountsProvider).accounts;
+      final bsEntries = ref.read(journalsProvider).entries;
+      final bsRaw = _computeLedgerBalances(bsEntries);
+
+      final bsAssets = bsAccounts.where((a) => a.type == AccountType.asset).toList()
+        ..sort((a, b) => a.code.compareTo(b.code));
+      final bsLiabilities = bsAccounts.where((a) => a.type == AccountType.liability).toList()
+        ..sort((a, b) => a.code.compareTo(b.code));
+      final bsEquity = bsAccounts.where((a) => a.type == AccountType.equity).toList()
+        ..sort((a, b) => a.code.compareTo(b.code));
+      final bsRevenue = bsAccounts.where((a) => a.type == AccountType.revenue).toList();
+      final bsExpenses = bsAccounts.where((a) => a.type == AccountType.expense).toList();
+
+      final bsTotalAssets = bsAssets.fold(0.0, (s, a) => s + _acctBal(a, bsRaw));
+      final bsTotalLiabilities = bsLiabilities.fold(0.0, (s, a) => s + _acctBal(a, bsRaw));
+      final bsPermEquity = bsEquity.fold(0.0, (s, a) => s + _acctBal(a, bsRaw));
+      final bsCYE = bsRevenue.fold(0.0, (s, a) => s + _acctBal(a, bsRaw))
+          - bsExpenses.fold(0.0, (s, a) => s + _acctBal(a, bsRaw));
+      final bsTotalEquity = bsPermEquity + bsCYE;
+
+      final bsAssetRows = bsAssets.where((a) => _acctBal(a, bsRaw) != 0).toList();
+      final bsLiabRows = bsLiabilities.where((a) => _acctBal(a, bsRaw) != 0).toList();
+      final bsEquityRows = bsEquity.where((a) => _acctBal(a, bsRaw) != 0).toList();
 
       pdf.addPage(pw.Page(
         pageFormat: PdfPageFormat.a4,
@@ -413,35 +456,51 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             buildHeader('BALANCE SHEET'),
             pw.Text('ASSETS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
             pw.SizedBox(height: 4),
-            pw.Text('Current Assets', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
-            pw.SizedBox(height: 4),
-            _pdfRow('  Outlet Cash Collections', 'UGX ${numFmt.format(cashIn)}'),
+            ...bsAssetRows.map((a) => _pdfRow('  ${a.code}  ${a.name}', 'UGX ${numFmt.format(_acctBal(a, bsRaw))}'))
+                .toList(),
             _pdfDivider(),
-            _pdfRow('TOTAL ASSETS', 'UGX ${numFmt.format(cashIn)}', bold: true),
+            _pdfRow('TOTAL ASSETS', 'UGX ${numFmt.format(bsTotalAssets)}', bold: true),
             pw.SizedBox(height: 16),
             pw.Text('LIABILITIES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
             pw.SizedBox(height: 4),
-            pw.Text('Current Liabilities', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
-            pw.SizedBox(height: 4),
-            _pdfRow('  Customer Payouts', 'UGX ${numFmt.format(cashOut)}'),
+            ...bsLiabRows.map((a) => _pdfRow('  ${a.code}  ${a.name}', 'UGX ${numFmt.format(_acctBal(a, bsRaw))}'))
+                .toList(),
             _pdfDivider(),
-            _pdfRow('TOTAL LIABILITIES', 'UGX ${numFmt.format(cashOut)}', bold: true),
+            _pdfRow('TOTAL LIABILITIES', 'UGX ${numFmt.format(bsTotalLiabilities)}', bold: true),
             pw.SizedBox(height: 16),
             pw.Text('EQUITY', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
             pw.SizedBox(height: 4),
-            pw.Text("Owner's Equity", style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
-            pw.SizedBox(height: 4),
-            _pdfRow('  Retained Earnings (GGR)', 'UGX ${numFmt.format(ggr)}'),
+            ...bsEquityRows.map((a) => _pdfRow('  ${a.code}  ${a.name}', 'UGX ${numFmt.format(_acctBal(a, bsRaw))}'))
+                .toList(),
+            _pdfRow('  Current Year Earnings', 'UGX ${numFmt.format(bsCYE)}'),
             _pdfDivider(),
-            _pdfRow('TOTAL LIABILITIES & EQUITY', 'UGX ${numFmt.format(cashOut + ggr)}', bold: true, size: 13),
+            _pdfRow('TOTAL LIABILITIES & EQUITY', 'UGX ${numFmt.format(bsTotalLiabilities + bsTotalEquity)}',
+                bold: true, size: 13),
           ],
         ),
       ));
     } else if (reportName == 'Trial Balance') {
-      final cashIn = dashData?.cashIn ?? 0;
-      final cashOut = dashData?.cashOut ?? 0;
-      final ggr = dashData?.totalRevenue ?? 0;
-      final commission = dashData?.totalExpenses ?? 0;
+      final tbAccounts = ref.read(accountsProvider).accounts;
+      final tbEntries = ref.read(journalsProvider).entries;
+      final tbRaw = _computeLedgerBalances(tbEntries);
+
+      final tbRows = <List<String>>[];
+      double tbTotalDr = 0;
+      double tbTotalCr = 0;
+      final tbSorted = List<Account>.from(tbAccounts)..sort((a, b) => a.code.compareTo(b.code));
+      for (final acct in tbSorted) {
+        final net = tbRaw['acct-${acct.code}'] ?? 0.0;
+        if (net == 0.0) continue;
+        final typeName = acct.type.name[0].toUpperCase() + acct.type.name.substring(1);
+        if (net > 0) {
+          tbRows.add([acct.code, acct.name, typeName, numFmt.format(net), '—']);
+          tbTotalDr += net;
+        } else {
+          tbRows.add([acct.code, acct.name, typeName, '—', numFmt.format(-net)]);
+          tbTotalCr += -net;
+        }
+      }
+      tbRows.add(['', 'TOTALS', '', numFmt.format(tbTotalDr), numFmt.format(tbTotalCr)]);
 
       pdf.addPage(pw.Page(
         pageFormat: PdfPageFormat.a4,
@@ -454,14 +513,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
               cellStyle: const pw.TextStyle(fontSize: 9),
               headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
-              data: [
-                ['1200', 'Outlet Cash Collections', 'Asset', numFmt.format(ggr), '—'],
-                ['4100', 'Total Stakes / Cash In', 'Revenue', '—', numFmt.format(cashIn)],
-                ['5000', 'Customer Winnings (Payouts)', 'Expense', numFmt.format(cashOut), '—'],
-                ['5100', 'Outlet Commission Expense', 'Expense', numFmt.format(commission), '—'],
-                ['2300', 'Commission Payable', 'Liability', '—', numFmt.format(commission)],
-                ['', 'TOTALS', '', numFmt.format(ggr + cashOut + commission), numFmt.format(cashIn + commission)],
-              ],
+              data: tbRows,
             ),
           ],
         ),
@@ -668,33 +720,60 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ),
       ));
 
-      // Page 2: Balance Sheet
-      pdf.addPage(pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        build: (pw.Context ctx) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            buildHeader('BALANCE SHEET'),
-            pw.Text('ASSETS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-            pw.SizedBox(height: 4),
-            _pdfRow('  Outlet Cash Collections', 'UGX ${numFmt.format(totalIn)}'),
-            _pdfDivider(),
-            _pdfRow('TOTAL ASSETS', 'UGX ${numFmt.format(totalIn)}', bold: true),
-            pw.SizedBox(height: 16),
-            pw.Text('LIABILITIES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-            pw.SizedBox(height: 4),
-            _pdfRow('  Customer Payouts', 'UGX ${numFmt.format(totalOut)}'),
-            _pdfDivider(),
-            _pdfRow('TOTAL LIABILITIES', 'UGX ${numFmt.format(totalOut)}', bold: true),
-            pw.SizedBox(height: 16),
-            pw.Text('EQUITY', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-            pw.SizedBox(height: 4),
-            _pdfRow('  Retained Earnings (GGR)', 'UGX ${numFmt.format(ggr)}'),
-            _pdfDivider(),
-            _pdfRow('TOTAL LIABILITIES & EQUITY', 'UGX ${numFmt.format(totalOut + ggr)}', bold: true, size: 13),
-          ],
-        ),
-      ));
+      // Page 2: Balance Sheet (ledger-driven)
+      {
+        final bsAccounts2 = ref.read(accountsProvider).accounts;
+        final bsEntries2 = ref.read(journalsProvider).entries;
+        final bsRaw2 = _computeLedgerBalances(bsEntries2);
+
+        final bsAssets2 = bsAccounts2.where((a) => a.type == AccountType.asset).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final bsLiabs2 = bsAccounts2.where((a) => a.type == AccountType.liability).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final bsEq2 = bsAccounts2.where((a) => a.type == AccountType.equity).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final bsRev2 = bsAccounts2.where((a) => a.type == AccountType.revenue).toList();
+        final bsExp2 = bsAccounts2.where((a) => a.type == AccountType.expense).toList();
+
+        final bsTotalA2 = bsAssets2.fold(0.0, (s, a) => s + _acctBal(a, bsRaw2));
+        final bsTotalL2 = bsLiabs2.fold(0.0, (s, a) => s + _acctBal(a, bsRaw2));
+        final bsPermEq2 = bsEq2.fold(0.0, (s, a) => s + _acctBal(a, bsRaw2));
+        final bsCYE2 = bsRev2.fold(0.0, (s, a) => s + _acctBal(a, bsRaw2))
+            - bsExp2.fold(0.0, (s, a) => s + _acctBal(a, bsRaw2));
+        final bsTotalEq2 = bsPermEq2 + bsCYE2;
+
+        pdf.addPage(pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context ctx) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              buildHeader('BALANCE SHEET'),
+              pw.Text('ASSETS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+              pw.SizedBox(height: 4),
+              ...bsAssets2.where((a) => _acctBal(a, bsRaw2) != 0)
+                  .map((a) => _pdfRow('  ${a.code}  ${a.name}', 'UGX ${numFmt.format(_acctBal(a, bsRaw2))}')),
+              _pdfDivider(),
+              _pdfRow('TOTAL ASSETS', 'UGX ${numFmt.format(bsTotalA2)}', bold: true),
+              pw.SizedBox(height: 16),
+              pw.Text('LIABILITIES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+              pw.SizedBox(height: 4),
+              ...bsLiabs2.where((a) => _acctBal(a, bsRaw2) != 0)
+                  .map((a) => _pdfRow('  ${a.code}  ${a.name}', 'UGX ${numFmt.format(_acctBal(a, bsRaw2))}')),
+              _pdfDivider(),
+              _pdfRow('TOTAL LIABILITIES', 'UGX ${numFmt.format(bsTotalL2)}', bold: true),
+              pw.SizedBox(height: 16),
+              pw.Text('EQUITY', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+              pw.SizedBox(height: 4),
+              ...bsEq2.where((a) => _acctBal(a, bsRaw2) != 0)
+                  .map((a) => _pdfRow('  ${a.code}  ${a.name}', 'UGX ${numFmt.format(_acctBal(a, bsRaw2))}')),
+              _pdfRow('  Current Year Earnings', 'UGX ${numFmt.format(bsCYE2)}'),
+              _pdfDivider(),
+              _pdfRow('TOTAL LIABILITIES & EQUITY', 'UGX ${numFmt.format(bsTotalL2 + bsTotalEq2)}',
+                  bold: true, size: 13),
+            ],
+          ),
+        ));
+      }
 
       // Page 3: Outlet Performance
       final sortedEntries = (summary?.entries.toList() ?? [])
@@ -832,71 +911,113 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   Widget _buildBalanceSheetPreview(BuildContext context) {
-    final dashboardAsync = ref.watch(dashboardDataProvider);
+    final journalsState = ref.watch(journalsProvider);
+    final accountsState = ref.watch(accountsProvider);
 
-    return dashboardAsync.when(
-      data: (data) {
-        final cashCollections = data.cashIn;
-        final payoutsPayable = data.cashOut;
-        final ggr = data.totalRevenue;
+    final entries = journalsState.entries;
+    final accounts = accountsState.accounts;
+    final raw = _computeLedgerBalances(entries);
 
-        return SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('MAGIC BET LTD - BALANCE SHEET',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              Text('ASSETS', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              _ReportSection(
-                title: 'Current Assets',
-                items: [
-                  {'name': 'Outlet Cash Collections', 'amount': cashCollections},
-                ],
-                total: cashCollections,
-                isPositive: true,
+    final assetAccts = accounts.where((a) => a.type == AccountType.asset).toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
+    final liabilityAccts = accounts.where((a) => a.type == AccountType.liability).toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
+    final equityAccts = accounts.where((a) => a.type == AccountType.equity).toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
+    final revenueAccts = accounts.where((a) => a.type == AccountType.revenue).toList();
+    final expenseAccts = accounts.where((a) => a.type == AccountType.expense).toList();
+
+    final totalAssets = assetAccts.fold(0.0, (s, a) => s + _acctBal(a, raw));
+    final totalLiabilities = liabilityAccts.fold(0.0, (s, a) => s + _acctBal(a, raw));
+    final totalPermEquity = equityAccts.fold(0.0, (s, a) => s + _acctBal(a, raw));
+    final totalRevenue = revenueAccts.fold(0.0, (s, a) => s + _acctBal(a, raw));
+    final totalExpenses = expenseAccts.fold(0.0, (s, a) => s + _acctBal(a, raw));
+    final currentYearEarnings = totalRevenue - totalExpenses;
+    final totalEquity = totalPermEquity + currentYearEarnings;
+    final balanced = (totalAssets - (totalLiabilities + totalEquity)).abs() < 0.01;
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('MAGIC BET LTD - BALANCE SHEET',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          Text('As at ${DateFormat('MMMM d, yyyy').format(DateTime.now())}',
+              style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12)),
+          const SizedBox(height: 16),
+          if (raw.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'No posted journal entries yet. Import CSV data to see balances.',
+                style: TextStyle(color: Theme.of(context).colorScheme.outline, fontStyle: FontStyle.italic),
               ),
-              _ReportTotalRow(label: 'Total Assets', amount: cashCollections, isHighlight: true),
-              const Divider(height: 32),
-              Text('LIABILITIES', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              _ReportSection(
-                title: 'Current Liabilities',
-                items: [
-                  {'name': 'Customer Payouts', 'amount': payoutsPayable},
-                ],
-                total: payoutsPayable,
-                isPositive: false,
-              ),
-              _ReportTotalRow(label: 'Total Liabilities', amount: payoutsPayable, isHighlight: true),
-              const Divider(height: 32),
-              Text('EQUITY', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              _ReportSection(
-                title: "Owner's Equity",
-                items: [
-                  {'name': 'Retained Earnings (GGR)', 'amount': ggr},
-                ],
-                total: ggr,
-                isPositive: true,
-              ),
-              const Divider(),
-              _ReportTotalRow(label: 'Total Liabilities & Equity', amount: payoutsPayable + ggr, isHighlight: true, isFinal: true),
-              if (data.cashIn == 0)
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'No data yet. Import CSV data to see balances.',
-                    style: TextStyle(color: Theme.of(context).colorScheme.outline, fontStyle: FontStyle.italic),
+            )
+          else ...[
+            Text('ASSETS', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            _ReportSection(
+              title: 'Current & Non-Current Assets',
+              items: assetAccts
+                  .where((a) => _acctBal(a, raw) != 0)
+                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)})
+                  .toList(),
+              total: totalAssets,
+              isPositive: true,
+            ),
+            _ReportTotalRow(label: 'Total Assets', amount: totalAssets, isHighlight: true),
+            const Divider(height: 32),
+            Text('LIABILITIES', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            _ReportSection(
+              title: 'Current & Non-Current Liabilities',
+              items: liabilityAccts
+                  .where((a) => _acctBal(a, raw) != 0)
+                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)})
+                  .toList(),
+              total: totalLiabilities,
+              isPositive: false,
+            ),
+            _ReportTotalRow(label: 'Total Liabilities', amount: totalLiabilities, isHighlight: true),
+            const Divider(height: 32),
+            Text('EQUITY', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            _ReportSection(
+              title: "Owner's Equity",
+              items: [
+                ...equityAccts
+                    .where((a) => _acctBal(a, raw) != 0)
+                    .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)}),
+                {'name': 'Current Year Earnings', 'amount': currentYearEarnings},
+              ],
+              total: totalEquity,
+              isPositive: true,
+            ),
+            const Divider(),
+            _ReportTotalRow(
+                label: 'Total Liabilities & Equity',
+                amount: totalLiabilities + totalEquity,
+                isHighlight: true,
+                isFinal: true),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(balanced ? Icons.check_circle : Icons.warning,
+                    color: balanced ? AppColors.success : AppColors.warning, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  balanced ? 'Balance sheet is balanced ✓' : 'Warning: balance sheet does not balance',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: balanced ? AppColors.success : AppColors.warning,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-            ],
-          ),
-        );
-      },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (_, __) => const Center(child: Text('Error loading data')),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -991,30 +1112,47 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
   // ── Trial Balance ──────────────────────────────────────────────────────────
   Widget _buildTrialBalancePreview(BuildContext context) {
-    final dashboardAsync = ref.watch(dashboardDataProvider);
-    return dashboardAsync.when(
-      data: (data) {
-        final cashIn = data.cashIn;
-        final cashOut = data.cashOut;
-        final ggr = data.totalRevenue;
-        final commission = data.totalExpenses;
-        final totalDebits = ggr + cashOut + commission;
-        final totalCredits = cashIn + commission;
+    final journalsState = ref.watch(journalsProvider);
+    final accountsState = ref.watch(accountsProvider);
 
-        final rows = [
-          {'code': '1200', 'account': 'Outlet Cash Collections', 'type': 'Asset',     'debit': ggr,        'credit': 0.0},
-          {'code': '4100', 'account': 'Total Stakes / Cash In',  'type': 'Revenue',   'debit': 0.0,        'credit': cashIn},
-          {'code': '5000', 'account': 'Customer Winnings (Payouts)', 'type': 'Expense','debit': cashOut,   'credit': 0.0},
-          {'code': '5100', 'account': 'Outlet Commission Expense','type': 'Expense',  'debit': commission, 'credit': 0.0},
-          {'code': '2300', 'account': 'Commission Payable',       'type': 'Liability', 'debit': 0.0,       'credit': commission},
-        ];
+    final entries = journalsState.entries;
+    final accounts = accountsState.accounts;
+    final raw = _computeLedgerBalances(entries);
 
-        if (cashIn == 0) {
-          return Center(child: Text('No data yet. Import CSV data to see the trial balance.',
-              style: TextStyle(color: Theme.of(context).colorScheme.outline, fontStyle: FontStyle.italic)));
-        }
+    final sortedAccounts = List<Account>.from(accounts)
+      ..sort((a, b) => a.code.compareTo(b.code));
 
-        return SingleChildScrollView(
+    final rows = <Map<String, dynamic>>[];
+    double totalDebits = 0;
+    double totalCredits = 0;
+
+    for (final account in sortedAccounts) {
+      final netRaw = raw['acct-${account.code}'] ?? 0.0;
+      if (netRaw == 0.0) continue;
+      double debit = 0;
+      double credit = 0;
+      if (netRaw > 0) {
+        debit = netRaw;
+        totalDebits += netRaw;
+      } else {
+        credit = -netRaw;
+        totalCredits += -netRaw;
+      }
+      rows.add({
+        'code': account.code,
+        'account': account.name,
+        'type': account.type.name[0].toUpperCase() + account.type.name.substring(1),
+        'debit': debit,
+        'credit': credit,
+      });
+    }
+
+    if (rows.isEmpty) {
+      return Center(child: Text('No data yet. Import CSV data to see the trial balance.',
+          style: TextStyle(color: Theme.of(context).colorScheme.outline, fontStyle: FontStyle.italic)));
+    }
+
+    return SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1101,10 +1239,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             ],
           ),
         );
-      },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (_, __) => const Center(child: Text('Error loading data')),
-    );
   }
 
   // ── Cash Flow Statement ────────────────────────────────────────────────────
@@ -1412,22 +1546,33 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       List<List<dynamic>> csvRows = [];
 
       if (reportName == 'Trial Balance') {
-        final cashIn = dashData?.cashIn ?? 0;
-        final cashOut = dashData?.cashOut ?? 0;
-        final ggr = dashData?.totalRevenue ?? 0;
-        final commission = dashData?.totalExpenses ?? 0;
+        final tbAccounts2 = ref.read(accountsProvider).accounts;
+        final tbEntries2 = ref.read(journalsProvider).entries;
+        final tbRaw2 = _computeLedgerBalances(tbEntries2);
+        final tbSorted2 = List<Account>.from(tbAccounts2)..sort((a, b) => a.code.compareTo(b.code));
+        double tbDr2 = 0;
+        double tbCr2 = 0;
+        final tbDataRows = <List<dynamic>>[];
+        for (final acct in tbSorted2) {
+          final net = tbRaw2['acct-${acct.code}'] ?? 0.0;
+          if (net == 0.0) continue;
+          final typeName = acct.type.name[0].toUpperCase() + acct.type.name.substring(1);
+          if (net > 0) {
+            tbDataRows.add([acct.code, acct.name, typeName, numFmt.format(net), '']);
+            tbDr2 += net;
+          } else {
+            tbDataRows.add([acct.code, acct.name, typeName, '', numFmt.format(-net)]);
+            tbCr2 += -net;
+          }
+        }
         csvRows = [
           ['MAGIC BET LTD — TRIAL BALANCE'],
           ['Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}'],
           [],
           ['Account Code', 'Account Name', 'Type', 'Debit (UGX)', 'Credit (UGX)'],
-          ['1200', 'Outlet Cash Collections', 'Asset', numFmt.format(ggr), ''],
-          ['4100', 'Total Stakes / Cash In', 'Revenue', '', numFmt.format(cashIn)],
-          ['5000', 'Customer Winnings (Payouts)', 'Expense', numFmt.format(cashOut), ''],
-          ['5100', 'Outlet Commission Expense', 'Expense', numFmt.format(commission), ''],
-          ['2300', 'Commission Payable', 'Liability', '', numFmt.format(commission)],
+          ...tbDataRows,
           [],
-          ['', 'TOTALS', '', numFmt.format(ggr + cashOut + commission), numFmt.format(cashIn + commission)],
+          ['', 'TOTALS', '', numFmt.format(tbDr2), numFmt.format(tbCr2)],
         ];
       } else if (reportName == 'Cash Flow Statement') {
         final cashIn = dashData?.cashIn ?? 0;
@@ -1566,30 +1711,30 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       }
 
       if (reportName == 'Trial Balance') {
-        final cashIn = dashData?.cashIn ?? 0;
-        final cashOut = dashData?.cashOut ?? 0;
-        final ggr = dashData?.totalRevenue ?? 0;
-        final commission = dashData?.totalExpenses ?? 0;
+        final tbAcc3 = ref.read(accountsProvider).accounts;
+        final tbEnt3 = ref.read(journalsProvider).entries;
+        final tbRaw3 = _computeLedgerBalances(tbEnt3);
+        final tbSorted3 = List<Account>.from(tbAcc3)..sort((a, b) => a.code.compareTo(b.code));
+        double tbDr3 = 0;
+        double tbCr3 = 0;
         addTitle('MAGIC BET LTD — TRIAL BALANCE');
         addHeader(['Account Code', 'Account Name', 'Type', 'Debit (UGX)', 'Credit (UGX)']);
-        final rows = [
-          ['1200', 'Outlet Cash Collections', 'Asset', ggr, 0.0],
-          ['4100', 'Total Stakes / Cash In', 'Revenue', 0.0, cashIn],
-          ['5000', 'Customer Winnings (Payouts)', 'Expense', cashOut, 0.0],
-          ['5100', 'Outlet Commission Expense', 'Expense', commission, 0.0],
-          ['2300', 'Commission Payable', 'Liability', 0.0, commission],
-        ];
-        for (final r in rows) {
-          sheet.appendRow([
-            xl.TextCellValue(r[0] as String),
-            xl.TextCellValue(r[1] as String),
-            xl.TextCellValue(r[2] as String),
-            (r[3] as double) > 0 ? xl.DoubleCellValue(r[3] as double) : xl.TextCellValue('—'),
-            (r[4] as double) > 0 ? xl.DoubleCellValue(r[4] as double) : xl.TextCellValue('—'),
-          ]);
+        for (final acct in tbSorted3) {
+          final net = tbRaw3['acct-${acct.code}'] ?? 0.0;
+          if (net == 0.0) continue;
+          final typeName = acct.type.name[0].toUpperCase() + acct.type.name.substring(1);
+          if (net > 0) {
+            sheet.appendRow([xl.TextCellValue(acct.code), xl.TextCellValue(acct.name), xl.TextCellValue(typeName),
+              xl.DoubleCellValue(net), xl.TextCellValue('—')]);
+            tbDr3 += net;
+          } else {
+            sheet.appendRow([xl.TextCellValue(acct.code), xl.TextCellValue(acct.name), xl.TextCellValue(typeName),
+              xl.TextCellValue('—'), xl.DoubleCellValue(-net)]);
+            tbCr3 += -net;
+          }
         }
         sheet.appendRow([xl.TextCellValue(''), xl.TextCellValue('TOTALS'), xl.TextCellValue(''),
-          xl.DoubleCellValue(ggr + cashOut + commission), xl.DoubleCellValue(cashIn + commission)]);
+          xl.DoubleCellValue(tbDr3), xl.DoubleCellValue(tbCr3)]);
       } else if (reportName == 'Cash Flow Statement') {
         final cashIn = dashData?.cashIn ?? 0;
         final cashOut = dashData?.cashOut ?? 0;
