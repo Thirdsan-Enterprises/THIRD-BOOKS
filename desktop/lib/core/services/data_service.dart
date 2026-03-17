@@ -140,6 +140,8 @@ List<Account> _magicBetDefaultAccounts() {
     a('160', 'Technical Services Fee',                  AccountType.expense,   AccountSubType.operatingExpense),
     a('161', 'Platform Services Fee',                   AccountType.expense,   AccountSubType.operatingExpense),
     a('162', 'Support Services Fee',                    AccountType.expense,   AccountSubType.operatingExpense),
+    a('178', 'Outlet Commission Expense',               AccountType.expense,   AccountSubType.operatingExpense, system: true,
+      desc: '40% of adjusted weekly GGR owed to outlet location owners (carry-forward basis)'),
 
     // ════════════════════════════════════════════════════════════════════════
     // BANK REVALUATIONS & CURRENCY  (138–140)
@@ -833,6 +835,43 @@ class InvoicesNotifier extends StateNotifier<InvoicesState> {
       data: invoice.toJson(),
     );
   }
+
+  /// Auto-apply a received payment to the customer's oldest open invoices.
+  /// Called by PaymentsNotifier.addPayment() when paymentType == received.
+  void applyPaymentToCustomer(String customerId, double totalAmount) {
+    final openInvoices = state.invoices
+        .where((i) =>
+            i.customerId == customerId &&
+            i.status != InvoiceStatus.paid &&
+            i.status != InvoiceStatus.cancelled)
+        .toList()
+      ..sort((a, b) => a.date.compareTo(b.date)); // oldest first
+
+    if (openInvoices.isEmpty) return;
+
+    var remaining = totalAmount;
+    var updatedInvoices = [...state.invoices];
+
+    for (final invoice in openInvoices) {
+      if (remaining <= 0) break;
+      final balance = invoice.total - invoice.amountPaid;
+      if (balance <= 0) continue;
+      final applying = remaining.clamp(0.0, balance);
+      remaining -= applying;
+      final newPaid = invoice.amountPaid + applying;
+      updatedInvoices = updatedInvoices.map((i) {
+        if (i.id != invoice.id) return i;
+        return i.copyWith(
+          amountPaid: newPaid,
+          status: newPaid >= i.total ? InvoiceStatus.paid : InvoiceStatus.partial,
+          updatedAt: DateTime.now(),
+        );
+      }).toList();
+    }
+
+    state = state.copyWith(invoices: updatedInvoices);
+    _localStorage.saveInvoices(updatedInvoices);
+  }
 }
 
 final invoicesProvider = StateNotifierProvider<InvoicesNotifier, InvoicesState>((ref) {
@@ -955,6 +994,43 @@ class BillsNotifier extends StateNotifier<BillsState> {
       entityId: billId,
       data: bill.toJson(),
     );
+  }
+
+  /// Auto-apply a made payment to the vendor's earliest-due open bills.
+  /// Called by PaymentsNotifier.addPayment() when paymentType == made.
+  void applyPaymentToVendor(String vendorId, double totalAmount) {
+    final openBills = state.bills
+        .where((b) =>
+            b.vendorId == vendorId &&
+            b.status != BillStatus.paid &&
+            b.status != BillStatus.cancelled)
+        .toList()
+      ..sort((a, b) => a.dueDate.compareTo(b.dueDate)); // earliest due first
+
+    if (openBills.isEmpty) return;
+
+    var remaining = totalAmount;
+    var updatedBills = [...state.bills];
+
+    for (final bill in openBills) {
+      if (remaining <= 0) break;
+      final balance = bill.total - bill.amountPaid;
+      if (balance <= 0) continue;
+      final applying = remaining.clamp(0.0, balance);
+      remaining -= applying;
+      final newPaid = bill.amountPaid + applying;
+      updatedBills = updatedBills.map((b) {
+        if (b.id != bill.id) return b;
+        return b.copyWith(
+          amountPaid: newPaid,
+          status: newPaid >= b.total ? BillStatus.paid : BillStatus.partial,
+          updatedAt: DateTime.now(),
+        );
+      }).toList();
+    }
+
+    state = state.copyWith(bills: updatedBills);
+    _localStorage.saveBills(updatedBills);
   }
 }
 
@@ -1127,8 +1203,21 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
   void addPayment(Payment payment) {
     final updatedPayments = [...state.payments, payment];
     state = state.copyWith(payments: updatedPayments);
-
     _localStorage.savePayments(updatedPayments);
+
+    // Auto-apply to open invoices (received) or bills (made) so that
+    // A/R and A/P balances update immediately without a separate step.
+    if (payment.paymentType == PaymentType.received &&
+        payment.customerId != null) {
+      _ref
+          .read(invoicesProvider.notifier)
+          .applyPaymentToCustomer(payment.customerId!, payment.amount);
+    } else if (payment.paymentType == PaymentType.made &&
+        payment.vendorId != null) {
+      _ref
+          .read(billsProvider.notifier)
+          .applyPaymentToVendor(payment.vendorId!, payment.amount);
+    }
 
     _ref.read(syncServiceProvider.notifier).queueChange(
       action: SyncAction.create,
@@ -1375,12 +1464,13 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
             reference: 'CSV-$csvOutletCode-${DateFormat('yyyyMMdd').format(date)}',
             status: JournalEntryStatus.posted,
             lines: [
-              // Debit: Outlet Cash Collections (Total In)
-              JournalLine(id: '${jeId}-1', journalEntryId: jeId, accountId: 'acct-1200', accountCode: '1200', accountName: 'Outlet Cash Collections', debit: totalIn, credit: 0),
-              // Credit: Customer Winnings / Payouts (Total Out)
-              JournalLine(id: '${jeId}-2', journalEntryId: jeId, accountId: 'acct-5000', accountCode: '5000', accountName: 'Customer Winnings (Payouts)', debit: 0, credit: totalOut),
-              // Credit: Gross Gaming Revenue (GGR)
-              JournalLine(id: '${jeId}-3', journalEntryId: jeId, accountId: 'acct-4000', accountCode: '4000', accountName: 'Gross Gaming Revenue (GGR)', debit: 0, credit: totalGGR),
+              // DR: Petty Cash — net cash collected at outlet (Stakes minus Payouts)
+              JournalLine(id: '${jeId}-1', journalEntryId: jeId, accountId: 'acct-100', accountCode: '100', accountName: 'Petty Cash', debit: totalGGR, credit: 0),
+              // DR: Payouts — contra-revenue for customer winnings paid
+              JournalLine(id: '${jeId}-2', journalEntryId: jeId, accountId: 'acct-107', accountCode: '107', accountName: 'Payouts', debit: totalOut, credit: 0),
+              // CR: Stakes — gross revenue recognised
+              // Balance: DR(totalGGR + totalOut) = DR(totalIn) = CR(totalIn) ✓
+              JournalLine(id: '${jeId}-3', journalEntryId: jeId, accountId: 'acct-103', accountCode: '103', accountName: 'Stakes', debit: 0, credit: totalIn),
             ],
             createdAt: DateTime.now(),
             updatedAt: DateTime.now(),
@@ -1400,9 +1490,18 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
       if (journalEntries.isNotEmpty) {
         try {
           final existingEntries = await _localStorage.loadJournalEntries();
-          final allEntries = [...existingEntries, ...journalEntries];
-          await _localStorage.saveJournalEntries(allEntries);
+          var allEntries = [...existingEntries, ...journalEntries];
           journalEntriesCreated = journalEntries.length;
+
+          // Create commission (weekly) and gaming tax (monthly) JEs for
+          // any periods not yet covered — these use real COA account codes.
+          final ancillaryJEs = await _createAncillaryJEs(allEntries);
+          if (ancillaryJEs.isNotEmpty) {
+            allEntries = [...allEntries, ...ancillaryJEs];
+            journalEntriesCreated += ancillaryJEs.length;
+          }
+
+          await _localStorage.saveJournalEntries(allEntries);
 
           // Update the journals provider state
           _ref.read(journalsProvider.notifier).state = JournalsState(
@@ -1441,6 +1540,138 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
       lastResult: result,
       progress: 1.0,
     );
+
+    return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Commission + Gaming Tax JEs
+  // ---------------------------------------------------------------------------
+  // After each CSV import, create:
+  //   • Weekly outlet commission JEs  (DR 178, CR 166) — 40% of adjusted GGR
+  //   • Monthly gaming tax JEs        (DR 108, CR 147) — 15% of total GGR
+  // Reference codes act as idempotency keys so re-imports never double-post.
+  // ---------------------------------------------------------------------------
+
+  Future<List<JournalEntry>> _createAncillaryJEs(
+    List<JournalEntry> existingEntries,
+  ) async {
+    final existingRefs = existingEntries
+        .map((e) => e.reference)
+        .whereType<String>()
+        .toSet();
+    final result = <JournalEntry>[];
+    final now = DateTime.now();
+
+    final outlets = await _db.getAllOutlets();
+    final allRevenues = await _db.getAllOutletRevenues();
+    if (outlets.isEmpty || allRevenues.isEmpty) return result;
+
+    // ── 1. Weekly outlet commission JEs (per outlet) ─────────────────────────
+    final revenuesByOutlet = <String, List<OutletRevenue>>{};
+    for (final rev in allRevenues) {
+      revenuesByOutlet.putIfAbsent(rev.outletId, () => []).add(rev);
+    }
+
+    for (final outlet in outlets) {
+      final revs = revenuesByOutlet[outlet.id] ?? [];
+      final weeks = _computeWeeksForOutlet(outlet, revs);
+
+      for (final week in weeks) {
+        if (week.outletExpense <= 0) continue;
+
+        final ref =
+            'JE-COMM-${outlet.outletCode}-${week.year}-W${week.weekNumber.toString().padLeft(2, '0')}';
+        if (existingRefs.contains(ref)) continue;
+
+        final jeId = _uuid.v4();
+        final weekLabel = 'Week ${week.weekNumber} ${week.year}';
+        result.add(JournalEntry(
+          id: jeId,
+          entryNumber: ref,
+          date: week.weekEnd,
+          description:
+              'Outlet Commission (40% GGR) — ${outlet.name} — $weekLabel',
+          reference: ref,
+          status: JournalEntryStatus.posted,
+          lines: [
+            // DR: Outlet Commission Expense (178)
+            JournalLine(
+              id: '$jeId-1', journalEntryId: jeId,
+              accountId: 'acct-178', accountCode: '178',
+              accountName: 'Outlet Commission Expense',
+              debit: week.outletExpense, credit: 0,
+            ),
+            // CR: Accruals (166) — outstanding commission owed to owner
+            JournalLine(
+              id: '$jeId-2', journalEntryId: jeId,
+              accountId: 'acct-166', accountCode: '166',
+              accountName: 'Accruals',
+              debit: 0, credit: week.outletExpense,
+            ),
+          ],
+          createdAt: now,
+          updatedAt: now,
+          createdBy: 'System',
+        ));
+        existingRefs.add(ref);
+      }
+    }
+
+    // ── 2. Monthly gaming tax JEs (15% of company-wide GGR) ─────────────────
+    final monthGGR = <String, double>{};
+    final monthEndDate = <String, DateTime>{};
+    for (final rev in allRevenues) {
+      final key =
+          '${rev.date.year}-${rev.date.month.toString().padLeft(2, '0')}';
+      monthGGR[key] = (monthGGR[key] ?? 0) + rev.netAmount;
+      // Track last day of month for JE date
+      final lastDay = DateTime(rev.date.year, rev.date.month + 1, 0);
+      if (monthEndDate[key] == null ||
+          lastDay.isAfter(monthEndDate[key]!)) {
+        monthEndDate[key] = lastDay;
+      }
+    }
+
+    for (final entry in monthGGR.entries) {
+      final taxRef = 'JE-GTAX-${entry.key}';
+      if (existingRefs.contains(taxRef)) continue;
+      if (entry.value <= 0) continue;
+
+      final taxAmount = entry.value * 0.15;
+      final jeId = _uuid.v4();
+      final date = monthEndDate[entry.key]!;
+      final monthLabel = DateFormat('MMMM yyyy').format(date);
+
+      result.add(JournalEntry(
+        id: jeId,
+        entryNumber: taxRef,
+        date: date,
+        description: 'Gaming Tax (15% of GGR) — $monthLabel',
+        reference: taxRef,
+        status: JournalEntryStatus.posted,
+        lines: [
+          // DR: Gaming Tax expense (108)
+          JournalLine(
+            id: '$jeId-1', journalEntryId: jeId,
+            accountId: 'acct-108', accountCode: '108',
+            accountName: 'Gaming Tax',
+            debit: taxAmount, credit: 0,
+          ),
+          // CR: Gaming Tax Payable (147) — accrued, payable to URA
+          JournalLine(
+            id: '$jeId-2', journalEntryId: jeId,
+            accountId: 'acct-147', accountCode: '147',
+            accountName: 'Gaming Tax Payable',
+            debit: 0, credit: taxAmount,
+          ),
+        ],
+        createdAt: now,
+        updatedAt: now,
+        createdBy: 'System',
+      ));
+      existingRefs.add(taxRef);
+    }
 
     return result;
   }
