@@ -1230,9 +1230,33 @@ final journalsProvider = StateNotifierProvider<JournalsNotifier, JournalsState>(
   return JournalsNotifier(ref.read(apiClientProvider), ref);
 });
 
-// ============================================================================
-// Payments Service - OFFLINE-FIRST
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Ledger Balances — derived from posted journal entries
+// ---------------------------------------------------------------------------
+// Returns { accountId → (∑ debits − ∑ credits) } for every posted JE.
+// Debit-normal accounts (Asset, Expense) → positive value means Dr balance.
+// Credit-normal accounts (Liability, Equity, Revenue) → negative value means
+// Cr balance (i.e. the presentational balance = −raw value).
+final ledgerBalancesProvider = Provider<Map<String, double>>((ref) {
+  final entries = ref.watch(journalsProvider).entries;
+  final raw = <String, double>{};
+  for (final entry in entries) {
+    if (entry.status != JournalEntryStatus.posted) continue;
+    for (final line in entry.lines) {
+      raw[line.accountId] = (raw[line.accountId] ?? 0) + line.debit - line.credit;
+    }
+  }
+  return raw;
+});
+
+// Returns the presentational balance for [account] given ledger raw values.
+// Positive result = balance in the normal direction for that account type.
+double ledgerPresentationalBalance(Account account, Map<String, double> raw) {
+  final r = raw['acct-${account.code}'] ?? raw[account.id] ?? 0.0;
+  return account.isDebitNormal ? r : -r;
+}
+
+
 
 class PaymentsState {
   final List<Payment> payments;

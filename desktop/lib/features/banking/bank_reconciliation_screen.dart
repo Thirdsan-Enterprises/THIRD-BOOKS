@@ -1156,6 +1156,12 @@ class _BankReconciliationScreenState
 
     if (!mounted) return;
 
+    // Invalidate bank transaction provider so "View Statement" dialog shows
+    // newly reconciled entries immediately (FutureProvider won't auto-refresh).
+    if (_selectedAccount != null) {
+      ref.invalidate(bankTransactionsProvider(_selectedAccount!.id));
+    }
+
     // 3. Show settlement summary
     showDialog(
       context: context,
