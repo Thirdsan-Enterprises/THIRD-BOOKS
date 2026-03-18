@@ -1609,6 +1609,16 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
         outletMap[outlet.outletCode] = outlet;
       }
 
+      // Cache existing revenue records to detect duplicates within this import
+      // and against the database (prevents re-importing the same CSV file).
+      // Key: "{outletId}|{yyyyMMdd}"
+      final existingRevenues = await _db.getAllOutletRevenues();
+      final existingKeys = <String>{};
+      for (final r in existingRevenues) {
+        existingKeys.add(
+            '${r.outletId}|${DateFormat('yyyyMMdd').format(r.date)}');
+      }
+
       // Track journal entries to create
       final journalEntries = <JournalEntry>[];
       int jeCounter = 0;
@@ -1652,6 +1662,15 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
             skippedRows++;
             continue;
           }
+
+          // Deduplication: skip if this outlet+date was already imported
+          final dupKey = '${outlet.id}|${DateFormat('yyyyMMdd').format(date)}';
+          if (existingKeys.contains(dupKey)) {
+            skippedRows++;
+            state = state.copyWith(progress: i / totalRows);
+            continue;
+          }
+          existingKeys.add(dupKey); // guard against within-file duplicates
 
           // Create OutletRevenue entry
           // amount = Total In, commissionAmount = Total Out, netAmount = GGR
@@ -1746,8 +1765,10 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
         }
       }
 
-      // Refresh dashboard data
+      // Refresh all revenue-dependent providers
       _ref.invalidate(dashboardDataProvider);
+      _ref.invalidate(outletRevenueSummaryProvider);
+      _ref.invalidate(outletAnalyticsProvider);
 
     } catch (e) {
       state = state.copyWith(isImporting: false, error: e.toString());
@@ -1775,6 +1796,118 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
     );
 
     return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public: Create / repair JEs for all outlet revenue records in the DB
+  // ---------------------------------------------------------------------------
+  // Safe to call after every CSV import (idempotent — uses the OutletRevenue's
+  // [reference] field as the JE idempotency key so no duplicates are created).
+  //
+  // Creates:
+  //   • One daily revenue JE per OutletRevenue row not already journalised
+  //       DR  100 Petty Cash          = GGR (net cash at outlet)
+  //       DR  107 Payouts             = customer winnings paid out
+  //       CR  103 Stakes              = gross stakes wagered
+  //   • Weekly outlet commission JEs via _createAncillaryJEs()
+  //   • Monthly gaming-tax JEs        via _createAncillaryJEs()
+  // ---------------------------------------------------------------------------
+
+  Future<void> createJEsForOutletRevenues() async {
+    final allRevenues = await _db.getAllOutletRevenues();
+    if (allRevenues.isEmpty) return;
+
+    // Build outlet lookup map
+    final outlets = await _db.getAllOutlets();
+    final outletMap = <String, Outlet>{};
+    for (final o in outlets) {
+      outletMap[o.id] = o;
+    }
+
+    // Load existing JEs and collect their references (idempotency keys)
+    final existingEntries = await _localStorage.loadJournalEntries();
+    final existingRefs = existingEntries
+        .map((e) => e.reference)
+        .whereType<String>()
+        .toSet();
+
+    final newDailyJEs = <JournalEntry>[];
+    final now = DateTime.now();
+    int counter = 0;
+
+    for (final rev in allRevenues) {
+      // Use the revenue's own reference as the JE key (e.g. CSV-3000-20260101)
+      final ref = rev.reference ??
+          'CSV-${rev.outletId}-${DateFormat('yyyyMMdd').format(rev.date)}';
+      if (existingRefs.contains(ref)) continue; // already journalised
+
+      counter++;
+      final jeId = _uuid.v4();
+      final outletName = outletMap[rev.outletId]?.name ?? 'Outlet';
+
+      // Arithmetic check:
+      //   Total In (stakes) = GGR (netAmount) + Payouts (commissionAmount)
+      //   DR side: netAmount + commissionAmount == CR side: amount  ✓
+      newDailyJEs.add(JournalEntry(
+        id: jeId,
+        entryNumber:
+            'REV-${DateFormat('yyyyMMdd').format(rev.date)}-${counter.toString().padLeft(4, '0')}',
+        date: rev.date,
+        description: '$outletName — Daily Revenue',
+        reference: ref,
+        status: JournalEntryStatus.posted,
+        lines: [
+          // DR: Petty Cash (100) — net cash held at the outlet after payouts
+          JournalLine(
+            id: '$jeId-1',
+            journalEntryId: jeId,
+            accountId: 'acct-100',
+            accountCode: '100',
+            accountName: 'Petty Cash',
+            debit: rev.netAmount,
+            credit: 0,
+          ),
+          // DR: Payouts (107) — contra-revenue for winnings returned to players
+          JournalLine(
+            id: '$jeId-2',
+            journalEntryId: jeId,
+            accountId: 'acct-107',
+            accountCode: '107',
+            accountName: 'Payouts',
+            debit: rev.commissionAmount,
+            credit: 0,
+          ),
+          // CR: Stakes (103) — gross revenue recognised on all wagers placed
+          JournalLine(
+            id: '$jeId-3',
+            journalEntryId: jeId,
+            accountId: 'acct-103',
+            accountCode: '103',
+            accountName: 'Stakes',
+            debit: 0,
+            credit: rev.amount,
+          ),
+        ],
+        createdAt: now,
+        updatedAt: now,
+        createdBy: 'System',
+      ));
+      existingRefs.add(ref);
+    }
+
+    // Build ancillary JEs (weekly commission + monthly gaming tax)
+    final allCurrent = [...existingEntries, ...newDailyJEs];
+    final ancillary = await _createAncillaryJEs(allCurrent);
+
+    if (newDailyJEs.isNotEmpty || ancillary.isNotEmpty) {
+      final allEntries = [...allCurrent, ...ancillary];
+      await _localStorage.saveJournalEntries(allEntries);
+      // Reload journals provider so CoA balances and reports update immediately
+      await _ref.read(journalsProvider.notifier).loadJournals();
+      _ref.invalidate(dashboardDataProvider);
+      _ref.invalidate(outletRevenueSummaryProvider);
+      _ref.invalidate(outletAnalyticsProvider);
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -106,10 +106,19 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
           _csvData = null;
           _fileName = null;
         });
+
+        // Create journal entries for all newly imported outlet revenue records
+        // so that Stakes (103), Payouts (107), Commission Expense (178) and
+        // related CoA accounts immediately reflect the uploaded data.
+        if (result.successCount > 0) {
+          await ref.read(csvImportProvider.notifier).createJEsForOutletRevenues();
+        }
+
         // Invalidate all data providers so dashboard and reports reflect new data immediately
         ref.invalidate(dashboardDataProvider);
         ref.invalidate(outletRevenueSummaryProvider);
         ref.invalidate(outletAnalyticsProvider);
+        ref.invalidate(journalsProvider);
       }
     } catch (e) {
       if (mounted) {

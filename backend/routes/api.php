@@ -13,6 +13,7 @@ use App\Http\Controllers\API\Reporting\ReportController;
 use App\Http\Controllers\SyncController;
 use App\Http\Controllers\ConflictController;
 use App\Http\Controllers\API\AccountDataController;
+use App\Http\Controllers\API\Outlets\OutletRevenueController;
 
 /*
 |--------------------------------------------------------------------------
@@ -72,6 +73,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('bills', BillController::class);
         Route::post('/bills/{bill}/payment', [BillController::class, 'recordPayment']);
         Route::get('/bills/{bill}/pdf', [BillController::class, 'downloadPdf']);
+
+        // Outlet Revenue — posts DR Petty Cash / DR Payouts / CR Stakes JEs
+        Route::prefix('outlet-revenues')->group(function () {
+            Route::post('/', [OutletRevenueController::class, 'store']);
+            Route::post('/commission', [OutletRevenueController::class, 'storeCommission']);
+        });
 
         // Financial Reports
         Route::prefix('reports')->group(function () {
