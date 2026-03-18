@@ -1457,6 +1457,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   // ── Cash Flow Statement ────────────────────────────────────────────────────
   Widget _buildCashFlowPreview(BuildContext context) {
     final dashboardAsync = ref.watch(dashboardDataProvider);
+    final analyticsAsync = ref.watch(outletAnalyticsProvider);
     return dashboardAsync.when(
       data: (data) {
         final cashIn = data.cashIn;
@@ -1464,6 +1465,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         final ggr = data.totalRevenue;
         final commission = data.totalExpenses;
         final netCash = data.netIncome;
+
+        // Per-outlet breakdown from analytics provider (carry-forward engine)
+        final outletTotals = analyticsAsync.valueOrNull?.lifetimeTotals ?? [];
+        final sortedOutlets = List<OutletLifetime>.from(outletTotals)
+          ..sort((a, b) => b.totalGGR.compareTo(a.totalGGR));
 
         if (cashIn == 0) {
           return Center(child: Text('No data yet. Import CSV data to see the cash flow statement.',
@@ -1520,6 +1526,74 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               cfRow('Commission paid to outlet owners (40% of GGR)', -commission, indent: '  '),
               const Divider(height: 8),
               cfRow('NET CASH FROM OPERATING ACTIVITIES', netCash, isFinal: true),
+
+              // Per-outlet cash breakdown
+              if (sortedOutlets.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                Text('CASH PERFORMANCE BY OUTLET', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 0.8)),
+                const Divider(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      const Expanded(flex: 3, child: Text('Outlet', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
+                      const Expanded(child: Text('GGR', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12), textAlign: TextAlign.right)),
+                      const Expanded(child: Text('Commission', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12), textAlign: TextAlign.right)),
+                      const Expanded(child: Text('Net Revenue', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12), textAlign: TextAlign.right)),
+                    ],
+                  ),
+                ),
+                const Divider(height: 4),
+                ...sortedOutlets.map((ol) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Text('${ol.outletCode}  ${ol.outletName}',
+                            style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                      ),
+                      Expanded(
+                        child: Text(
+                          NumberFormat('#,##0').format(ol.totalGGR),
+                          style: TextStyle(fontSize: 12, fontFamily: 'monospace',
+                              color: ol.totalGGR >= 0 ? AppColors.income : AppColors.expense),
+                          textAlign: TextAlign.right,
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          '(${NumberFormat('#,##0').format(ol.totalOutletExpense)})',
+                          style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: AppColors.expense),
+                          textAlign: TextAlign.right,
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          NumberFormat('#,##0').format(ol.netRevenue),
+                          style: TextStyle(
+                            fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.w600,
+                            color: ol.netRevenue >= 0 ? AppColors.income : AppColors.expense,
+                          ),
+                          textAlign: TextAlign.right,
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
+                const Divider(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      const Expanded(flex: 3, child: Text('TOTAL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                      Expanded(child: Text(NumberFormat('#,##0').format(ggr), style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace', color: ggr >= 0 ? AppColors.income : AppColors.expense), textAlign: TextAlign.right)),
+                      Expanded(child: Text('(${NumberFormat('#,##0').format(commission)})', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace', color: AppColors.expense), textAlign: TextAlign.right)),
+                      Expanded(child: Text(NumberFormat('#,##0').format(netCash), style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace', color: netCash >= 0 ? AppColors.income : AppColors.expense), textAlign: TextAlign.right)),
+                    ],
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 16),
               // Investing

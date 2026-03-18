@@ -219,6 +219,18 @@ class _BankReconciliationScreenState
     }
   }
 
+  // ── Clear uploaded statement ─────────────────────────────────────────────
+  void _clearStatement() {
+    ref.read(_reconciliationLinesProvider.notifier).state = [];
+    setState(() => _fileName = null);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Bank statement cleared. You can upload a new file.'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
   // ── Auto-matching engine ─────────────────────────────────────────────────
   Future<void> _autoMatch(List<BankStatementLine> lines) async {
     final invoicesState = ref.read(invoicesProvider);
@@ -1104,6 +1116,42 @@ class _BankReconciliationScreenState
         await ls.saveOutletSettlements(
             [...existingSettlements, ...newSettlements]);
       }
+
+      // 3. Post unmatched lines to Suspense account (166 = Accruals/Clearing)
+      // This ensures ALL bank statement lines appear in the CoA, not just matched ones.
+      final unmatchedLines = allLines
+          .where((l) => l.status == MatchStatus.unmatched)
+          .toList();
+      for (final line in unmatchedLines) {
+        final ujeId = const Uuid().v4();
+        final isCredit = line.amount >= 0;
+        journalsNotifier.addEntry(JournalEntry(
+          id: ujeId,
+          entryNumber: 'BANK-SUSPENSE-${now.millisecondsSinceEpoch}',
+          date: line.date,
+          description: 'Unreconciled bank entry (review required): ${line.description}',
+          reference: line.reference,
+          status: JournalEntryStatus.posted,
+          lines: [
+            JournalLine(
+              id: '$ujeId-1', journalEntryId: ujeId,
+              accountId: _bankCoaAccountId(),
+              accountCode: _bankCoaAccountCode(),
+              accountName: _bankCoaAccountName(),
+              debit: isCredit ? line.amount.abs() : 0,
+              credit: isCredit ? 0 : line.amount.abs(),
+            ),
+            JournalLine(
+              id: '$ujeId-2', journalEntryId: ujeId,
+              accountId: 'acct-166', accountCode: '166',
+              accountName: 'Accruals / Suspense',
+              debit: isCredit ? 0 : line.amount.abs(),
+              credit: isCredit ? line.amount.abs() : 0,
+            ),
+          ],
+          createdAt: now, updatedAt: now,
+        ));
+      }
     }
 
     if (!mounted) return;
@@ -1251,6 +1299,19 @@ class _BankReconciliationScreenState
                     Chip(
                       avatar: const Icon(Icons.description, size: 16),
                       label: Text(_fileName!),
+                    ),
+                    const SizedBox(width: 8),
+                    Tooltip(
+                      message: 'Clear uploaded statement and start over',
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.clear, size: 16),
+                        label: const Text('Clear'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.error,
+                          side: BorderSide(color: AppColors.error.withOpacity(0.6)),
+                        ),
+                        onPressed: _clearStatement,
+                      ),
                     ),
                   ],
                   const Spacer(),

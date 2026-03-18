@@ -84,7 +84,7 @@ class AppSettings {
     this.enableNotifications = true,
     this.autoSync = true,
     this.syncIntervalMinutes = 15,
-    this.enableVAT = true,
+    this.enableVAT = false, // VAT disabled by default — enable in Settings if required by URA
     this.pricesIncludeTax = false,
     this.showTaxOnInvoices = true,
     this.showAccountCodes = true,
@@ -153,7 +153,8 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     final enableNotifications = await _storage.read(key: 'notifications') != 'false';
     final autoSync = await _storage.read(key: 'auto_sync') != 'false';
     final syncInterval = int.tryParse(await _storage.read(key: 'sync_interval') ?? '15') ?? 15;
-    final enableVAT = await _storage.read(key: 'enable_vat') != 'false';
+    // VAT defaults to disabled; only enable if explicitly saved as 'true'
+    final enableVAT = await _storage.read(key: 'enable_vat') == 'true';
     final pricesIncludeTax = await _storage.read(key: 'prices_include_tax') == 'true';
     final showTaxOnInvoices = await _storage.read(key: 'show_tax_on_invoices') != 'false';
     final showAccountCodes = await _storage.read(key: 'show_account_codes') != 'false';
