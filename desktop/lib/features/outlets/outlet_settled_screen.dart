@@ -94,11 +94,13 @@ class _OutletSettledScreenState extends ConsumerState<OutletSettledScreen>
                   ],
                 ),
                 const Spacer(),
-                OutlinedButton.icon(
-                  tooltip: 'Export settlements to CSV',
-                  icon: const Icon(Icons.download, size: 16),
-                  label: const Text('Export CSV'),
-                  onPressed: () => _exportCsv(settlementsAsync.valueOrNull ?? []),
+                Tooltip(
+                  message: 'Export settlements to CSV',
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.download, size: 16),
+                    label: const Text('Export CSV'),
+                    onPressed: () => _exportCsv(settlementsAsync.valueOrNull ?? []),
+                  ),
                 ),
                 const SizedBox(width: 8),
                 IconButton(
