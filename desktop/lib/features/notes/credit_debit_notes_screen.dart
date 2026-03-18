@@ -705,11 +705,24 @@ class _CreditDebitNotesScreenState
                 } else {
                   ref.read(creditNotesProvider.notifier).addNote(cn);
                 }
+                // Apply to invoice and post GL journal entry when issuing
+                if (cn.status == NoteStatus.issued) {
+                  if (cn.invoiceId != null) {
+                    ref.read(invoicesProvider.notifier)
+                        .recordPayment(cn.invoiceId!, cn.amount);
+                  }
+                  final wasAlreadyIssued = isEdit &&
+                      (note?.status == NoteStatus.issued ||
+                          note?.status == NoteStatus.applied);
+                  if (!wasAlreadyIssued) {
+                    _createCreditNoteJE(cn);
+                  }
+                }
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                   content: Text(isEdit
                       ? 'Credit note updated'
-                      : 'Credit note created'),
+                      : 'Credit note issued — invoice balance updated'),
                   backgroundColor: AppColors.success,
                 ));
               },
@@ -978,10 +991,24 @@ class _CreditDebitNotesScreenState
                 } else {
                   ref.read(debitNotesProvider.notifier).addNote(dn);
                 }
+                // Apply to bill and post GL journal entry when issuing
+                if (dn.status == NoteStatus.issued) {
+                  if (dn.billId != null) {
+                    ref.read(billsProvider.notifier)
+                        .recordPayment(dn.billId!, dn.amount);
+                  }
+                  final wasAlreadyIssued = isEdit &&
+                      (note?.status == NoteStatus.issued ||
+                          note?.status == NoteStatus.applied);
+                  if (!wasAlreadyIssued) {
+                    _createDebitNoteJE(dn);
+                  }
+                }
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content: Text(
-                      isEdit ? 'Debit note updated' : 'Debit note created'),
+                  content: Text(isEdit
+                      ? 'Debit note updated'
+                      : 'Debit note issued — bill balance updated'),
                   backgroundColor: AppColors.success,
                 ));
               },
@@ -1040,6 +1067,84 @@ class _CreditDebitNotesScreenState
         ],
       ),
     );
+  }
+
+  // ── GL Journal Entry helpers ──────────────────────────────────────────────
+
+  /// Credit Note: DR Other Revenue (104), CR Accounts Receivable (150)
+  /// Reduces both revenue and the customer's receivable balance.
+  void _createCreditNoteJE(CreditNote cn) {
+    final now = DateTime.now();
+    final jeId = const Uuid().v4();
+    final je = JournalEntry(
+      id: jeId,
+      entryNumber: 'CN-JE-${now.millisecondsSinceEpoch}',
+      date: cn.date,
+      description: 'Credit Note ${cn.creditNoteNumber}: ${cn.reason}',
+      reference: cn.creditNoteNumber,
+      status: JournalEntryStatus.posted,
+      lines: [
+        JournalLine(
+          id: '$jeId-1',
+          journalEntryId: jeId,
+          accountId: 'acct-104',
+          accountCode: '104',
+          accountName: 'Other Revenue',
+          debit: cn.amount,
+          credit: 0,
+        ),
+        JournalLine(
+          id: '$jeId-2',
+          journalEntryId: jeId,
+          accountId: 'acct-150',
+          accountCode: '150',
+          accountName: 'Accounts Receivable',
+          debit: 0,
+          credit: cn.amount,
+        ),
+      ],
+      createdAt: now,
+      updatedAt: now,
+    );
+    ref.read(journalsProvider.notifier).addEntry(je);
+  }
+
+  /// Debit Note: DR Accounts Payable (164), CR Office Expenses (125)
+  /// Reduces what we owe the vendor and reverses the related expense.
+  void _createDebitNoteJE(DebitNote dn) {
+    final now = DateTime.now();
+    final jeId = const Uuid().v4();
+    final je = JournalEntry(
+      id: jeId,
+      entryNumber: 'DN-JE-${now.millisecondsSinceEpoch}',
+      date: dn.date,
+      description: 'Debit Note ${dn.debitNoteNumber}: ${dn.reason}',
+      reference: dn.debitNoteNumber,
+      status: JournalEntryStatus.posted,
+      lines: [
+        JournalLine(
+          id: '$jeId-1',
+          journalEntryId: jeId,
+          accountId: 'acct-164',
+          accountCode: '164',
+          accountName: 'Accounts Payable',
+          debit: dn.amount,
+          credit: 0,
+        ),
+        JournalLine(
+          id: '$jeId-2',
+          journalEntryId: jeId,
+          accountId: 'acct-125',
+          accountCode: '125',
+          accountName: 'Office Expenses',
+          debit: 0,
+          credit: dn.amount,
+        ),
+      ],
+      createdAt: now,
+      updatedAt: now,
+    );
+    ref.read(journalsProvider.notifier).addEntry(je);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

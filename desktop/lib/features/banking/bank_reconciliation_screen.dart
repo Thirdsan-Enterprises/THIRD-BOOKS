@@ -948,19 +948,20 @@ class _BankReconciliationScreenState
           sourceLabel: line.matchedLabel,
         );
 
-        // Create journal entry for account-matched lines (double-entry)
+        // Create journal entries for all matched line types
+        final jeId = const Uuid().v4();
+
         if (line.matchedRecordType == 'account' &&
             line.matchedRecordId != null) {
+          // Credit line: DR Bank CoA account, CR matched account
+          // Debit line:  DR matched account, CR Bank CoA account
           final matchedAcct = accountsState.accounts
               .cast<Account?>()
               .firstWhere((a) => a?.id == line.matchedRecordId,
                   orElse: () => null);
           if (matchedAcct != null) {
-            final jeId = const Uuid().v4();
             final isCredit = line.amount >= 0;
-            // Credit line: DR Bank, CR matched account
-            // Debit line:  DR matched account, CR Bank
-            final je = JournalEntry(
+            journalsNotifier.addEntry(JournalEntry(
               id: jeId,
               entryNumber: 'BANK-REC-${now.millisecondsSinceEpoch}',
               date: line.date,
@@ -969,29 +970,79 @@ class _BankReconciliationScreenState
               status: JournalEntryStatus.posted,
               lines: [
                 JournalLine(
-                  id: '$jeId-1',
-                  journalEntryId: jeId,
-                  accountId: _selectedAccount!.id,
-                  accountName: _selectedAccount!.bankName,
-                  accountCode: 'BANK',
+                  id: '$jeId-1', journalEntryId: jeId,
+                  accountId: _bankCoaAccountId(),
+                  accountCode: _bankCoaAccountCode(),
+                  accountName: _bankCoaAccountName(),
                   debit: isCredit ? line.amount.abs() : 0,
                   credit: isCredit ? 0 : line.amount.abs(),
                 ),
                 JournalLine(
-                  id: '$jeId-2',
-                  journalEntryId: jeId,
+                  id: '$jeId-2', journalEntryId: jeId,
                   accountId: matchedAcct.id,
-                  accountName: matchedAcct.name,
                   accountCode: matchedAcct.code,
+                  accountName: matchedAcct.name,
                   debit: isCredit ? 0 : line.amount.abs(),
                   credit: isCredit ? line.amount.abs() : 0,
                 ),
               ],
-              createdAt: now,
-              updatedAt: now,
-            );
-            journalsNotifier.addEntry(je);
+              createdAt: now, updatedAt: now,
+            ));
           }
+        } else if (line.matchedRecordType == 'bill' &&
+            line.matchedRecordId != null) {
+          // Bill payment: DR Accounts Payable (164), CR Bank
+          journalsNotifier.addEntry(JournalEntry(
+            id: jeId,
+            entryNumber: 'BANK-BILL-${now.millisecondsSinceEpoch}',
+            date: line.date,
+            description: 'Bill payment via bank: ${line.matchedLabel ?? line.description}',
+            reference: line.reference,
+            status: JournalEntryStatus.posted,
+            lines: [
+              JournalLine(
+                id: '$jeId-1', journalEntryId: jeId,
+                accountId: 'acct-164', accountCode: '164',
+                accountName: 'Accounts Payable',
+                debit: line.amount.abs(), credit: 0,
+              ),
+              JournalLine(
+                id: '$jeId-2', journalEntryId: jeId,
+                accountId: _bankCoaAccountId(),
+                accountCode: _bankCoaAccountCode(),
+                accountName: _bankCoaAccountName(),
+                debit: 0, credit: line.amount.abs(),
+              ),
+            ],
+            createdAt: now, updatedAt: now,
+          ));
+        } else if (line.matchedRecordType == 'invoice' &&
+            line.matchedRecordId != null) {
+          // Invoice receipt: DR Bank, CR Accounts Receivable (150)
+          journalsNotifier.addEntry(JournalEntry(
+            id: jeId,
+            entryNumber: 'BANK-INV-${now.millisecondsSinceEpoch}',
+            date: line.date,
+            description: 'Customer payment via bank: ${line.matchedLabel ?? line.description}',
+            reference: line.reference,
+            status: JournalEntryStatus.posted,
+            lines: [
+              JournalLine(
+                id: '$jeId-1', journalEntryId: jeId,
+                accountId: _bankCoaAccountId(),
+                accountCode: _bankCoaAccountCode(),
+                accountName: _bankCoaAccountName(),
+                debit: line.amount.abs(), credit: 0,
+              ),
+              JournalLine(
+                id: '$jeId-2', journalEntryId: jeId,
+                accountId: 'acct-150', accountCode: '150',
+                accountName: 'Accounts Receivable',
+                debit: 0, credit: line.amount.abs(),
+              ),
+            ],
+            createdAt: now, updatedAt: now,
+          ));
         }
 
         // Save outlet settlement record
@@ -1019,6 +1070,33 @@ class _BankReconciliationScreenState
             bankAccountName: _selectedAccount!.bankName,
             reference: line.reference,
           ));
+          // GL journal entry: DR Bank account (CoA), CR Accruals (166)
+          // This clears the commission liability when cash arrives in bank.
+          final outJeId = const Uuid().v4();
+          journalsNotifier.addEntry(JournalEntry(
+            id: outJeId,
+            entryNumber: 'BANK-OUT-${now.millisecondsSinceEpoch}',
+            date: line.date,
+            description: 'Outlet settlement received: $outletName ($outletCode)',
+            reference: line.reference,
+            status: JournalEntryStatus.posted,
+            lines: [
+              JournalLine(
+                id: '$outJeId-1', journalEntryId: outJeId,
+                accountId: _bankCoaAccountId(),
+                accountCode: _bankCoaAccountCode(),
+                accountName: _bankCoaAccountName(),
+                debit: line.amount.abs(), credit: 0,
+              ),
+              JournalLine(
+                id: '$outJeId-2', journalEntryId: outJeId,
+                accountId: 'acct-166', accountCode: '166',
+                accountName: 'Accruals',
+                debit: 0, credit: line.amount.abs(),
+              ),
+            ],
+            createdAt: now, updatedAt: now,
+          ));
         }
       }
 
@@ -1045,6 +1123,28 @@ class _BankReconciliationScreenState
         },
       ),
     );
+  }
+
+  // ── Bank account → Chart of Accounts mapping ─────────────────────────────
+  // Maps the selected banking screen account to the correct CoA account.
+  // CoA: 101 = ABSA UGX Account, 102 = MTN Momopay, 100 = Petty Cash.
+
+  String _bankCoaAccountId() {
+    final name = (_selectedAccount?.bankName ?? '').toLowerCase();
+    if (name.contains('mtn') || name.contains('mobile money')) return 'acct-102';
+    return 'acct-101'; // default to ABSA UGX Account
+  }
+
+  String _bankCoaAccountCode() {
+    final name = (_selectedAccount?.bankName ?? '').toLowerCase();
+    if (name.contains('mtn') || name.contains('mobile money')) return '102';
+    return '101';
+  }
+
+  String _bankCoaAccountName() {
+    final name = (_selectedAccount?.bankName ?? '').toLowerCase();
+    if (name.contains('mtn') || name.contains('mobile money')) return 'MTN Momopay';
+    return 'ABSA UGX Account';
   }
 
   Widget _summaryRow(String label, String value, Color color) => Padding(

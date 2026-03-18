@@ -829,8 +829,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       return _buildCashFlowPreview(context);
     } else if (reportName == 'GGR Tax Report' || reportName == 'Tax Summary') {
       return _buildGGRTaxPreview(context);
-    } else if (reportName == 'GGR by Outlet' || reportName == 'Top Performers' || reportName == 'Outlet Revenue Summary') {
+    } else if (reportName == 'GGR by Outlet' || reportName == 'Outlet Revenue Summary') {
       return _buildOutletPerformancePreview(context);
+    } else if (reportName == 'Top Performers') {
+      return _buildTopPerformersPreview(context);
     } else if (reportName == 'Daily Performance') {
       return _buildDailyPerformancePreview(context);
     } else if (reportName == 'Payout Ratio Analysis') {
@@ -853,56 +855,122 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   Widget _buildIncomeStatementPreview(BuildContext context) {
-    final dashboardAsync = ref.watch(dashboardDataProvider);
+    final journalsState = ref.watch(journalsProvider);
+    final accountsState = ref.watch(accountsProvider);
 
-    return dashboardAsync.when(
-      data: (data) {
-        final totalIn = data.cashIn;
-        final totalOut = data.cashOut;
-        final ggr = data.totalRevenue;
+    final entries = journalsState.entries;
+    final accounts = accountsState.accounts;
+    final raw = _computeLedgerBalances(entries);
 
-        return SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('MAGIC BET LTD - INCOME STATEMENT',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              _ReportSection(
-                title: 'Revenue',
-                items: [
-                  {'name': 'Total Stakes (Cash In)', 'amount': totalIn},
-                ],
-                total: totalIn,
-                isPositive: true,
-              ),
-              const SizedBox(height: 16),
-              _ReportSection(
-                title: 'Cost of Revenue',
-                items: [
-                  {'name': 'Customer Winnings (Payouts)', 'amount': totalOut},
-                ],
-                total: totalOut,
-                isPositive: false,
-              ),
-              const Divider(),
-              _ReportTotalRow(label: 'Gross Gaming Revenue (GGR)', amount: ggr, isHighlight: true),
-              if (ggr == 0)
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'No data yet. Import CSV data to see revenue.',
-                    style: TextStyle(color: Theme.of(context).colorScheme.outline, fontStyle: FontStyle.italic),
-                  ),
-                ),
-              const Divider(height: 32),
-              _ReportTotalRow(label: 'Net Income', amount: ggr, isHighlight: true, isFinal: true),
-            ],
+    // Group accounts by type
+    final revenueAccts = accounts.where((a) => a.type == AccountType.revenue).toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
+    final expenseAccts = accounts.where((a) => a.type == AccountType.expense).toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
+
+    // Identify specific expense sub-groups by account code
+    const corCodes = {'107'}; // Customer Winnings / Payouts
+    const directTaxCodes = {'108'}; // Gaming Tax Expense
+
+    final corAccts = expenseAccts.where((a) => corCodes.contains(a.code)).toList();
+    final directTaxAccts = expenseAccts.where((a) => directTaxCodes.contains(a.code)).toList();
+    final opexAccts = expenseAccts
+        .where((a) => !corCodes.contains(a.code) && !directTaxCodes.contains(a.code))
+        .toList();
+
+    double _sum(List<Account> list) => list.fold(0.0, (s, a) => s + _acctBal(a, raw));
+
+    final totalRevenue = _sum(revenueAccts);
+    final totalCoR = _sum(corAccts);
+    final ggr = totalRevenue - totalCoR;
+    final totalDirectTax = _sum(directTaxAccts);
+    final netGamingRevenue = ggr - totalDirectTax;
+    final totalOpex = _sum(opexAccts);
+    final netIncome = netGamingRevenue - totalOpex;
+
+    if (raw.isEmpty) {
+      return Center(
+        child: Text(
+          'No data yet. Import CSV data to see the income statement.',
+          style: TextStyle(color: Theme.of(context).colorScheme.outline, fontStyle: FontStyle.italic),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('MAGIC BET LTD — INCOME STATEMENT',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          Text('For the period ended ${DateFormat('MMMM d, yyyy').format(DateTime.now())}',
+              style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12)),
+          const SizedBox(height: 16),
+
+          // Revenue
+          _ReportSection(
+            title: 'Revenue',
+            items: revenueAccts
+                .where((a) => _acctBal(a, raw) != 0)
+                .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)})
+                .toList(),
+            total: totalRevenue,
+            isPositive: true,
           ),
-        );
-      },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (_, __) => const Center(child: Text('Error loading data')),
+          const SizedBox(height: 8),
+
+          // Cost of Revenue (Payouts)
+          _ReportSection(
+            title: 'Cost of Revenue',
+            items: corAccts
+                .where((a) => _acctBal(a, raw) != 0)
+                .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)})
+                .toList(),
+            total: totalCoR,
+            isPositive: false,
+          ),
+          const Divider(),
+          _ReportTotalRow(label: 'Gross Gaming Revenue (GGR)', amount: ggr, isHighlight: true),
+          const SizedBox(height: 12),
+
+          // Direct Taxes (Gaming Tax)
+          if (directTaxAccts.any((a) => _acctBal(a, raw) != 0)) ...[
+            _ReportSection(
+              title: 'Direct Taxes',
+              items: directTaxAccts
+                  .where((a) => _acctBal(a, raw) != 0)
+                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)})
+                  .toList(),
+              total: totalDirectTax,
+              isPositive: false,
+            ),
+            const Divider(),
+            _ReportTotalRow(label: 'Net Gaming Revenue', amount: netGamingRevenue, isHighlight: true),
+            const SizedBox(height: 12),
+          ],
+
+          // Operating Expenses
+          if (opexAccts.any((a) => _acctBal(a, raw) != 0)) ...[
+            _ReportSection(
+              title: 'Operating Expenses',
+              items: opexAccts
+                  .where((a) => _acctBal(a, raw) != 0)
+                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)})
+                  .toList(),
+              total: totalOpex,
+              isPositive: false,
+            ),
+          ],
+
+          const Divider(height: 32),
+          _ReportTotalRow(
+            label: 'Net Income',
+            amount: netIncome,
+            isHighlight: true,
+            isFinal: true,
+          ),
+        ],
+      ),
     );
   }
 
@@ -1103,6 +1171,155 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       ),
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (_, __) => const Center(child: Text('Error loading data')),
+    );
+  }
+
+  // ── Top Performers ─────────────────────────────────────────────────────────
+  Widget _buildTopPerformersPreview(BuildContext context) {
+    final analyticsAsync = ref.watch(outletAnalyticsProvider);
+
+    return analyticsAsync.when(
+      data: (analytics) {
+        final ranked = List<OutletLifetime>.from(analytics.lifetimeTotals)
+          ..sort((a, b) => b.netRevenue.compareTo(a.netRevenue));
+
+        if (ranked.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.emoji_events, size: 64, color: Theme.of(context).colorScheme.outline),
+                const SizedBox(height: 16),
+                Text('No outlet data yet', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                Text('Import CSV data to see top performers',
+                    style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+              ],
+            ),
+          );
+        }
+
+        final maxNetRev = ranked.first.netRevenue.abs().clamp(1.0, double.infinity);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text('MAGIC BET LTD — TOP PERFORMERS',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            ),
+            // Header row
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceVariant,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Row(
+                children: [
+                  SizedBox(width: 32, child: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                  Expanded(flex: 3, child: Text('Outlet', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                  Expanded(child: Text('GGR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12), textAlign: TextAlign.right)),
+                  Expanded(child: Text('Commission', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12), textAlign: TextAlign.right)),
+                  Expanded(child: Text('Net Revenue', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12), textAlign: TextAlign.right)),
+                  SizedBox(width: 120, child: Text('Performance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12), textAlign: TextAlign.center)),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: ranked.length,
+                itemBuilder: (context, index) {
+                  final ol = ranked[index];
+                  final rank = index + 1;
+                  final barFraction = (ol.netRevenue / maxNetRev).clamp(0.0, 1.0);
+                  final isPositive = ol.netRevenue >= 0;
+
+                  Color rankColor;
+                  IconData rankIcon;
+                  if (rank == 1) { rankColor = const Color(0xFFFFD700); rankIcon = Icons.looks_one; }
+                  else if (rank == 2) { rankColor = const Color(0xFFC0C0C0); rankIcon = Icons.looks_two; }
+                  else if (rank == 3) { rankColor = const Color(0xFFCD7F32); rankIcon = Icons.looks_3; }
+                  else { rankColor = Theme.of(context).colorScheme.outline; rankIcon = Icons.circle; }
+
+                  return Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                    decoration: BoxDecoration(
+                      border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.4))),
+                      color: rank <= 3 ? rankColor.withOpacity(0.04) : null,
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 32,
+                          child: Icon(rankIcon, size: 18, color: rankColor),
+                        ),
+                        Expanded(
+                          flex: 3,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(ol.outletName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                              Text(ol.outletCode, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            NumberFormat('#,##0').format(ol.totalGGR),
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            NumberFormat('#,##0').format(ol.totalOutletExpense),
+                            textAlign: TextAlign.right,
+                            style: TextStyle(fontFamily: 'monospace', fontSize: 12,
+                                color: Theme.of(context).colorScheme.error),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            NumberFormat('#,##0').format(ol.netRevenue),
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: isPositive ? AppColors.income : AppColors.expense,
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 120,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: LinearProgressIndicator(
+                                value: barFraction,
+                                minHeight: 10,
+                                backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  isPositive ? AppColors.income : AppColors.expense,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (_, __) => const Center(child: Text('Error loading analytics')),
     );
   }
 
