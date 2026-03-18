@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
@@ -14,6 +15,7 @@ import '../../core/services/theme_service.dart';
 import '../../core/models/bill.dart';
 import '../../core/models/account.dart';
 import '../../core/models/payment.dart';
+import '../../core/models/models.dart' show JournalEntry, JournalLine, JournalEntryStatus;
 import '../../core/providers/asset_drafts_provider.dart';
 
 class BillsScreen extends ConsumerStatefulWidget {
@@ -1055,6 +1057,49 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                 );
 
                 ref.read(paymentsProvider.notifier).addPayment(payment);
+                ref.read(billsProvider.notifier).recordPayment(bill.id, amount);
+
+                // GL journal entry: DR Accounts Payable (164), CR Bank/Cash account
+                // Reduces AP liability and reduces cash/bank asset when bill is paid.
+                const uuid = Uuid();
+                final jeId = uuid.v4();
+                final payAccId = selectedAccountId ?? 'acct-100';
+                final payAccCode = payAccId.replaceAll('acct-', '');
+                final payAccName = bankAccounts
+                    .cast<Account?>()
+                    .firstWhere((a) => a?.id == payAccId, orElse: () => null)
+                    ?.name ?? 'Bank / Cash';
+                ref.read(journalsProvider.notifier).addEntry(JournalEntry(
+                  id: jeId,
+                  entryNumber: 'PAY-JE-${payment.paymentNumber}',
+                  date: now,
+                  description: 'Bill payment: ${bill.billNumber} — ${bill.vendorName ?? ''}',
+                  reference: payment.reference ?? payment.paymentNumber,
+                  status: JournalEntryStatus.posted,
+                  lines: [
+                    JournalLine(
+                      id: '$jeId-ap',
+                      journalEntryId: jeId,
+                      accountId: 'acct-164',
+                      accountCode: '164',
+                      accountName: 'Accounts Payable',
+                      debit: amount,
+                      credit: 0,
+                    ),
+                    JournalLine(
+                      id: '$jeId-bank',
+                      journalEntryId: jeId,
+                      accountId: payAccId,
+                      accountCode: payAccCode,
+                      accountName: payAccName,
+                      debit: 0,
+                      credit: amount,
+                    ),
+                  ],
+                  createdAt: now,
+                  updatedAt: now,
+                ));
+
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                   content: Text('Payment of UGX ${_currencyFormat.format(amount)} recorded.'),

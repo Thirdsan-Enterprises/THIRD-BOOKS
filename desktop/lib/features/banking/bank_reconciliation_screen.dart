@@ -1082,8 +1082,9 @@ class _BankReconciliationScreenState
             bankAccountName: _selectedAccount!.bankName,
             reference: line.reference,
           ));
-          // GL journal entry: DR Bank account (CoA), CR Accruals (166)
-          // This clears the commission liability when cash arrives in bank.
+          // GL journal entry: DR Bank account (CoA), CR Accounts Receivable (150)
+          // Outlets are treated as customers — net revenue owed is AR.
+          // When cash arrives from the outlet, we reduce AR and increase Bank.
           final outJeId = const Uuid().v4();
           journalsNotifier.addEntry(JournalEntry(
             id: outJeId,
@@ -1102,8 +1103,8 @@ class _BankReconciliationScreenState
               ),
               JournalLine(
                 id: '$outJeId-2', journalEntryId: outJeId,
-                accountId: 'acct-166', accountCode: '166',
-                accountName: 'Accruals',
+                accountId: 'acct-150', accountCode: '150',
+                accountName: 'Accounts Receivable',
                 debit: 0, credit: line.amount.abs(),
               ),
             ],

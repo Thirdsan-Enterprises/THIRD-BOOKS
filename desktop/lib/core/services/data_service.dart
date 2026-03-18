@@ -949,6 +949,59 @@ class BillsNotifier extends StateNotifier<BillsState> {
     state = state.copyWith(bills: updatedBills);
     _localStorage.saveBills(updatedBills);
 
+    // Post local GL journal entry immediately (double-entry):
+    //   DR  each bill line's expense/asset account (from BillLine.accountId)
+    //   CR  Accounts Payable (acct-164) for the bill total
+    // This ensures CoA reflects the liability the moment a bill is created.
+    final now = DateTime.now();
+    final jeId = _uuid.v4();
+    final billLines = <JournalLine>[];
+    for (var i = 0; i < bill.lines.length; i++) {
+      final l = bill.lines[i];
+      if (l.amount <= 0) continue;
+      billLines.add(JournalLine(
+        id: '$jeId-exp-$i',
+        journalEntryId: jeId,
+        accountId: l.accountId,
+        accountCode: l.accountId.replaceAll('acct-', ''),
+        accountName: l.accountName ?? l.description,
+        debit: l.amount + l.taxAmount,
+        credit: 0,
+      ));
+    }
+    // Fallback: if no lines (edge case), DR a generic expense account
+    if (billLines.isEmpty) {
+      billLines.add(JournalLine(
+        id: '$jeId-exp-0',
+        journalEntryId: jeId,
+        accountId: 'acct-125',
+        accountCode: '125',
+        accountName: 'Operating Expenses',
+        debit: bill.total,
+        credit: 0,
+      ));
+    }
+    billLines.add(JournalLine(
+      id: '$jeId-ap',
+      journalEntryId: jeId,
+      accountId: 'acct-164',
+      accountCode: '164',
+      accountName: 'Accounts Payable',
+      debit: 0,
+      credit: bill.total,
+    ));
+    _ref.read(journalsProvider.notifier).addEntry(JournalEntry(
+      id: jeId,
+      entryNumber: 'BILL-JE-${bill.billNumber}',
+      date: bill.date,
+      description: 'Bill ${bill.billNumber} — ${bill.vendorName ?? bill.vendorId}',
+      reference: bill.reference ?? bill.billNumber,
+      status: JournalEntryStatus.posted,
+      lines: billLines,
+      createdAt: now,
+      updatedAt: now,
+    ));
+
     // create_journal_entry: true tells the backend DoubleEntryService to post
     // DR Expense / CR Accounts Payable automatically on sync.
     final payload = bill.toJson()
