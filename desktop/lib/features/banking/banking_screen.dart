@@ -66,8 +66,8 @@ class BankingNotifier extends StateNotifier<BankingState> {
   static List<BankAccount> _defaultAccounts() => [
         BankAccount(
           id: 'bank-1',
-          bankName: 'Stanbic Bank Uganda',
-          accountNumber: '9030012345678',
+          bankName: 'ABSA Bank Uganda',
+          accountNumber: '6009239292',
           currency: 'UGX',
           balance: 0,
           accountType: 'Current',
@@ -385,7 +385,7 @@ class _BankingScreenState extends ConsumerState<BankingScreen> {
                     controller: bankNameController,
                     decoration: const InputDecoration(
                       labelText: 'Bank Name *',
-                      hintText: 'e.g. Stanbic Bank Uganda',
+                      hintText: 'e.g. ABSA Bank Uganda',
                       prefixIcon: Icon(Icons.business, size: 20),
                     ),
                     validator: (v) =>
@@ -493,6 +493,16 @@ class _BankTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currencyFormat = NumberFormat('#,###');
+
+    // For MTN Mobile Money (bank-2) the displayed balance is driven by CoA
+    // account 102 in the ledger so that CSV uploads, reconciliations and any
+    // manual JEs all flow through to the card automatically.
+    final ledgerRaw = account.id == 'bank-2'
+        ? ref.watch(ledgerBalancesProvider)
+        : const <String, double>{};
+    final displayBalance = account.id == 'bank-2'
+        ? (ledgerRaw['acct-102'] ?? 0.0)
+        : account.balance;
 
     // Gradient colors per currency
     final gradients = {
@@ -675,7 +685,7 @@ class _BankTile extends ConsumerWidget {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      currencyFormat.format(account.balance),
+                      currencyFormat.format(displayBalance),
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -806,6 +816,15 @@ class _BankStatementDialogState extends ConsumerState<_BankStatementDialog> {
     final txnAsync = ref.watch(bankTransactionsProvider(widget.account.id));
     final txns = txnAsync.valueOrNull ?? [];
 
+    // For MTN Mobile Money, drive the header balance from CoA acct-102 so
+    // it always matches the general ledger regardless of how the balance moved.
+    final ledgerRaw = widget.account.id == 'bank-2'
+        ? ref.watch(ledgerBalancesProvider)
+        : const <String, double>{};
+    final displayBalance = widget.account.id == 'bank-2'
+        ? (ledgerRaw['acct-102'] ?? 0.0)
+        : widget.account.balance;
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: SizedBox(
@@ -851,7 +870,7 @@ class _BankStatementDialogState extends ConsumerState<_BankStatementDialog> {
                           style:
                               TextStyle(color: Colors.white70, fontSize: 11)),
                       Text(
-                        '${widget.account.currency} ${fmt.format(widget.account.balance)}',
+                        '${widget.account.currency} ${fmt.format(displayBalance)}',
                         style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,

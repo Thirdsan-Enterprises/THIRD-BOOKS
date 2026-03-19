@@ -16,12 +16,13 @@ use Illuminate\Support\Str;
  * from the desktop app and immediately posts the corresponding double-entry
  * journal entries to the general ledger:
  *
- *   DR  100 Petty Cash   = Total GGR
- *   DR  107 Payouts      = Total Out
- *   CR  103 Stakes       = Total In
+ *   DR  150 Accounts Receivable = Total GGR   (outlet owes MagicBet the net)
+ *   DR  107 Payouts             = Total Out   (winnings paid to customers)
+ *   CR  103 Stakes              = Total In    (gross revenue recognised)
  *
- * Weekly commission (DR 178 / CR 166) and monthly gaming-tax (DR 108 / CR 147)
- * JEs are created by the separate commission/tax endpoints.
+ * Weekly commission (DR 178 / CR 150 AR) JEs are created by the separate
+ * commission endpoint, reducing the receivable balance.
+ * Gaming-tax JEs are posted manually by the accountant.
  */
 class OutletRevenueController extends Controller
 {

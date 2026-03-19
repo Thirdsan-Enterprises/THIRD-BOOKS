@@ -1705,8 +1705,8 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
             reference: 'CSV-$csvOutletCode-${DateFormat('yyyyMMdd').format(date)}',
             status: JournalEntryStatus.posted,
             lines: [
-              // DR: Petty Cash — net cash collected at outlet (Stakes minus Payouts)
-              JournalLine(id: '${jeId}-1', journalEntryId: jeId, accountId: 'acct-100', accountCode: '100', accountName: 'Petty Cash', debit: totalGGR, credit: 0),
+              // DR: Accounts Receivable (150) — GGR the outlet owes MagicBet
+              JournalLine(id: '${jeId}-1', journalEntryId: jeId, accountId: 'acct-150', accountCode: '150', accountName: 'Accounts Receivable', debit: totalGGR, credit: 0),
               // DR: Payouts — contra-revenue for customer winnings paid
               JournalLine(id: '${jeId}-2', journalEntryId: jeId, accountId: 'acct-107', accountCode: '107', accountName: 'Payouts', debit: totalOut, credit: 0),
               // CR: Stakes — gross revenue recognised
@@ -1734,8 +1734,8 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
           var allEntries = [...existingEntries, ...journalEntries];
           journalEntriesCreated = journalEntries.length;
 
-          // Create commission (weekly) and gaming tax (monthly) JEs for
-          // any periods not yet covered — these use real COA account codes.
+          // Create weekly commission JEs for any periods not yet covered.
+          // Gaming tax JEs are NOT auto-generated (accountant enters manually).
           final ancillaryJEs = await _createAncillaryJEs(allEntries);
           if (ancillaryJEs.isNotEmpty) {
             allEntries = [...allEntries, ...ancillaryJEs];
@@ -1806,11 +1806,13 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
   //
   // Creates:
   //   • One daily revenue JE per OutletRevenue row not already journalised
-  //       DR  100 Petty Cash          = GGR (net cash at outlet)
-  //       DR  107 Payouts             = customer winnings paid out
-  //       CR  103 Stakes              = gross stakes wagered
-  //   • Weekly outlet commission JEs via _createAncillaryJEs()
-  //   • Monthly gaming-tax JEs        via _createAncillaryJEs()
+  //       DR  150 Accounts Receivable = GGR (outlet owes MagicBet this amount)
+  //       DR  107 Payouts             = customer winnings paid out (contra-rev)
+  //       CR  103 Stakes              = gross stakes wagered (full revenue)
+  //   • Weekly commission JEs via _createAncillaryJEs()
+  //       DR  178 Commission Expense  = 40% of carry-forward GGR
+  //       CR  150 Accounts Receivable = reduces what outlet owes MagicBet
+  //   Gaming tax JEs are NOT created automatically (accountant posts manually).
   // ---------------------------------------------------------------------------
 
   Future<void> createJEsForOutletRevenues() async {
@@ -1857,13 +1859,14 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
         reference: ref,
         status: JournalEntryStatus.posted,
         lines: [
-          // DR: Petty Cash (100) — net cash held at the outlet after payouts
+          // DR: Accounts Receivable (150) — GGR the outlet owes MagicBet
+          // (outlet holds cash; this is the net amount due after payouts)
           JournalLine(
             id: '$jeId-1',
             journalEntryId: jeId,
-            accountId: 'acct-100',
-            accountCode: '100',
-            accountName: 'Petty Cash',
+            accountId: 'acct-150',
+            accountCode: '150',
+            accountName: 'Accounts Receivable',
             debit: rev.netAmount,
             credit: 0,
           ),
@@ -1911,12 +1914,12 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
   }
 
   // ---------------------------------------------------------------------------
-  // Commission + Gaming Tax JEs
+  // Ancillary JEs — weekly outlet commission only
   // ---------------------------------------------------------------------------
-  // After each CSV import, create:
-  //   • Weekly outlet commission JEs  (DR 178, CR 166) — 40% of adjusted GGR
-  //   • Monthly gaming tax JEs        (DR 108, CR 147) — 15% of total GGR
-  // Reference codes act as idempotency keys so re-imports never double-post.
+  // Creates weekly commission JEs per outlet using the carry-forward GGR
+  // algorithm. Gaming tax JEs are NOT auto-generated — the accountant posts
+  // those manually so the correct figures and period allocations are applied.
+  // Reference codes are idempotency keys; re-imports never double-post.
   // ---------------------------------------------------------------------------
 
   Future<List<JournalEntry>> _createAncillaryJEs(
@@ -1968,11 +1971,12 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
               accountName: 'Outlet Commission Expense',
               debit: week.outletExpense, credit: 0,
             ),
-            // CR: Accruals (166) — outstanding commission owed to owner
+            // CR: Accounts Receivable (150) — commission reduces what the outlet
+            // owes MagicBet; net AR balance = GGR less commission due to owner
             JournalLine(
               id: '$jeId-2', journalEntryId: jeId,
-              accountId: 'acct-166', accountCode: '166',
-              accountName: 'Accruals',
+              accountId: 'acct-150', accountCode: '150',
+              accountName: 'Accounts Receivable',
               debit: 0, credit: week.outletExpense,
             ),
           ],
@@ -1984,63 +1988,8 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
       }
     }
 
-    // ── 2. Monthly gaming tax JEs (15% of company-wide GGR) ─────────────────
-    // Skip if auto-journalization is disabled for gaming tax in settings
-    if (!_ref.read(appSettingsProvider).autoGamingTaxJE) return result;
-
-    final monthGGR = <String, double>{};
-    final monthEndDate = <String, DateTime>{};
-    for (final rev in allRevenues) {
-      final key =
-          '${rev.date.year}-${rev.date.month.toString().padLeft(2, '0')}';
-      monthGGR[key] = (monthGGR[key] ?? 0) + rev.netAmount;
-      // Track last day of month for JE date
-      final lastDay = DateTime(rev.date.year, rev.date.month + 1, 0);
-      if (monthEndDate[key] == null ||
-          lastDay.isAfter(monthEndDate[key]!)) {
-        monthEndDate[key] = lastDay;
-      }
-    }
-
-    for (final entry in monthGGR.entries) {
-      final taxRef = 'JE-GTAX-${entry.key}';
-      if (existingRefs.contains(taxRef)) continue;
-      if (entry.value <= 0) continue;
-
-      final taxAmount = entry.value * 0.15;
-      final jeId = _uuid.v4();
-      final date = monthEndDate[entry.key]!;
-      final monthLabel = DateFormat('MMMM yyyy').format(date);
-
-      result.add(JournalEntry(
-        id: jeId,
-        entryNumber: taxRef,
-        date: date,
-        description: 'Gaming Tax (15% of GGR) — $monthLabel',
-        reference: taxRef,
-        status: JournalEntryStatus.posted,
-        lines: [
-          // DR: Gaming Tax expense (108)
-          JournalLine(
-            id: '$jeId-1', journalEntryId: jeId,
-            accountId: 'acct-108', accountCode: '108',
-            accountName: 'Gaming Tax',
-            debit: taxAmount, credit: 0,
-          ),
-          // CR: Gaming Tax Payable (147) — accrued, payable to URA
-          JournalLine(
-            id: '$jeId-2', journalEntryId: jeId,
-            accountId: 'acct-147', accountCode: '147',
-            accountName: 'Gaming Tax Payable',
-            debit: 0, credit: taxAmount,
-          ),
-        ],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'System',
-      ));
-      existingRefs.add(taxRef);
-    }
+    // Gaming tax JEs are NOT auto-generated — the accountant posts those
+    // manually so the correct figures and period allocations are applied.
 
     return result;
   }

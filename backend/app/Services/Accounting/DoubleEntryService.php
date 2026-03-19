@@ -324,9 +324,12 @@ class DoubleEntryService
      *   net_amount    = Total GGR (stake_amount − payout_amount, net cash retained)
      *
      * Journal entry:
-     *   DR  100 Petty Cash   = net_amount    (cash held at outlet counter)
-     *   DR  107 Payouts      = payout_amount (contra-revenue for winnings)
-     *   CR  103 Stakes       = stake_amount  (gross revenue recognised)
+     *   DR  150 Accounts Receivable = net_amount    (outlet owes MagicBet the GGR)
+     *   DR  107 Payouts             = payout_amount (contra-revenue for winnings paid)
+     *   CR  103 Stakes              = stake_amount  (gross revenue recognised)
+     *
+     * The outlet collects cash on our behalf and remits the net GGR later;
+     * hence the debit is to AR (amount owed by outlet) rather than Petty Cash.
      *
      * @param object $outletRevenue  Object with: outlet (relation), date,
      *                               stake_amount, payout_amount, net_amount, id
@@ -343,7 +346,7 @@ class DoubleEntryService
     ): JournalEntry {
         $stakesAccount  = Account::where('company_id', $company->id)->where('code', '103')->firstOrFail();
         $payoutsAccount = Account::where('company_id', $company->id)->where('code', '107')->firstOrFail();
-        $cashAccount    = Account::where('company_id', $company->id)->where('code', '100')->firstOrFail();
+        $arAccount      = Account::where('company_id', $company->id)->where('code', '150')->firstOrFail();
 
         $outletName = $outletRevenue->outlet?->name ?? 'Outlet';
         $outletCode = $outletRevenue->outlet?->outlet_code ?? '';
@@ -362,10 +365,10 @@ class DoubleEntryService
                 'source_id'   => $outletRevenue->id,
                 'lines'       => [
                     [
-                        'account_id'  => $cashAccount->id,
+                        'account_id'  => $arAccount->id,
                         'debit'       => $outletRevenue->net_amount,
                         'credit'      => 0,
-                        'description' => 'GGR — net cash retained at outlet',
+                        'description' => 'GGR — amount receivable from outlet',
                     ],
                     [
                         'account_id'  => $payoutsAccount->id,
@@ -390,7 +393,11 @@ class DoubleEntryService
      * Create journal entry for weekly outlet commission (40% of adjusted GGR)
      *
      *   DR  178 Outlet Commission Expense
-     *   CR  166 Accruals (commission owed to outlet owner, settled separately)
+     *   CR  150 Accounts Receivable (reduces the net amount the outlet owes)
+     *
+     * The commission reduces the receivable because MagicBet retains only
+     * 60% of GGR net; the 40% commission is deducted from what the outlet
+     * must remit, so the CR goes to AR rather than Accruals.
      *
      * @param object $outlet          Outlet with name, outlet_code
      * @param Company $company
@@ -411,7 +418,7 @@ class DoubleEntryService
         bool $autoPost = true
     ): JournalEntry {
         $commissionExpense = Account::where('company_id', $company->id)->where('code', '178')->firstOrFail();
-        $accrualsAccount   = Account::where('company_id', $company->id)->where('code', '166')->firstOrFail();
+        $arAccount         = Account::where('company_id', $company->id)->where('code', '150')->firstOrFail();
 
         return $this->createJournalEntry(
             $company,
@@ -430,10 +437,10 @@ class DoubleEntryService
                         'description' => '40% of adjusted weekly GGR',
                     ],
                     [
-                        'account_id'  => $accrualsAccount->id,
+                        'account_id'  => $arAccount->id,
                         'debit'       => 0,
                         'credit'      => $commissionAmount,
-                        'description' => 'Commission accrued — payable to outlet owner',
+                        'description' => 'Commission deducted — reduces outlet receivable',
                     ],
                 ],
             ],
