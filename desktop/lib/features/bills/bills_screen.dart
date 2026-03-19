@@ -853,6 +853,55 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                   );
 
                   ref.read(billsProvider.notifier).addBill(bill);
+
+                  // GL journal entry for bill creation:
+                  //   DR  Expense account (per bill line)
+                  //   CR  164 Accounts Payable
+                  {
+                    final jeId = 'BILL-JE-$billId';
+                    final allAccounts = ref.read(accountsProvider).accounts;
+                    Account? lookupAcct(String id) => allAccounts
+                        .cast<Account?>()
+                        .firstWhere((a) => a?.id == id, orElse: () => null);
+
+                    final jeLines = <JournalLine>[];
+                    for (final l in validLines) {
+                      final acc = lookupAcct(l.accountId);
+                      jeLines.add(JournalLine(
+                        id: '$jeId-exp-${l.id}',
+                        journalEntryId: jeId,
+                        accountId: l.accountId,
+                        accountCode: l.accountId.replaceAll('acct-', ''),
+                        accountName: acc?.name ?? l.accountId,
+                        debit: l.amount,
+                        credit: 0,
+                        description: l.description.trim().isEmpty ? null : l.description.trim(),
+                      ));
+                    }
+                    // CR Accounts Payable for the full bill total (incl. VAT)
+                    jeLines.add(JournalLine(
+                      id: '$jeId-ap',
+                      journalEntryId: jeId,
+                      accountId: 'acct-164',
+                      accountCode: '164',
+                      accountName: 'Accounts Payable',
+                      debit: 0,
+                      credit: total,
+                      description: 'Payable to ${vendor.name}',
+                    ));
+                    ref.read(journalsProvider.notifier).addEntry(JournalEntry(
+                      id: jeId,
+                      entryNumber: 'BILL-JE-${bill.billNumber}',
+                      date: bill.date,
+                      description: 'Bill: ${bill.billNumber} — ${vendor.name}',
+                      reference: bill.reference ?? bill.billNumber,
+                      status: JournalEntryStatus.posted,
+                      lines: jeLines,
+                      createdAt: now,
+                      updatedAt: now,
+                    ));
+                  }
+
                   Navigator.pop(ctx);
 
                   if (isAssetCategory(selectedCategory)) {

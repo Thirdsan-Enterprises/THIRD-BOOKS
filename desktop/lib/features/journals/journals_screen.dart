@@ -20,6 +20,18 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
   DateTimeRange? _dateRange;
   JournalEntryStatus? _selectedStatus;
 
+  // Pagination — industry standard for high-volume accounting journals
+  int _pageIndex = 0;
+  static const int _pageSize = 50;
+
+  // Reset to page 0 whenever a filter changes so results are visible immediately.
+  void _applyFilter(VoidCallback fn) {
+    setState(() {
+      fn();
+      _pageIndex = 0;
+    });
+  }
+
   List<JournalEntry> get _filteredEntries {
     final journalsState = ref.watch(journalsProvider);
     return journalsState.entries.where((entry) {
@@ -124,6 +136,18 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
         Row(
           children: [
             OutlinedButton.icon(
+              onPressed: () {
+                ref.invalidate(journalsProvider);
+                setState(() => _pageIndex = 0);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Journals refreshed'), duration: Duration(seconds: 1)),
+                );
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Refresh'),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
               onPressed: () => _exportToCSV(context),
               icon: const Icon(Icons.file_download_outlined, size: 18),
               label: const Text('Export'),
@@ -152,12 +176,12 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
               suffixIcon: _searchQuery.isNotEmpty
                   ? IconButton(
                       icon: const Icon(Icons.clear, size: 18),
-                      onPressed: () => setState(() => _searchQuery = ''),
+                      onPressed: () => _applyFilter(() => _searchQuery = ''),
                     )
                   : null,
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
-            onChanged: (value) => setState(() => _searchQuery = value),
+            onChanged: (value) => _applyFilter(() => _searchQuery = value),
           ),
         ),
         const SizedBox(width: 16),
@@ -179,7 +203,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                     child: Text(_getStatusLabel(status)),
                   )),
             ],
-            onChanged: (value) => setState(() => _selectedStatus = value),
+            onChanged: (value) => _applyFilter(() => _selectedStatus = value),
           ),
         ),
         const SizedBox(width: 16),
@@ -192,7 +216,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
               initialDateRange: _dateRange,
             );
             if (range != null) {
-              setState(() => _dateRange = range);
+              _applyFilter(() => _dateRange = range);
             }
           },
           icon: const Icon(Icons.calendar_today, size: 18),
@@ -204,7 +228,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
           const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.clear, size: 18),
-            onPressed: () => setState(() => _dateRange = null),
+            onPressed: () => _applyFilter(() => _dateRange = null),
             tooltip: 'Clear date filter',
           ),
         ],
@@ -255,9 +279,9 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
   }
 
   Widget _buildJournalTable(BuildContext context) {
-    final entries = _filteredEntries;
+    final allEntries = _filteredEntries;
 
-    if (entries.isEmpty) {
+    if (allEntries.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -279,11 +303,23 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
       );
     }
 
-    return Card(
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SingleChildScrollView(
-          child: DataTable(
+    // Paginate — render only the current page so scrolling stays fast even
+    // with thousands of journal entries (industry standard for ERP/accounting).
+    final totalPages = ((allEntries.length - 1) ~/ _pageSize) + 1;
+    final safePageIndex = _pageIndex.clamp(0, totalPages - 1);
+    final entries = allEntries.skip(safePageIndex * _pageSize).take(_pageSize).toList();
+
+    final firstItem = safePageIndex * _pageSize + 1;
+    final lastItem = (safePageIndex * _pageSize + entries.length);
+
+    return Column(
+      children: [
+        Expanded(
+          child: Card(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SingleChildScrollView(
+              child: DataTable(
             columnSpacing: 24,
             horizontalMargin: 24,
             headingRowColor: MaterialStateProperty.all(
@@ -373,9 +409,66 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                 ],
               );
             }).toList(),
+              ),
+            ),
           ),
         ),
-      ),
+        ),
+        // ── Pagination footer ────────────────────────────────────────────
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+          ),
+          child: Row(
+            children: [
+              Text(
+                'Showing $firstItem–$lastItem of ${allEntries.length} entries',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.first_page, size: 20),
+                tooltip: 'First page',
+                onPressed: safePageIndex > 0
+                    ? () => setState(() => _pageIndex = 0)
+                    : null,
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_left, size: 20),
+                tooltip: 'Previous page',
+                onPressed: safePageIndex > 0
+                    ? () => setState(() => _pageIndex = safePageIndex - 1)
+                    : null,
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  'Page ${safePageIndex + 1} of $totalPages',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right, size: 20),
+                tooltip: 'Next page',
+                onPressed: safePageIndex < totalPages - 1
+                    ? () => setState(() => _pageIndex = safePageIndex + 1)
+                    : null,
+              ),
+              IconButton(
+                icon: const Icon(Icons.last_page, size: 20),
+                tooltip: 'Last page',
+                onPressed: safePageIndex < totalPages - 1
+                    ? () => setState(() => _pageIndex = totalPages - 1)
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -971,13 +1064,26 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                     columnSpacing: 16,
                     columns: const [
                       DataColumn(label: Text('Account')),
+                      DataColumn(label: Text('Description')),
                       DataColumn(label: Text('Debit'), numeric: true),
                       DataColumn(label: Text('Credit'), numeric: true),
                     ],
                     rows: [
                       ...entry.lines.map((line) {
                         return DataRow(cells: [
-                          DataCell(Text(line.accountName ?? line.accountId)),
+                          DataCell(Text(
+                            line.accountCode != null
+                                ? '${line.accountCode}  ${line.accountName ?? line.accountId}'
+                                : (line.accountName ?? line.accountId),
+                          )),
+                          DataCell(Text(
+                            line.description ?? '',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          )),
                           DataCell(Text(
                             line.debit > 0 ? 'UGX ${NumberFormat('#,###').format(line.debit)}' : '-',
                             style: const TextStyle(color: AppColors.debit, fontFamily: 'monospace'),
@@ -994,6 +1100,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                         ),
                         cells: [
                           const DataCell(Text('Total', style: TextStyle(fontWeight: FontWeight.bold))),
+                          const DataCell(SizedBox.shrink()),
                           DataCell(Text(
                             'UGX ${NumberFormat('#,###').format(entry.totalDebit)}',
                             style: const TextStyle(

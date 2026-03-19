@@ -175,6 +175,18 @@ class _CreditDebitNotesScreenState
                     ],
                   ),
                 ),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Refresh'),
+                  onPressed: () {
+                    ref.invalidate(creditNotesProvider);
+                    ref.invalidate(debitNotesProvider);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Notes refreshed'), duration: Duration(seconds: 1)),
+                    );
+                  },
+                ),
+                const SizedBox(width: 12),
                 FilledButton.icon(
                   icon: const Icon(Icons.add, size: 18),
                   label: Text(_tabController.index == 0

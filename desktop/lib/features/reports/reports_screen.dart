@@ -156,6 +156,19 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               ),
             ),
             const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: () {
+                ref.invalidate(journalsProvider);
+                ref.invalidate(accountsProvider);
+                ref.invalidate(dashboardDataProvider);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Reports refreshed'), duration: Duration(seconds: 1)),
+                );
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Refresh'),
+            ),
+            const SizedBox(width: 12),
             FilledButton.icon(
               onPressed: _exportAllReports,
               icon: const Icon(Icons.download, size: 18),
@@ -869,7 +882,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       ..sort((a, b) => a.code.compareTo(b.code));
 
     // Identify specific expense sub-groups by account code
-    const corCodes = {'107'}; // Customer Winnings / Payouts
+    const corCodes = {'107', '178'}; // Customer Winnings/Payouts + Outlet Commission Expense
     const directTaxCodes = {'108'}; // Gaming Tax Expense
 
     final corAccts = expenseAccts.where((a) => corCodes.contains(a.code)).toList();
@@ -920,7 +933,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Cost of Revenue (Payouts)
+          // Cost of Revenue — Payouts (107) + Outlet Commission Expense (178)
           _ReportSection(
             title: 'Cost of Revenue',
             items: corAccts
@@ -1012,7 +1025,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
     showDialog(
       context: context,
-      builder: (_) => Dialog(
+      builder: (dialogCtx) => Dialog(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 800, maxHeight: 600),
           child: Padding(
@@ -1032,7 +1045,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                     ),
                     IconButton(
                       icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () => Navigator.pop(dialogCtx),
                     ),
                   ],
                 ),
