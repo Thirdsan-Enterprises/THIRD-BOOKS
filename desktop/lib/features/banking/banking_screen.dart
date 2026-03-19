@@ -270,10 +270,25 @@ class _BankingScreenState extends ConsumerState<BankingScreen> {
             ),
           ],
         ),
-        FilledButton.icon(
-          onPressed: () => _showAddBankDialog(context),
-          icon: const Icon(Icons.add, size: 18),
-          label: const Text('Add Bank Account'),
+        Row(
+          children: [
+            OutlinedButton.icon(
+              onPressed: () {
+                ref.invalidate(bankTransactionsProvider);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Banking refreshed'), duration: Duration(seconds: 1)),
+                );
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Refresh'),
+            ),
+            const SizedBox(width: 12),
+            FilledButton.icon(
+              onPressed: () => _showAddBankDialog(context),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Add Bank Account'),
+            ),
+          ],
         ),
       ],
     );
