@@ -912,10 +912,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             title: 'Revenue',
             items: revenueAccts
                 .where((a) => _acctBal(a, raw) != 0)
-                .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)})
+                .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw), 'accountId': a.id})
                 .toList(),
             total: totalRevenue,
             isPositive: true,
+            onItemTap: (item) => _showLedgerDrillDown(context, item),
           ),
           const SizedBox(height: 8),
 
@@ -924,10 +925,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             title: 'Cost of Revenue',
             items: corAccts
                 .where((a) => _acctBal(a, raw) != 0)
-                .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)})
+                .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw), 'accountId': a.id})
                 .toList(),
             total: totalCoR,
             isPositive: false,
+            onItemTap: (item) => _showLedgerDrillDown(context, item),
           ),
           const Divider(),
           _ReportTotalRow(label: 'Gross Gaming Revenue (GGR)', amount: ggr, isHighlight: true),
@@ -939,10 +941,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               title: 'Direct Taxes',
               items: directTaxAccts
                   .where((a) => _acctBal(a, raw) != 0)
-                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)})
+                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw), 'accountId': a.id})
                   .toList(),
               total: totalDirectTax,
               isPositive: false,
+              onItemTap: (item) => _showLedgerDrillDown(context, item),
             ),
             const Divider(),
             _ReportTotalRow(label: 'Net Gaming Revenue', amount: netGamingRevenue, isHighlight: true),
@@ -955,10 +958,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               title: 'Operating Expenses',
               items: opexAccts
                   .where((a) => _acctBal(a, raw) != 0)
-                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)})
+                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw), 'accountId': a.id})
                   .toList(),
               total: totalOpex,
               isPositive: false,
+              onItemTap: (item) => _showLedgerDrillDown(context, item),
             ),
           ],
 
@@ -969,6 +973,183 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             isHighlight: true,
             isFinal: true,
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Shows a modal ledger drill-down: all journal entry lines for [item]'s account.
+  void _showLedgerDrillDown(BuildContext context, Map<String, dynamic> item) {
+    final accountId = item['accountId'] as String?;
+    if (accountId == null) return;
+    final accountName = item['name'] as String? ?? accountId;
+    final entries = ref.read(journalsProvider).entries;
+    final fmt = NumberFormat('#,###');
+    final dateFmt = DateFormat('dd MMM yyyy');
+
+    // Collect all journal lines for this account
+    final lines = <Map<String, dynamic>>[];
+    for (final entry in entries) {
+      if (entry.status != JournalEntryStatus.posted) continue;
+      for (final line in entry.lines) {
+        if (line.accountId == accountId) {
+          lines.add({
+            'date': entry.date,
+            'entryNumber': entry.entryNumber,
+            'description': entry.description,
+            'reference': entry.reference,
+            'debit': line.debit,
+            'credit': line.credit,
+          });
+        }
+      }
+    }
+    lines.sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+
+    final totalDebit = lines.fold<double>(0, (s, l) => s + (l['debit'] as double));
+    final totalCredit = lines.fold<double>(0, (s, l) => s + (l['credit'] as double));
+    final netBalance = totalDebit - totalCredit;
+
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800, maxHeight: 600),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.receipt_long, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Ledger: $accountName',
+                        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const Divider(),
+                // Summary row
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      _drillChip('Total Debits', fmt.format(totalDebit), Colors.red.shade700),
+                      const SizedBox(width: 16),
+                      _drillChip('Total Credits', fmt.format(totalCredit), Colors.green.shade700),
+                      const SizedBox(width: 16),
+                      _drillChip('Net Balance', fmt.format(netBalance.abs()), Colors.blueGrey),
+                      const SizedBox(width: 8),
+                      Text(
+                        netBalance >= 0 ? '(Dr)' : '(Cr)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: netBalance >= 0 ? Colors.red.shade700 : Colors.green.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (lines.isEmpty)
+                  const Expanded(
+                    child: Center(
+                      child: Text('No posted journal entries for this account.'),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Table(
+                        columnWidths: const {
+                          0: FixedColumnWidth(90),
+                          1: FixedColumnWidth(130),
+                          2: FlexColumnWidth(),
+                          3: FixedColumnWidth(110),
+                          4: FixedColumnWidth(110),
+                        },
+                        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                        children: [
+                          TableRow(
+                            decoration: BoxDecoration(
+                              border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
+                            ),
+                            children: const [
+                              Padding(padding: EdgeInsets.all(6), child: Text('Date', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
+                              Padding(padding: EdgeInsets.all(6), child: Text('Entry #', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
+                              Padding(padding: EdgeInsets.all(6), child: Text('Description', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
+                              Padding(padding: EdgeInsets.all(6), child: Text('Debit', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12), textAlign: TextAlign.right)),
+                              Padding(padding: EdgeInsets.all(6), child: Text('Credit', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12), textAlign: TextAlign.right)),
+                            ],
+                          ),
+                          ...lines.map((l) => TableRow(
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                                    child: Text(dateFmt.format(l['date'] as DateTime), style: const TextStyle(fontSize: 12)),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                                    child: Text(l['entryNumber'] as String, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                                    child: Text(
+                                      l['description'] as String,
+                                      style: const TextStyle(fontSize: 12),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                                    child: Text(
+                                      (l['debit'] as double) > 0 ? fmt.format(l['debit']) : '',
+                                      style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: (l['debit'] as double) > 0 ? Colors.red.shade700 : null),
+                                      textAlign: TextAlign.right,
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                                    child: Text(
+                                      (l['credit'] as double) > 0 ? fmt.format(l['credit']) : '',
+                                      style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: (l['credit'] as double) > 0 ? Colors.green.shade700 : null),
+                                      textAlign: TextAlign.right,
+                                    ),
+                                  ),
+                                ],
+                              )),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _drillChip(String label, String value, Color color) {
+    return RichText(
+      text: TextSpan(
+        style: const TextStyle(fontSize: 12),
+        children: [
+          TextSpan(text: '$label: ', style: TextStyle(color: Colors.grey.shade600)),
+          TextSpan(text: 'UGX $value', style: TextStyle(fontWeight: FontWeight.w600, color: color, fontFamily: 'monospace')),
         ],
       ),
     );
@@ -1457,6 +1638,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   // ── Cash Flow Statement ────────────────────────────────────────────────────
   Widget _buildCashFlowPreview(BuildContext context) {
     final dashboardAsync = ref.watch(dashboardDataProvider);
+    final analyticsAsync = ref.watch(outletAnalyticsProvider);
     return dashboardAsync.when(
       data: (data) {
         final cashIn = data.cashIn;
@@ -1464,6 +1646,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         final ggr = data.totalRevenue;
         final commission = data.totalExpenses;
         final netCash = data.netIncome;
+
+        // Per-outlet breakdown from analytics provider (carry-forward engine)
+        final outletTotals = analyticsAsync.valueOrNull?.lifetimeTotals ?? [];
+        final sortedOutlets = List<OutletLifetime>.from(outletTotals)
+          ..sort((a, b) => b.totalGGR.compareTo(a.totalGGR));
 
         if (cashIn == 0) {
           return Center(child: Text('No data yet. Import CSV data to see the cash flow statement.',
@@ -1520,6 +1707,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               cfRow('Commission paid to outlet owners (40% of GGR)', -commission, indent: '  '),
               const Divider(height: 8),
               cfRow('NET CASH FROM OPERATING ACTIVITIES', netCash, isFinal: true),
+
+              // Outlet aggregate — single summary line (detail in Outlet Performance report)
+              if (sortedOutlets.isNotEmpty)
+                cfRow(
+                  '  Net revenue across ${sortedOutlets.length} outlets (see Outlet Performance for details)',
+                  netCash,
+                  indent: '    ',
+                ),
 
               const SizedBox(height: 16),
               // Investing
@@ -2173,34 +2368,67 @@ class _ReportSection extends StatelessWidget {
   final List<Map<String, dynamic>> items;
   final double total;
   final bool isPositive;
+  /// Optional — if supplied, each line becomes tappable for ledger drill-down.
+  final void Function(Map<String, dynamic> item)? onItemTap;
 
   const _ReportSection({
     required this.title,
     required this.items,
     required this.total,
     required this.isPositive,
+    this.onItemTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final canDrill = onItemTap != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: TextStyle(fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.outline)),
-        const SizedBox(height: 8),
-        ...items.map((item) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('  ${item['name']}'),
-                  Text(
-                    'UGX ${NumberFormat('#,###').format(item['amount'])}',
-                    style: const TextStyle(fontFamily: 'monospace'),
-                  ),
-                ],
+        Row(
+          children: [
+            Text(title, style: TextStyle(fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.outline)),
+            if (canDrill) ...[
+              const SizedBox(width: 6),
+              Tooltip(
+                message: 'Tap any line to view journal entries',
+                child: Icon(Icons.receipt_long_outlined, size: 13, color: Theme.of(context).colorScheme.outline),
               ),
-            )),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        ...items.map((item) {
+          final rowContent = Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Text('  ${item['name']}'),
+                    if (canDrill)
+                      const Padding(
+                        padding: EdgeInsets.only(left: 4),
+                        child: Icon(Icons.open_in_new, size: 11, color: Colors.blueGrey),
+                      ),
+                  ],
+                ),
+                Text(
+                  'UGX ${NumberFormat('#,###').format(item['amount'])}',
+                  style: const TextStyle(fontFamily: 'monospace'),
+                ),
+              ],
+            ),
+          );
+          if (!canDrill) return rowContent;
+          return InkWell(
+            onTap: () => onItemTap!(item),
+            borderRadius: BorderRadius.circular(4),
+            hoverColor: Colors.blueGrey.withOpacity(0.06),
+            child: rowContent,
+          );
+        }),
         const SizedBox(height: 4),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,

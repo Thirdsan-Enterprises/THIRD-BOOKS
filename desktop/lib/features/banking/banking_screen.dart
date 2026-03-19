@@ -2,10 +2,13 @@
 // Manage bank accounts and view balances
 // © 2026 ThirdBooks. All rights reserved.
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'package:csv/csv.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
@@ -746,16 +749,62 @@ class _BankTile extends ConsumerWidget {
 // ---------------------------------------------------------------------------
 // Bank Statement Dialog
 // ---------------------------------------------------------------------------
-class _BankStatementDialog extends ConsumerWidget {
+class _BankStatementDialog extends ConsumerStatefulWidget {
   final BankAccount account;
 
   const _BankStatementDialog({required this.account});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final txnAsync = ref.watch(bankTransactionsProvider(account.id));
-    final fmt = NumberFormat('#,###');
-    final dateFmt = DateFormat('MMM d, yyyy');
+  ConsumerState<_BankStatementDialog> createState() => _BankStatementDialogState();
+}
+
+class _BankStatementDialogState extends ConsumerState<_BankStatementDialog> {
+  final fmt = NumberFormat('#,###');
+  final dateFmt = DateFormat('MMM d, yyyy');
+
+  Future<void> _exportStatement(List<BankTransaction> txns) async {
+    if (txns.isEmpty) return;
+
+    // Build running balance sorted list
+    final rows = <List<dynamic>>[
+      ['Date', 'Description', 'Reference', 'Debit (UGX)', 'Credit (UGX)', 'Balance (UGX)'],
+    ];
+    for (final tx in txns) {
+      final isCredit = tx.type == BankTxType.credit;
+      rows.add([
+        dateFmt.format(tx.date),
+        tx.description,
+        tx.reference ?? '',
+        isCredit ? '' : tx.amount.toStringAsFixed(0),
+        isCredit ? tx.amount.toStringAsFixed(0) : '',
+        tx.runningBalance.toStringAsFixed(0),
+      ]);
+    }
+
+    final csv = const ListToCsvConverter().convert(rows);
+    final fileName = '${widget.account.bankName.replaceAll(' ', '_')}_Statement_${DateFormat('yyyyMMdd').format(DateTime.now())}.csv';
+
+    final savePath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save Bank Statement',
+      fileName: fileName,
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+    );
+
+    if (savePath != null) {
+      await File(savePath).writeAsString(csv);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Statement exported to $savePath'), backgroundColor: AppColors.success),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final txnAsync = ref.watch(bankTransactionsProvider(widget.account.id));
+    final txns = txnAsync.valueOrNull ?? [];
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -783,13 +832,13 @@ class _BankStatementDialog extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(account.bankName,
+                        Text(widget.account.bankName,
                             style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold)),
                         Text(
-                            '${account.accountType}  •  ${account.currency}  •  ****${account.accountNumber.length > 4 ? account.accountNumber.substring(account.accountNumber.length - 4) : account.accountNumber}',
+                            '${widget.account.accountType}  •  ${widget.account.currency}  •  ****${widget.account.accountNumber.length > 4 ? widget.account.accountNumber.substring(widget.account.accountNumber.length - 4) : widget.account.accountNumber}',
                             style: const TextStyle(
                                 color: Colors.white70, fontSize: 12)),
                       ],
@@ -802,7 +851,7 @@ class _BankStatementDialog extends ConsumerWidget {
                           style:
                               TextStyle(color: Colors.white70, fontSize: 11)),
                       Text(
-                        '${account.currency} ${fmt.format(account.balance)}',
+                        '${widget.account.currency} ${fmt.format(widget.account.balance)}',
                         style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,
@@ -977,8 +1026,16 @@ class _BankStatementDialog extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  Tooltip(
+                    message: 'Download statement as CSV',
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.download, size: 16),
+                      label: const Text('Export CSV'),
+                      onPressed: txns.isEmpty ? null : () => _exportStatement(txns),
+                    ),
+                  ),
+                  const Spacer(),
                   FilledButton(
                     onPressed: () => Navigator.pop(context),
                     child: const Text('Close'),

@@ -316,6 +316,133 @@ class DoubleEntryService
     }
 
     /**
+     * Create journal entry for outlet daily revenue
+     *
+     * Outlet CSV columns map to:
+     *   stake_amount  = Total In  (gross cash wagered by customers)
+     *   payout_amount = Total Out (winnings paid back to customers)
+     *   net_amount    = Total GGR (stake_amount − payout_amount, net cash retained)
+     *
+     * Journal entry:
+     *   DR  100 Petty Cash   = net_amount    (cash held at outlet counter)
+     *   DR  107 Payouts      = payout_amount (contra-revenue for winnings)
+     *   CR  103 Stakes       = stake_amount  (gross revenue recognised)
+     *
+     * @param object $outletRevenue  Object with: outlet (relation), date,
+     *                               stake_amount, payout_amount, net_amount, id
+     * @param Company $company
+     * @param User $user
+     * @param bool $autoPost
+     * @return JournalEntry
+     */
+    public function createOutletRevenueJournalEntry(
+        $outletRevenue,
+        Company $company,
+        User $user,
+        bool $autoPost = true
+    ): JournalEntry {
+        $stakesAccount  = Account::where('company_id', $company->id)->where('code', '103')->firstOrFail();
+        $payoutsAccount = Account::where('company_id', $company->id)->where('code', '107')->firstOrFail();
+        $cashAccount    = Account::where('company_id', $company->id)->where('code', '100')->firstOrFail();
+
+        $outletName = $outletRevenue->outlet?->name ?? 'Outlet';
+        $outletCode = $outletRevenue->outlet?->outlet_code ?? '';
+        $dateStr    = $outletRevenue->date instanceof \DateTime
+            ? $outletRevenue->date->format('Ymd')
+            : date('Ymd', strtotime($outletRevenue->date));
+
+        return $this->createJournalEntry(
+            $company,
+            [
+                'date'        => $outletRevenue->date,
+                'reference'   => "REV-{$outletCode}-{$dateStr}",
+                'description' => "{$outletName} — Daily Revenue",
+                'type'        => JournalEntry::TYPE_AUTOMATIC,
+                'source'      => 'outlet_revenue',
+                'source_id'   => $outletRevenue->id,
+                'lines'       => [
+                    [
+                        'account_id'  => $cashAccount->id,
+                        'debit'       => $outletRevenue->net_amount,
+                        'credit'      => 0,
+                        'description' => 'GGR — net cash retained at outlet',
+                    ],
+                    [
+                        'account_id'  => $payoutsAccount->id,
+                        'debit'       => $outletRevenue->payout_amount,
+                        'credit'      => 0,
+                        'description' => 'Customer winnings paid out',
+                    ],
+                    [
+                        'account_id'  => $stakesAccount->id,
+                        'debit'       => 0,
+                        'credit'      => $outletRevenue->stake_amount,
+                        'description' => 'Gross stakes wagered',
+                    ],
+                ],
+            ],
+            $user,
+            $autoPost
+        );
+    }
+
+    /**
+     * Create journal entry for weekly outlet commission (40% of adjusted GGR)
+     *
+     *   DR  178 Outlet Commission Expense
+     *   CR  166 Accruals (commission owed to outlet owner, settled separately)
+     *
+     * @param object $outlet          Outlet with name, outlet_code
+     * @param Company $company
+     * @param User $user
+     * @param float $commissionAmount  40% of carry-forward-adjusted weekly GGR
+     * @param \DateTime $weekEnd       Last day of the commission week
+     * @param string $weekRef          Idempotency key e.g. JE-COMM-3000-2026-W04
+     * @param bool $autoPost
+     * @return JournalEntry
+     */
+    public function createOutletCommissionJournalEntry(
+        $outlet,
+        Company $company,
+        User $user,
+        float $commissionAmount,
+        \DateTime $weekEnd,
+        string $weekRef,
+        bool $autoPost = true
+    ): JournalEntry {
+        $commissionExpense = Account::where('company_id', $company->id)->where('code', '178')->firstOrFail();
+        $accrualsAccount   = Account::where('company_id', $company->id)->where('code', '166')->firstOrFail();
+
+        return $this->createJournalEntry(
+            $company,
+            [
+                'date'        => $weekEnd,
+                'reference'   => $weekRef,
+                'description' => "Outlet Commission (40% GGR) — {$outlet->name}",
+                'type'        => JournalEntry::TYPE_AUTOMATIC,
+                'source'      => 'outlet_commission',
+                'source_id'   => $outlet->id,
+                'lines'       => [
+                    [
+                        'account_id'  => $commissionExpense->id,
+                        'debit'       => $commissionAmount,
+                        'credit'      => 0,
+                        'description' => '40% of adjusted weekly GGR',
+                    ],
+                    [
+                        'account_id'  => $accrualsAccount->id,
+                        'debit'       => 0,
+                        'credit'      => $commissionAmount,
+                        'description' => 'Commission accrued — payable to outlet owner',
+                    ],
+                ],
+            ],
+            $user,
+            $autoPost
+        );
+    }
+
+    /**
      * Generate journal entry number
      */
     private function generateEntryNumber(Company $company, $date): string

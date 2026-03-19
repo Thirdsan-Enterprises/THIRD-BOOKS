@@ -603,11 +603,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Tax Preferences', style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Text('Tax Preferences', style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(width: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.orange.withOpacity(0.4)),
+                          ),
+                          child: const Text('Regulatory', style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'MagicBet Ltd is subject to Gaming Tax (15% GGR) handled automatically. '
+                      'Standard 18% VAT applies only if separately registered with URA as a VAT-able trader. '
+                      'Enable below only if advised by your accountant or URA.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
                     SwitchListTile(
-                      title: const Text('Enable VAT tracking'),
-                      subtitle: const Text('Track VAT on sales and purchases'),
+                      title: const Text('Enable 18% VAT on invoices'),
+                      subtitle: const Text('Adds URA 18% VAT to all customer invoices and bills — only activate if VAT-registered'),
                       value: taxSettings.enableVAT,
                       onChanged: (v) => taxNotifier.setEnableVAT(v),
                     ),

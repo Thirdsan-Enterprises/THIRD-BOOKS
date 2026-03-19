@@ -93,6 +93,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
   @override
   Widget build(BuildContext context) {
     final accountsState = ref.watch(accountsProvider);
+    final ledgerRaw = ref.watch(ledgerBalancesProvider);
 
     return Scaffold(
       body: Padding(
@@ -110,7 +111,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
               child: accountsState.isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : _buildAccountsWithAlphaJump(
-                      context, _filterAccounts(accountsState.accounts)),
+                      context, _filterAccounts(accountsState.accounts), ledgerRaw),
             ),
           ],
         ),
@@ -277,7 +278,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
 
   /// Wraps the accounts table with an A–Z alphabetical sidebar on the right.
   Widget _buildAccountsWithAlphaJump(
-      BuildContext context, List<Account> filtered) {
+      BuildContext context, List<Account> filtered, Map<String, double> ledgerRaw) {
     const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     final availableLetters = filtered
         .map((a) => a.name.isNotEmpty ? a.name[0].toUpperCase() : '')
@@ -286,7 +287,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(child: _buildAccountsTable(context, filtered)),
+        Expanded(child: _buildAccountsTable(context, filtered, ledgerRaw)),
         const SizedBox(width: 8),
         // Alpha jump sidebar
         Container(
@@ -342,7 +343,8 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
     );
   }
 
-  Widget _buildAccountsTable(BuildContext context, List<Account> accounts) {
+  Widget _buildAccountsTable(
+      BuildContext context, List<Account> accounts, Map<String, double> ledgerRaw) {
     if (accounts.isEmpty) {
       return Center(
         child: Column(
@@ -358,119 +360,200 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
       );
     }
 
-    return Card(
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SingleChildScrollView(
-          controller: _scrollController,
-          child: DataTable(
-            columnSpacing: 24,
-            horizontalMargin: 24,
-            headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
-            columns: const [
-              DataColumn(label: Text('Code')),
-              DataColumn(label: Text('Account Name')),
-              DataColumn(label: Text('Type')),
-              DataColumn(label: Text('Sub-Type')),
-              DataColumn(label: Text('Balance'), numeric: true),
-              DataColumn(label: Text('Status')),
-              DataColumn(label: Text('Actions')),
-            ],
-            rows: accounts.map((account) {
-              final isDebitNormal = account.type == AccountType.asset || account.type == AccountType.expense;
+    // Compute total debit/credit for footer
+    double totalDebit = 0;
+    double totalCredit = 0;
 
-              return DataRow(
-                cells: [
-                  DataCell(
-                    Text(
-                      account.code,
-                      style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
+    // Build rows — industry standard: separate Debit / Credit columns
+    final dataRows = accounts.map((account) {
+      // Raw ledger value: sum of all debits minus sum of all credits for this account
+      // Positive = more debits than credits; Negative = more credits than debits
+      final raw = ledgerRaw['acct-${account.code}'] ?? ledgerRaw[account.id] ?? 0.0;
+      final debitBalance  = raw > 0 ? raw  : 0.0;
+      final creditBalance = raw < 0 ? -raw : 0.0;
+
+      totalDebit  += debitBalance;
+      totalCredit += creditBalance;
+
+      final hasBalance = raw != 0;
+      final normalDirLabel = account.isDebitNormal ? 'Dr' : 'Cr';
+      final isAbnormal = hasBalance &&
+          (account.isDebitNormal ? raw < 0 : raw > 0);
+
+      return DataRow(
+        color: MaterialStateProperty.resolveWith((states) {
+          if (hasBalance) return null;
+          return null; // zero-balance rows shown normally
+        }),
+        cells: [
+          DataCell(Text(account.code,
+              style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'))),
+          DataCell(Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(account.name, style: const TextStyle(fontWeight: FontWeight.w500)),
+              if (account.description != null && account.description!.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                Tooltip(
+                  message: account.description!,
+                  child: Icon(Icons.info_outline, size: 14, color: Theme.of(context).colorScheme.outline),
+                ),
+              ],
+            ],
+          )),
+          DataCell(Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: _getTypeColor(account.type).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(_getTypeName(account.type),
+                style: TextStyle(color: _getTypeColor(account.type), fontSize: 12, fontWeight: FontWeight.w600)),
+          )),
+          DataCell(Text(account.subType?.displayName ?? '—', style: const TextStyle(fontSize: 12))),
+          // Normal balance direction indicator
+          DataCell(Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              border: Border.all(
+                  color: account.isDebitNormal ? AppColors.debit.withOpacity(0.4) : AppColors.credit.withOpacity(0.4)),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(normalDirLabel,
+                style: TextStyle(
+                    fontSize: 11, fontWeight: FontWeight.bold,
+                    color: account.isDebitNormal ? AppColors.debit : AppColors.credit)),
+          )),
+          // Debit Balance column
+          DataCell(debitBalance > 0
+              ? Text(_currencyFormat.format(debitBalance),
+                  style: TextStyle(
+                    fontFamily: 'monospace', fontSize: 13, fontWeight: FontWeight.w500,
+                    color: isAbnormal && !account.isDebitNormal ? AppColors.warning : AppColors.debit,
+                  ))
+              : Text('—', style: TextStyle(color: Theme.of(context).colorScheme.outline))),
+          // Credit Balance column
+          DataCell(creditBalance > 0
+              ? Text(_currencyFormat.format(creditBalance),
+                  style: TextStyle(
+                    fontFamily: 'monospace', fontSize: 13, fontWeight: FontWeight.w500,
+                    color: isAbnormal && account.isDebitNormal ? AppColors.warning : AppColors.credit,
+                  ))
+              : Text('—', style: TextStyle(color: Theme.of(context).colorScheme.outline))),
+          DataCell(Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                onPressed: () => _showEditAccountDialog(context, account),
+                tooltip: 'Edit',
+              ),
+              IconButton(
+                icon: const Icon(Icons.history, size: 18),
+                onPressed: () => _showAccountHistory(context, account),
+                tooltip: 'View Ledger History',
+              ),
+            ],
+          )),
+        ],
+      );
+    }).toList();
+
+    return Card(
+      child: Column(
+        children: [
+          // ── Ledger status bar ────────────────────────────────────────────
+          if (ledgerRaw.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+              child: Row(
+                children: [
+                  const Icon(Icons.auto_graph, size: 16),
+                  const SizedBox(width: 8),
+                  Text('Live ledger balances from posted journal entries',
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline)),
+                  const Spacer(),
+                  Text('Total Debits: UGX ${_currencyFormat.format(totalDebit)}',
+                      style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: AppColors.debit, fontWeight: FontWeight.w600)),
+                  const SizedBox(width: 24),
+                  Text('Total Credits: UGX ${_currencyFormat.format(totalCredit)}',
+                      style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: AppColors.credit, fontWeight: FontWeight.w600)),
+                  const SizedBox(width: 16),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: (totalDebit - totalCredit).abs() < 0.01
+                          ? AppColors.success.withOpacity(0.12)
+                          : AppColors.warning.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(4),
                     ),
-                  ),
-                  DataCell(
-                    Text(
-                      account.name,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                  DataCell(
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: _getTypeColor(account.type).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        _getTypeName(account.type),
-                        style: TextStyle(
-                          color: _getTypeColor(account.type),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                  DataCell(Text(account.subType?.displayName ?? '-')),
-                  DataCell(
-                    Text(
-                      'UGX ${_currencyFormat.format(account.balance)}',
+                    child: Text(
+                      (totalDebit - totalCredit).abs() < 0.01 ? '✓ Balanced' : '⚠ Unbalanced',
                       style: TextStyle(
-                        fontWeight: FontWeight.w500,
-                        color: isDebitNormal ? AppColors.debit : AppColors.credit,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  ),
-                  DataCell(
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.income.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'Active',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppColors.income,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ),
-                  DataCell(
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                          onPressed: () => _showEditAccountDialog(context, account),
-                          tooltip: 'Edit',
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.history, size: 18),
-                          onPressed: () => _showAccountHistory(context, account),
-                          tooltip: 'View History',
-                        ),
-                      ],
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: (totalDebit - totalCredit).abs() < 0.01 ? AppColors.success : AppColors.warning),
                     ),
                   ),
                 ],
-              );
-            }).toList(),
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: Theme.of(context).colorScheme.outline),
+                  const SizedBox(width: 8),
+                  Text('No posted journal entries yet — balances will appear after importing data or reconciling bank statements',
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline, fontStyle: FontStyle.italic)),
+                ],
+              ),
+            ),
+          // ── Table ────────────────────────────────────────────────────────
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                child: DataTable(
+                  columnSpacing: 20,
+                  horizontalMargin: 20,
+                  headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
+                  columns: const [
+                    DataColumn(label: Text('Code', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Account Name', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Type', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Sub-Type', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Normal\nBalance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                    DataColumn(label: Text('Debit\nBalance (UGX)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)), numeric: true),
+                    DataColumn(label: Text('Credit\nBalance (UGX)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)), numeric: true),
+                    DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
+                  ],
+                  rows: dataRows,
+                ),
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 
   Future<void> _exportAccounts(List<Account> accounts) async {
+    final ledgerRaw = ref.read(ledgerBalancesProvider);
     try {
       final csvData = StringBuffer();
-      csvData.writeln('Code,Name,Type,SubType,Balance,Status');
+      csvData.writeln('Code,Name,Type,SubType,Normal Balance,Debit Balance,Credit Balance');
 
       for (final account in accounts) {
-        csvData.writeln('${account.code},"${account.name}",${_getTypeName(account.type)},${account.subType?.name ?? ''},${account.balance},Active');
+        final raw = ledgerRaw['acct-${account.code}'] ?? ledgerRaw[account.id] ?? 0.0;
+        final debitBalance  = raw > 0 ? raw  : 0.0;
+        final creditBalance = raw < 0 ? -raw : 0.0;
+        final normalDir = account.isDebitNormal ? 'Dr' : 'Cr';
+        csvData.writeln('${account.code},"${account.name}",${_getTypeName(account.type)},${account.subType?.name ?? ''},$normalDir,${debitBalance.toStringAsFixed(0)},${creditBalance.toStringAsFixed(0)}');
       }
 
       final result = await FilePicker.platform.saveFile(

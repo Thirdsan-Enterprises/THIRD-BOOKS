@@ -949,6 +949,59 @@ class BillsNotifier extends StateNotifier<BillsState> {
     state = state.copyWith(bills: updatedBills);
     _localStorage.saveBills(updatedBills);
 
+    // Post local GL journal entry immediately (double-entry):
+    //   DR  each bill line's expense/asset account (from BillLine.accountId)
+    //   CR  Accounts Payable (acct-164) for the bill total
+    // This ensures CoA reflects the liability the moment a bill is created.
+    final now = DateTime.now();
+    final jeId = _uuid.v4();
+    final billLines = <JournalLine>[];
+    for (var i = 0; i < bill.lines.length; i++) {
+      final l = bill.lines[i];
+      if (l.amount <= 0) continue;
+      billLines.add(JournalLine(
+        id: '$jeId-exp-$i',
+        journalEntryId: jeId,
+        accountId: l.accountId,
+        accountCode: l.accountId.replaceAll('acct-', ''),
+        accountName: l.accountName ?? l.description,
+        debit: l.amount + l.taxAmount,
+        credit: 0,
+      ));
+    }
+    // Fallback: if no lines (edge case), DR a generic expense account
+    if (billLines.isEmpty) {
+      billLines.add(JournalLine(
+        id: '$jeId-exp-0',
+        journalEntryId: jeId,
+        accountId: 'acct-125',
+        accountCode: '125',
+        accountName: 'Operating Expenses',
+        debit: bill.total,
+        credit: 0,
+      ));
+    }
+    billLines.add(JournalLine(
+      id: '$jeId-ap',
+      journalEntryId: jeId,
+      accountId: 'acct-164',
+      accountCode: '164',
+      accountName: 'Accounts Payable',
+      debit: 0,
+      credit: bill.total,
+    ));
+    _ref.read(journalsProvider.notifier).addEntry(JournalEntry(
+      id: jeId,
+      entryNumber: 'BILL-JE-${bill.billNumber}',
+      date: bill.date,
+      description: 'Bill ${bill.billNumber} — ${bill.vendorName ?? bill.vendorId}',
+      reference: bill.reference ?? bill.billNumber,
+      status: JournalEntryStatus.posted,
+      lines: billLines,
+      createdAt: now,
+      updatedAt: now,
+    ));
+
     // create_journal_entry: true tells the backend DoubleEntryService to post
     // DR Expense / CR Accounts Payable automatically on sync.
     final payload = bill.toJson()
@@ -1230,9 +1283,33 @@ final journalsProvider = StateNotifierProvider<JournalsNotifier, JournalsState>(
   return JournalsNotifier(ref.read(apiClientProvider), ref);
 });
 
-// ============================================================================
-// Payments Service - OFFLINE-FIRST
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Ledger Balances — derived from posted journal entries
+// ---------------------------------------------------------------------------
+// Returns { accountId → (∑ debits − ∑ credits) } for every posted JE.
+// Debit-normal accounts (Asset, Expense) → positive value means Dr balance.
+// Credit-normal accounts (Liability, Equity, Revenue) → negative value means
+// Cr balance (i.e. the presentational balance = −raw value).
+final ledgerBalancesProvider = Provider<Map<String, double>>((ref) {
+  final entries = ref.watch(journalsProvider).entries;
+  final raw = <String, double>{};
+  for (final entry in entries) {
+    if (entry.status != JournalEntryStatus.posted) continue;
+    for (final line in entry.lines) {
+      raw[line.accountId] = (raw[line.accountId] ?? 0) + line.debit - line.credit;
+    }
+  }
+  return raw;
+});
+
+// Returns the presentational balance for [account] given ledger raw values.
+// Positive result = balance in the normal direction for that account type.
+double ledgerPresentationalBalance(Account account, Map<String, double> raw) {
+  final r = raw['acct-${account.code}'] ?? raw[account.id] ?? 0.0;
+  return account.isDebitNormal ? r : -r;
+}
+
+
 
 class PaymentsState {
   final List<Payment> payments;
@@ -1532,6 +1609,16 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
         outletMap[outlet.outletCode] = outlet;
       }
 
+      // Cache existing revenue records to detect duplicates within this import
+      // and against the database (prevents re-importing the same CSV file).
+      // Key: "{outletId}|{yyyyMMdd}"
+      final existingRevenues = await _db.getAllOutletRevenues();
+      final existingKeys = <String>{};
+      for (final r in existingRevenues) {
+        existingKeys.add(
+            '${r.outletId}|${DateFormat('yyyyMMdd').format(r.date)}');
+      }
+
       // Track journal entries to create
       final journalEntries = <JournalEntry>[];
       int jeCounter = 0;
@@ -1575,6 +1662,15 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
             skippedRows++;
             continue;
           }
+
+          // Deduplication: skip if this outlet+date was already imported
+          final dupKey = '${outlet.id}|${DateFormat('yyyyMMdd').format(date)}';
+          if (existingKeys.contains(dupKey)) {
+            skippedRows++;
+            state = state.copyWith(progress: i / totalRows);
+            continue;
+          }
+          existingKeys.add(dupKey); // guard against within-file duplicates
 
           // Create OutletRevenue entry
           // amount = Total In, commissionAmount = Total Out, netAmount = GGR
@@ -1669,8 +1765,10 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
         }
       }
 
-      // Refresh dashboard data
+      // Refresh all revenue-dependent providers
       _ref.invalidate(dashboardDataProvider);
+      _ref.invalidate(outletRevenueSummaryProvider);
+      _ref.invalidate(outletAnalyticsProvider);
 
     } catch (e) {
       state = state.copyWith(isImporting: false, error: e.toString());
@@ -1698,6 +1796,118 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
     );
 
     return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public: Create / repair JEs for all outlet revenue records in the DB
+  // ---------------------------------------------------------------------------
+  // Safe to call after every CSV import (idempotent — uses the OutletRevenue's
+  // [reference] field as the JE idempotency key so no duplicates are created).
+  //
+  // Creates:
+  //   • One daily revenue JE per OutletRevenue row not already journalised
+  //       DR  100 Petty Cash          = GGR (net cash at outlet)
+  //       DR  107 Payouts             = customer winnings paid out
+  //       CR  103 Stakes              = gross stakes wagered
+  //   • Weekly outlet commission JEs via _createAncillaryJEs()
+  //   • Monthly gaming-tax JEs        via _createAncillaryJEs()
+  // ---------------------------------------------------------------------------
+
+  Future<void> createJEsForOutletRevenues() async {
+    final allRevenues = await _db.getAllOutletRevenues();
+    if (allRevenues.isEmpty) return;
+
+    // Build outlet lookup map
+    final outlets = await _db.getAllOutlets();
+    final outletMap = <String, Outlet>{};
+    for (final o in outlets) {
+      outletMap[o.id] = o;
+    }
+
+    // Load existing JEs and collect their references (idempotency keys)
+    final existingEntries = await _localStorage.loadJournalEntries();
+    final existingRefs = existingEntries
+        .map((e) => e.reference)
+        .whereType<String>()
+        .toSet();
+
+    final newDailyJEs = <JournalEntry>[];
+    final now = DateTime.now();
+    int counter = 0;
+
+    for (final rev in allRevenues) {
+      // Use the revenue's own reference as the JE key (e.g. CSV-3000-20260101)
+      final ref = rev.reference ??
+          'CSV-${rev.outletId}-${DateFormat('yyyyMMdd').format(rev.date)}';
+      if (existingRefs.contains(ref)) continue; // already journalised
+
+      counter++;
+      final jeId = _uuid.v4();
+      final outletName = outletMap[rev.outletId]?.name ?? 'Outlet';
+
+      // Arithmetic check:
+      //   Total In (stakes) = GGR (netAmount) + Payouts (commissionAmount)
+      //   DR side: netAmount + commissionAmount == CR side: amount  ✓
+      newDailyJEs.add(JournalEntry(
+        id: jeId,
+        entryNumber:
+            'REV-${DateFormat('yyyyMMdd').format(rev.date)}-${counter.toString().padLeft(4, '0')}',
+        date: rev.date,
+        description: '$outletName — Daily Revenue',
+        reference: ref,
+        status: JournalEntryStatus.posted,
+        lines: [
+          // DR: Petty Cash (100) — net cash held at the outlet after payouts
+          JournalLine(
+            id: '$jeId-1',
+            journalEntryId: jeId,
+            accountId: 'acct-100',
+            accountCode: '100',
+            accountName: 'Petty Cash',
+            debit: rev.netAmount,
+            credit: 0,
+          ),
+          // DR: Payouts (107) — contra-revenue for winnings returned to players
+          JournalLine(
+            id: '$jeId-2',
+            journalEntryId: jeId,
+            accountId: 'acct-107',
+            accountCode: '107',
+            accountName: 'Payouts',
+            debit: rev.commissionAmount,
+            credit: 0,
+          ),
+          // CR: Stakes (103) — gross revenue recognised on all wagers placed
+          JournalLine(
+            id: '$jeId-3',
+            journalEntryId: jeId,
+            accountId: 'acct-103',
+            accountCode: '103',
+            accountName: 'Stakes',
+            debit: 0,
+            credit: rev.amount,
+          ),
+        ],
+        createdAt: now,
+        updatedAt: now,
+        createdBy: 'System',
+      ));
+      existingRefs.add(ref);
+    }
+
+    // Build ancillary JEs (weekly commission + monthly gaming tax)
+    final allCurrent = [...existingEntries, ...newDailyJEs];
+    final ancillary = await _createAncillaryJEs(allCurrent);
+
+    if (newDailyJEs.isNotEmpty || ancillary.isNotEmpty) {
+      final allEntries = [...allCurrent, ...ancillary];
+      await _localStorage.saveJournalEntries(allEntries);
+      // Reload journals provider so CoA balances and reports update immediately
+      await _ref.read(journalsProvider.notifier).loadJournals();
+      _ref.invalidate(dashboardDataProvider);
+      _ref.invalidate(outletRevenueSummaryProvider);
+      _ref.invalidate(outletAnalyticsProvider);
+    }
   }
 
   // ---------------------------------------------------------------------------

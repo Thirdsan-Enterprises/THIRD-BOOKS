@@ -1109,11 +1109,54 @@ class _CreditDebitNotesScreenState
     ref.read(journalsProvider.notifier).addEntry(je);
   }
 
-  /// Debit Note: DR Accounts Payable (164), CR Office Expenses (125)
-  /// Reduces what we owe the vendor and reverses the related expense.
+  /// Debit Note: DR Accounts Payable (164), CR original bill line accounts
+  /// Reverses the expense accounts used in the referenced bill (proportionally).
+  /// Falls back to Office Expenses (125) if no bill reference is found.
   void _createDebitNoteJE(DebitNote dn) {
     final now = DateTime.now();
     final jeId = const Uuid().v4();
+
+    // Look up the referenced bill to get its expense accounts
+    final bill = dn.billId == null
+        ? null
+        : ref.read(billsProvider).bills.cast<Bill?>().firstWhere(
+              (b) => b?.id == dn.billId,
+              orElse: () => null,
+            );
+
+    // Build credit lines: reverse the original bill's expense accounts
+    final creditLines = <JournalLine>[];
+    if (bill != null && bill.lines.isNotEmpty && bill.total > 0) {
+      for (var i = 0; i < bill.lines.length; i++) {
+        final l = bill.lines[i];
+        final lineTotal = l.amount + l.taxAmount;
+        if (lineTotal <= 0) continue;
+        // Apportion debit note amount proportionally across bill lines
+        final proportion = lineTotal / bill.total;
+        final lineCredit = dn.amount * proportion;
+        creditLines.add(JournalLine(
+          id: '$jeId-cr-$i',
+          journalEntryId: jeId,
+          accountId: l.accountId,
+          accountCode: l.accountId.replaceAll('acct-', ''),
+          accountName: l.accountName ?? l.description,
+          debit: 0,
+          credit: lineCredit,
+        ));
+      }
+    } else {
+      // Fallback when no bill reference available
+      creditLines.add(JournalLine(
+        id: '$jeId-cr-0',
+        journalEntryId: jeId,
+        accountId: 'acct-125',
+        accountCode: '125',
+        accountName: 'Office Expenses',
+        debit: 0,
+        credit: dn.amount,
+      ));
+    }
+
     final je = JournalEntry(
       id: jeId,
       entryNumber: 'DN-JE-${now.millisecondsSinceEpoch}',
@@ -1123,7 +1166,7 @@ class _CreditDebitNotesScreenState
       status: JournalEntryStatus.posted,
       lines: [
         JournalLine(
-          id: '$jeId-1',
+          id: '$jeId-ap',
           journalEntryId: jeId,
           accountId: 'acct-164',
           accountCode: '164',
@@ -1131,15 +1174,7 @@ class _CreditDebitNotesScreenState
           debit: dn.amount,
           credit: 0,
         ),
-        JournalLine(
-          id: '$jeId-2',
-          journalEntryId: jeId,
-          accountId: 'acct-125',
-          accountCode: '125',
-          accountName: 'Office Expenses',
-          debit: 0,
-          credit: dn.amount,
-        ),
+        ...creditLines,
       ],
       createdAt: now,
       updatedAt: now,
