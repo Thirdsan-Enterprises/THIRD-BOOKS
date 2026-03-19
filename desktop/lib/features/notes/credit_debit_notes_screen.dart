@@ -1083,14 +1083,34 @@ class _CreditDebitNotesScreenState
 
   // ── GL Journal Entry helpers ──────────────────────────────────────────────
 
+  /// Maps AccountType to a human-readable CoA category label shown in JE lines.
+  String _coaCategory(AccountType? type) {
+    switch (type) {
+      case AccountType.asset:     return 'Asset';
+      case AccountType.liability: return 'Liability';
+      case AccountType.equity:    return 'Equity';
+      case AccountType.revenue:   return 'Revenue';
+      case AccountType.expense:   return 'Expense';
+      default:                    return 'Account';
+    }
+  }
+
   /// Credit Note: DR Other Revenue (104), CR Accounts Receivable (150)
   /// Reduces both revenue and the customer's receivable balance.
   void _createCreditNoteJE(CreditNote cn) {
     final now = DateTime.now();
-    final jeId = const Uuid().v4();
+    final jeId = 'CN-JE-${cn.id}';
+    final allAccounts = ref.read(accountsProvider).accounts;
+    Account? lookupAcct(String id) => allAccounts
+        .cast<Account?>()
+        .firstWhere((a) => a?.id == id, orElse: () => null);
+
+    final revenueAcct = lookupAcct('acct-104');
+    final arAcct      = lookupAcct('acct-150');
+
     final je = JournalEntry(
       id: jeId,
-      entryNumber: 'CN-JE-${now.millisecondsSinceEpoch}',
+      entryNumber: 'CN-JE-${cn.creditNoteNumber}',
       date: cn.date,
       description: 'Credit Note ${cn.creditNoteNumber}: ${cn.reason}',
       reference: cn.creditNoteNumber,
@@ -1101,18 +1121,20 @@ class _CreditDebitNotesScreenState
           journalEntryId: jeId,
           accountId: 'acct-104',
           accountCode: '104',
-          accountName: 'Other Revenue',
+          accountName: revenueAcct?.name ?? 'Other Revenue',
           debit: cn.amount,
           credit: 0,
+          description: '[${_coaCategory(revenueAcct?.type ?? AccountType.revenue)}] ${cn.reason}',
         ),
         JournalLine(
           id: '$jeId-2',
           journalEntryId: jeId,
           accountId: 'acct-150',
           accountCode: '150',
-          accountName: 'Accounts Receivable',
+          accountName: arAcct?.name ?? 'Accounts Receivable',
           debit: 0,
           credit: cn.amount,
+          description: '[${_coaCategory(arAcct?.type ?? AccountType.asset)}] Credit applied to customer balance',
         ),
       ],
       createdAt: now,
@@ -1126,7 +1148,13 @@ class _CreditDebitNotesScreenState
   /// Falls back to Office Expenses (125) if no bill reference is found.
   void _createDebitNoteJE(DebitNote dn) {
     final now = DateTime.now();
-    final jeId = const Uuid().v4();
+    final jeId = 'DN-JE-${dn.id}';
+    final allAccounts = ref.read(accountsProvider).accounts;
+    Account? lookupAcct(String id) => allAccounts
+        .cast<Account?>()
+        .firstWhere((a) => a?.id == id, orElse: () => null);
+
+    final apAcct = lookupAcct('acct-164');
 
     // Look up the referenced bill to get its expense accounts
     final bill = dn.billId == null
@@ -1146,32 +1174,38 @@ class _CreditDebitNotesScreenState
         // Apportion debit note amount proportionally across bill lines
         final proportion = lineTotal / bill.total;
         final lineCredit = dn.amount * proportion;
+        final acc = lookupAcct(l.accountId);
+        final category = _coaCategory(acc?.type ?? AccountType.expense);
+        final lineDesc = l.description.trim().isNotEmpty ? l.description.trim() : dn.reason;
         creditLines.add(JournalLine(
           id: '$jeId-cr-$i',
           journalEntryId: jeId,
           accountId: l.accountId,
           accountCode: l.accountId.replaceAll('acct-', ''),
-          accountName: l.accountName ?? l.description,
+          accountName: acc?.name ?? l.accountName ?? l.description,
           debit: 0,
           credit: lineCredit,
+          description: '[$category] $lineDesc',
         ));
       }
     } else {
       // Fallback when no bill reference available
+      final fallbackAcct = lookupAcct('acct-125');
       creditLines.add(JournalLine(
         id: '$jeId-cr-0',
         journalEntryId: jeId,
         accountId: 'acct-125',
         accountCode: '125',
-        accountName: 'Office Expenses',
+        accountName: fallbackAcct?.name ?? 'Office Expenses',
         debit: 0,
         credit: dn.amount,
+        description: '[${_coaCategory(fallbackAcct?.type ?? AccountType.expense)}] ${dn.reason}',
       ));
     }
 
     final je = JournalEntry(
       id: jeId,
-      entryNumber: 'DN-JE-${now.millisecondsSinceEpoch}',
+      entryNumber: 'DN-JE-${dn.debitNoteNumber}',
       date: dn.date,
       description: 'Debit Note ${dn.debitNoteNumber}: ${dn.reason}',
       reference: dn.debitNoteNumber,
@@ -1182,9 +1216,10 @@ class _CreditDebitNotesScreenState
           journalEntryId: jeId,
           accountId: 'acct-164',
           accountCode: '164',
-          accountName: 'Accounts Payable',
+          accountName: apAcct?.name ?? 'Accounts Payable',
           debit: dn.amount,
           credit: 0,
+          description: '[${_coaCategory(apAcct?.type ?? AccountType.liability)}] ${dn.reason}',
         ),
         ...creditLines,
       ],
