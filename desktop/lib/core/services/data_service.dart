@@ -944,6 +944,17 @@ class BillsNotifier extends StateNotifier<BillsState> {
     }
   }
 
+  static String _coaCategory(AccountType? type) {
+    switch (type) {
+      case AccountType.asset:     return 'Asset';
+      case AccountType.liability: return 'Liability';
+      case AccountType.equity:    return 'Equity';
+      case AccountType.revenue:   return 'Revenue';
+      case AccountType.expense:   return 'Expense';
+      default:                    return 'Expense';
+    }
+  }
+
   void addBill(Bill bill) {
     final updatedBills = [...state.bills, bill];
     state = state.copyWith(bills: updatedBills);
@@ -955,18 +966,26 @@ class BillsNotifier extends StateNotifier<BillsState> {
     // This ensures CoA reflects the liability the moment a bill is created.
     final now = DateTime.now();
     final jeId = _uuid.v4();
+    final allAccounts = _ref.read(accountsProvider).accounts;
+    Account? lookupAcct(String id) => allAccounts
+        .cast<Account?>()
+        .firstWhere((a) => a?.id == id, orElse: () => null);
     final billLines = <JournalLine>[];
     for (var i = 0; i < bill.lines.length; i++) {
       final l = bill.lines[i];
       if (l.amount <= 0) continue;
+      final acc = lookupAcct(l.accountId);
+      final category = _coaCategory(acc?.type);
+      final lineDesc = l.description.trim().isEmpty ? null : l.description.trim();
       billLines.add(JournalLine(
         id: '$jeId-exp-$i',
         journalEntryId: jeId,
         accountId: l.accountId,
         accountCode: l.accountId.replaceAll('acct-', ''),
-        accountName: l.accountName ?? l.description,
+        accountName: acc?.name ?? l.accountName ?? l.description,
         debit: l.amount + l.taxAmount,
         credit: 0,
+        description: lineDesc != null ? '[$category] $lineDesc' : '[$category]',
       ));
     }
     // Fallback: if no lines (edge case), DR a generic expense account
@@ -979,6 +998,7 @@ class BillsNotifier extends StateNotifier<BillsState> {
         accountName: 'Operating Expenses',
         debit: bill.total,
         credit: 0,
+        description: '[Expense]',
       ));
     }
     billLines.add(JournalLine(
@@ -989,6 +1009,7 @@ class BillsNotifier extends StateNotifier<BillsState> {
       accountName: 'Accounts Payable',
       debit: 0,
       credit: bill.total,
+      description: '[Liability] Payable to ${bill.vendorName ?? bill.vendorId}',
     ));
     _ref.read(journalsProvider.notifier).addEntry(JournalEntry(
       id: jeId,
