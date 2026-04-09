@@ -1218,10 +1218,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               title: 'Current & Non-Current Assets',
               items: assetAccts
                   .where((a) => _acctBal(a, raw) != 0)
-                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)})
+                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw), 'accountId': a.id})
                   .toList(),
               total: totalAssets,
               isPositive: true,
+              onItemTap: (item) => _showLedgerDrillDown(context, item),
             ),
             _ReportTotalRow(label: 'Total Assets', amount: totalAssets, isHighlight: true),
             const Divider(height: 32),
@@ -1231,10 +1232,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               title: 'Current & Non-Current Liabilities',
               items: liabilityAccts
                   .where((a) => _acctBal(a, raw) != 0)
-                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)})
+                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw), 'accountId': a.id})
                   .toList(),
               total: totalLiabilities,
               isPositive: false,
+              onItemTap: (item) => _showLedgerDrillDown(context, item),
             ),
             _ReportTotalRow(label: 'Total Liabilities', amount: totalLiabilities, isHighlight: true),
             const Divider(height: 32),
@@ -1245,11 +1247,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               items: [
                 ...equityAccts
                     .where((a) => _acctBal(a, raw) != 0)
-                    .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw)}),
+                    .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw), 'accountId': a.id}),
                 {'name': 'Current Year Earnings', 'amount': currentYearEarnings},
               ],
               total: totalEquity,
               isPositive: true,
+              onItemTap: (item) => _showLedgerDrillDown(context, item),
             ),
             const Divider(),
             _ReportTotalRow(
