@@ -9,6 +9,7 @@ use App\Models\Currency;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class BillPayment extends Model
@@ -93,6 +94,11 @@ class BillPayment extends Model
     public function journalEntry(): BelongsTo
     {
         return $this->belongsTo(JournalEntry::class);
+    }
+
+    public function attachments(): MorphMany
+    {
+        return $this->morphMany(\App\Models\Attachment::class, 'attachable');
     }
 
     /**
