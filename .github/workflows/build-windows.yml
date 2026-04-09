@@ -131,8 +131,9 @@ jobs:
           # Create output directory
           New-Item -ItemType Directory -Path "build/installer" -Force
 
-          # Run Inno Setup compiler
-          & $innoPath "installer/thirdbooks_setup.iss"
+          # Run Inno Setup compiler — pass APP_VERSION from the workflow env so the
+          # output filename always matches what the upload step expects.
+          & $innoPath "installer/thirdbooks_setup.iss" /DMyAppVersion="${{ env.APP_VERSION }}"
 
           Write-Host "Installer created:"
           Get-ChildItem "build/installer"
@@ -141,7 +142,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ThirdBooks-Setup-x64
-          path: desktop/build/installer/ThirdBooks-Setup-${{ env.APP_VERSION }}-x64.exe
+          path: desktop/build/installer/ThirdBooks-Setup-*.exe
           retention-days: 30
           if-no-files-found: error
 
