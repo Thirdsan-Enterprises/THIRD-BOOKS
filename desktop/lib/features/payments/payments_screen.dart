@@ -6,7 +6,9 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/models/payment.dart';
+import '../../core/widgets/attachment_widget.dart';
 
 class PaymentsScreen extends ConsumerStatefulWidget {
   const PaymentsScreen({super.key});
@@ -667,6 +669,14 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
               if (payment.notes != null && payment.notes!.isNotEmpty)
                 _DetailRow('Notes', payment.notes!),
               _DetailRow('Created', DateFormat('MMM d, yyyy HH:mm').format(payment.createdAt)),
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              AttachmentPanel(
+                attachableType: payment.isReceived ? 'payment' : 'bill-payment',
+                attachableId: payment.syncSequence,
+                apiClient: ref.read(apiClientProvider),
+              ),
             ],
           ),
         ),

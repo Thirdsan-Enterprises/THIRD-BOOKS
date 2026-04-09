@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' show DateFormat;
 import 'package:uuid/uuid.dart';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
@@ -13,6 +14,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/local_storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/models/bank_transaction.dart';
 
 // ---------------------------------------------------------------------------
@@ -192,8 +194,22 @@ class BankingScreen extends ConsumerStatefulWidget {
   ConsumerState<BankingScreen> createState() => _BankingScreenState();
 }
 
-class _BankingScreenState extends ConsumerState<BankingScreen> {
+class _BankingScreenState extends ConsumerState<BankingScreen>
+    with SingleTickerProviderStateMixin {
   final _currencyFormat = NumberFormat('#,###');
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -208,39 +224,39 @@ class _BankingScreenState extends ConsumerState<BankingScreen> {
             _buildHeader(context),
             const SizedBox(height: 24),
             _buildSummaryCards(context, state),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Text(
-                  'Bank Accounts',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                const Spacer(),
-                Text(
-                  '${state.accounts.length} account(s)',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                ),
+            const SizedBox(height: 16),
+            // ── Tabs ────────────────────────────────────────────────────────
+            TabBar(
+              controller: _tabController,
+              isScrollable: false,
+              tabs: const [
+                Tab(icon: Icon(Icons.account_balance, size: 18), text: 'Bank Accounts'),
+                Tab(icon: Icon(Icons.receipt_long, size: 18), text: 'Uploaded Statements'),
               ],
             ),
             const SizedBox(height: 16),
             Expanded(
-              child: state.accounts.isEmpty
-                  ? _buildEmptyState(context)
-                  : GridView.builder(
-                      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 340,
-                        mainAxisExtent: 230,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                      ),
-                      itemCount: state.accounts.length,
-                      itemBuilder: (context, index) =>
-                          _BankTile(account: state.accounts[index]),
-                    ),
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  // ── Tab 1: Bank Accounts ─────────────────────────────────
+                  state.accounts.isEmpty
+                      ? _buildEmptyState(context)
+                      : GridView.builder(
+                          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: 340,
+                            mainAxisExtent: 230,
+                            crossAxisSpacing: 16,
+                            mainAxisSpacing: 16,
+                          ),
+                          itemCount: state.accounts.length,
+                          itemBuilder: (context, index) =>
+                              _BankTile(account: state.accounts[index]),
+                        ),
+                  // ── Tab 2: Uploaded Bank Statements ──────────────────────
+                  _BankStatementsTab(accounts: state.accounts),
+                ],
+              ),
             ),
           ],
         ),
@@ -1139,6 +1155,381 @@ class _SummaryCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bank Statements Tab
+// ---------------------------------------------------------------------------
+class _BankStatementsTab extends ConsumerStatefulWidget {
+  final List<BankAccount> accounts;
+  const _BankStatementsTab({required this.accounts});
+
+  @override
+  ConsumerState<_BankStatementsTab> createState() => _BankStatementsTabState();
+}
+
+class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
+  List<Map<String, dynamic>> _statements = [];
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStatements();
+  }
+
+  Future<void> _loadStatements() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final api = ref.read(apiClientProvider);
+      final data = await api.getBankStatements();
+      setState(() { _statements = List<Map<String, dynamic>>.from(data['data'] ?? data ?? []); });
+    } catch (e) {
+      setState(() { _error = e.toString(); });
+    } finally {
+      setState(() { _loading = false; });
+    }
+  }
+
+  Future<void> _showUploadDialog() async {
+    BankAccount? selectedAccount = widget.accounts.isNotEmpty ? widget.accounts.first : null;
+    DateTime fromDate = DateTime.now().subtract(const Duration(days: 30));
+    DateTime toDate = DateTime.now();
+    String? csvPath;
+    String? csvName;
+    final formKey = GlobalKey<FormState>();
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Upload Bank Statement'),
+          content: SizedBox(
+            width: 480,
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DropdownButtonFormField<BankAccount>(
+                    value: selectedAccount,
+                    decoration: const InputDecoration(labelText: 'Bank Account *'),
+                    items: widget.accounts
+                        .map((a) => DropdownMenuItem(
+                              value: a,
+                              child: Text('${a.bankName} – ${a.accountNumber}'),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setDialogState(() => selectedAccount = v),
+                    validator: (v) => v == null ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: ctx,
+                              initialDate: fromDate,
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime.now(),
+                            );
+                            if (picked != null) setDialogState(() => fromDate = picked);
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'From Date *'),
+                            child: Text(DateFormat('dd MMM yyyy').format(fromDate)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: ctx,
+                              initialDate: toDate,
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime.now().add(const Duration(days: 365)),
+                            );
+                            if (picked != null) setDialogState(() => toDate = picked);
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'To Date *'),
+                            child: Text(DateFormat('dd MMM yyyy').format(toDate)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final result = await FilePicker.platform.pickFiles(
+                        type: FileType.custom,
+                        allowedExtensions: ['csv'],
+                      );
+                      if (result != null && result.files.isNotEmpty) {
+                        setDialogState(() {
+                          csvPath = result.files.first.path;
+                          csvName = result.files.first.name;
+                        });
+                      }
+                    },
+                    icon: const Icon(Icons.upload_file, size: 18),
+                    label: Text(csvName ?? 'Select CSV File'),
+                  ),
+                  if (csvName != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(csvName!, style: const TextStyle(color: Colors.green)),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: csvPath == null
+                  ? null
+                  : () async {
+                      if (!formKey.currentState!.validate()) return;
+                      Navigator.pop(ctx);
+                      try {
+                        final api = ref.read(apiClientProvider);
+                        await api.uploadBankStatement(
+                          bankAccountId: selectedAccount!.id,
+                          fromDate: DateFormat('yyyy-MM-dd').format(fromDate),
+                          toDate: DateFormat('yyyy-MM-dd').format(toDate),
+                          csvFile: File(csvPath!),
+                        );
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Statement uploaded successfully')),
+                          );
+                          _loadStatements();
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red),
+                          );
+                        }
+                      }
+                    },
+              child: const Text('Upload'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteStatement(Map<String, dynamic> stmt) async {
+    final status = stmt['status'] ?? '';
+    if (status == 'reconciled') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot delete a fully reconciled statement.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Statement'),
+        content: const Text('Are you sure you want to delete this bank statement? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        final api = ref.read(apiClientProvider);
+        await api.deleteBankStatement(stmt['id']);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Statement deleted')),
+          );
+          _loadStatements();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Delete failed: $e'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    }
+  }
+
+  Color _statusColor(String? status) {
+    switch (status) {
+      case 'reconciled': return Colors.green;
+      case 'in_progress': return Colors.blue;
+      default: return Colors.orange;
+    }
+  }
+
+  String _statusLabel(String? status) {
+    switch (status) {
+      case 'reconciled': return 'Reconciled';
+      case 'in_progress': return 'In Progress';
+      default: return 'Pending';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            const SizedBox(height: 12),
+            Text(_error!, style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _loadStatements,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${_statements.length} statement(s) uploaded',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _loadStatements,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Refresh'),
+                ),
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: _showUploadDialog,
+                  icon: const Icon(Icons.upload_file, size: 18),
+                  label: const Text('Upload Statement'),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (_statements.isEmpty)
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.receipt_long, size: 64, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No statements uploaded yet',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Upload a CSV bank statement to begin reconciliation.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: _showUploadDialog,
+                    icon: const Icon(Icons.upload_file),
+                    label: const Text('Upload Statement'),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          Expanded(
+            child: ListView.separated(
+              itemCount: _statements.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final stmt = _statements[index];
+                final status = stmt['status'] as String?;
+                final fromDate = stmt['from_date'] as String?;
+                final toDate = stmt['to_date'] as String?;
+                final linesCount = (stmt['lines'] as List?)?.length ?? stmt['lines_count'] ?? 0;
+
+                return ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _statusColor(status).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.receipt_long, color: _statusColor(status)),
+                  ),
+                  title: Text(
+                    '${stmt['bank_account']?['bank_name'] ?? 'Account'} – ${stmt['bank_account']?['account_number'] ?? ''}',
+                  ),
+                  subtitle: Text(
+                    '${fromDate ?? ''} → ${toDate ?? ''}  •  $linesCount line(s)',
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _statusColor(status).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          _statusLabel(status),
+                          style: TextStyle(color: _statusColor(status), fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        tooltip: 'Delete statement',
+                        onPressed: () => _deleteStatement(stmt),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
     );
   }
 }

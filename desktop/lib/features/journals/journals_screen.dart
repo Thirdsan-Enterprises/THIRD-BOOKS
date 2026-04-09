@@ -6,7 +6,9 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/models/journal_entry.dart';
+import '../../core/widgets/attachment_widget.dart';
 
 class JournalsScreen extends ConsumerStatefulWidget {
   const JournalsScreen({super.key});
@@ -642,6 +644,8 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
           double totalCredit = lines.fold(0, (sum, line) => sum + line.credit);
           bool isBalanced = (totalDebit - totalCredit).abs() < 0.01;
 
+          final attachKey = GlobalKey<AttachmentPanelState>();
+
           return AlertDialog(
             title: const Text('New Journal Entry'),
             content: SizedBox(
@@ -876,6 +880,13 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                           ),
                         ],
                       ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Divider(height: 1),
+                    const SizedBox(height: 12),
+                    AttachmentPanel(
+                      key: attachKey,
+                      attachableType: 'journal-entry',
                     ),
                   ],
                 ),
@@ -1121,6 +1132,14 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(height: 16),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                AttachmentPanel(
+                  attachableType: 'journal-entry',
+                  attachableId: entry.syncSequence,
+                  apiClient: ref.read(apiClientProvider),
                 ),
               ],
             ),
