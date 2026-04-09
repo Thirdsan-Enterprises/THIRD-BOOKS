@@ -481,20 +481,6 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
           double total = subtotal + vat;
           final fmt = NumberFormat('#,###');
 
-          Future<void> pickAttachment() async {
-            final result = await FilePicker.platform.pickFiles(
-              type: FileType.custom,
-              allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
-              dialogTitle: 'Attach Bill Document',
-            );
-            if (result != null && result.files.single.path != null) {
-              setDialogState(() {
-                attachedFilePath = result.files.single.path;
-                attachedFileName = result.files.single.name;
-              });
-            }
-          }
-
           return AlertDialog(
             title: const Text('Create New Bill'),
             content: SizedBox(
@@ -808,9 +794,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text(attachedFileName != null
-                            ? 'Bill saved with attachment: $attachedFileName'
-                            : 'Bill saved — queued for sync'),
+                        content: const Text('Bill saved — queued for sync'),
                       ),
                     );
                   }
