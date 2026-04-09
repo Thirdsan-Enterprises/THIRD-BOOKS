@@ -311,12 +311,17 @@ class _BankingScreenState extends ConsumerState<BankingScreen>
   }
 
   Widget _buildSummaryCards(BuildContext context, BankingState state) {
+    final ledger = ref.watch(ledgerBalancesProvider);
+    double _resolvedBalance(BankAccount a) {
+      final id = _bankCoaId(a);
+      return id != null ? (ledger[id] ?? 0.0) : a.balance;
+    }
     final totalUGX = state.accounts
         .where((a) => a.currency == 'UGX' && a.isActive)
-        .fold<double>(0, (sum, a) => sum + a.balance);
+        .fold<double>(0, (sum, a) => sum + _resolvedBalance(a));
     final totalUSD = state.accounts
         .where((a) => a.currency == 'USD' && a.isActive)
-        .fold<double>(0, (sum, a) => sum + a.balance);
+        .fold<double>(0, (sum, a) => sum + _resolvedBalance(a));
     final activeCount = state.accounts.where((a) => a.isActive).length;
 
     return Row(
@@ -514,6 +519,19 @@ class _BankingScreenState extends ConsumerState<BankingScreen>
 }
 
 // ---------------------------------------------------------------------------
+// Maps a BankAccount to its Chart-of-Accounts ledger account ID so balances
+// always reflect posted journal entries (reconciliation, imports, manual JEs).
+// ---------------------------------------------------------------------------
+String? _bankCoaId(BankAccount account) {
+  final n = account.bankName.toLowerCase();
+  if (n.contains('mtn') || n.contains('mobile money') || n.contains('momo')) return 'acct-102';
+  if (n.contains('absa')) return 'acct-101';
+  if (n.contains('petty') || (n.contains('cash') && !n.contains('stancash'))) return 'acct-100';
+  if (n.contains('stanbic')) return 'acct-103';
+  return null; // user-added account with no CoA mapping yet — fall back to stored balance
+}
+
+// ---------------------------------------------------------------------------
 // Bank Tile Widget
 // ---------------------------------------------------------------------------
 class _BankTile extends ConsumerWidget {
@@ -525,15 +543,11 @@ class _BankTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final currencyFormat = NumberFormat('#,###');
 
-    // For MTN Mobile Money (bank-2) the displayed balance is driven by CoA
-    // account 102 in the ledger so that CSV uploads, reconciliations and any
-    // manual JEs all flow through to the card automatically.
-    final ledgerRaw = account.id == 'bank-2'
-        ? ref.watch(ledgerBalancesProvider)
-        : const <String, double>{};
-    final displayBalance = account.id == 'bank-2'
-        ? (ledgerRaw['acct-102'] ?? 0.0)
-        : account.balance;
+    // Drive balance from the general ledger for all known bank accounts so that
+    // reconciliations, CSV imports and manual JEs always reflect in the card.
+    final coaId = _bankCoaId(account);
+    final ledgerRaw = coaId != null ? ref.watch(ledgerBalancesProvider) : const <String, double>{};
+    final displayBalance = coaId != null ? (ledgerRaw[coaId] ?? 0.0) : account.balance;
 
     // Gradient colors per currency
     final gradients = {
@@ -847,14 +861,10 @@ class _BankStatementDialogState extends ConsumerState<_BankStatementDialog> {
     final txnAsync = ref.watch(bankTransactionsProvider(widget.account.id));
     final txns = txnAsync.valueOrNull ?? [];
 
-    // For MTN Mobile Money, drive the header balance from CoA acct-102 so
-    // it always matches the general ledger regardless of how the balance moved.
-    final ledgerRaw = widget.account.id == 'bank-2'
-        ? ref.watch(ledgerBalancesProvider)
-        : const <String, double>{};
-    final displayBalance = widget.account.id == 'bank-2'
-        ? (ledgerRaw['acct-102'] ?? 0.0)
-        : widget.account.balance;
+    // Drive balance from the general ledger for all known bank accounts.
+    final coaId = _bankCoaId(widget.account);
+    final ledgerRaw = coaId != null ? ref.watch(ledgerBalancesProvider) : const <String, double>{};
+    final displayBalance = coaId != null ? (ledgerRaw[coaId] ?? 0.0) : widget.account.balance;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),

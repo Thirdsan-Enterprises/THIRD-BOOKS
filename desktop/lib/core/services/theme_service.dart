@@ -90,7 +90,7 @@ class AppSettings {
     this.showAccountCodes = true,
     this.enableAnimations = true,
     this.autoGamingTaxJE = true,
-    this.autoPayrollNSSFJE = true,
+    this.autoPayrollNSSFJE = false,
     this.autoWHTJE = true,
   });
 
@@ -160,7 +160,7 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     final showAccountCodes = await _storage.read(key: 'show_account_codes') != 'false';
     final enableAnimations = await _storage.read(key: 'enable_animations') != 'false';
     final autoGamingTaxJE = await _storage.read(key: 'auto_gaming_tax_je') != 'false';
-    final autoPayrollNSSFJE = await _storage.read(key: 'auto_payroll_nssf_je') != 'false';
+    final autoPayrollNSSFJE = await _storage.read(key: 'auto_payroll_nssf_je') == 'true';
     final autoWHTJE = await _storage.read(key: 'auto_wht_je') != 'false';
 
     state = AppSettings(
