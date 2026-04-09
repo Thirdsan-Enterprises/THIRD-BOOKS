@@ -499,9 +499,8 @@ class _BankReconciliationScreenState
     String acctQuery = '';
     String tab2Query = '';
 
-    final acctTypes = isDebit
-        ? [AccountType.expense, AccountType.liability, AccountType.asset]
-        : [AccountType.asset, AccountType.revenue, AccountType.equity];
+    // Show ALL account types — includes loans, liabilities, assets, etc.
+    final acctTypes = AccountType.values.toList();
 
     showDialog(
       context: context,
@@ -791,71 +790,179 @@ class _BankReconciliationScreenState
 
   Widget _buildBillsTab(BankStatementLine line, dynamic billsState,
       String query, BuildContext ctx, void Function(String) onSearch) {
-    final bills = (billsState.bills as List<Bill>)
-        .where((b) =>
-            b.status != BillStatus.paid &&
-            (query.isEmpty ||
-                b.billNumber.toLowerCase().contains(query) ||
-                (b.vendorName ?? '').toLowerCase().contains(query)))
+    final allBills = (billsState.bills as List<Bill>)
+        .where((b) => b.status != BillStatus.paid)
         .toList()
       ..sort((a, b) => b.date.compareTo(a.date));
-    return Column(
-      children: [
-        TextField(
-          decoration: InputDecoration(
-            hintText: 'Search bills...',
-            prefixIcon: const Icon(Icons.search, size: 18),
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: 8),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+    final bills = query.isEmpty
+        ? allBills
+        : allBills
+            .where((b) =>
+                b.billNumber.toLowerCase().contains(query) ||
+                (b.vendorName ?? '').toLowerCase().contains(query))
+            .toList();
+
+    // Multi-select state — track selected bill IDs and their allocated amounts
+    final selected = <String, TextEditingController>{};
+
+    return StatefulBuilder(builder: (ctx2, setS2) {
+      double allocatedTotal = 0;
+      for (final ctrl in selected.values) {
+        allocatedTotal += double.tryParse(ctrl.text.replaceAll(',', '')) ?? 0;
+      }
+      final remaining = line.amount.abs() - allocatedTotal;
+
+      return Column(
+        children: [
+          TextField(
+            decoration: InputDecoration(
+              hintText: 'Search bills...',
+              prefixIcon: const Icon(Icons.search, size: 18),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onChanged: (v) => onSearch(v.trim().toLowerCase()),
           ),
-          onChanged: (v) => onSearch(v.trim().toLowerCase()),
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: bills.isEmpty
-              ? const Center(child: Text('No unpaid bills found'))
-              : ListView.separated(
-                  itemCount: bills.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (_, i) {
-                    final bill = bills[i];
-                    return ListTile(
-                      dense: true,
-                      leading: CircleAvatar(
-                        radius: 14,
-                        backgroundColor: AppColors.expense.withOpacity(0.1),
-                        child: Icon(Icons.description,
-                            size: 14, color: AppColors.expense),
-                      ),
-                      title: Text(
-                          '${bill.billNumber} — ${bill.vendorName ?? "Vendor"}',
-                          style: const TextStyle(fontSize: 13)),
-                      subtitle: Text(
-                          'UGX ${_fmt.format(bill.total)}  •  ${_dateFmt.format(bill.date)}',
-                          style: const TextStyle(fontSize: 11)),
-                      onTap: () {
-                        setState(() {
-                          line.status = MatchStatus.matched;
-                          line.matchedRecordId = bill.id;
-                          line.matchedRecordType = 'bill';
-                          line.matchedLabel =
-                              '${bill.billNumber} — ${bill.vendorName ?? "Vendor"}';
-                        });
-                        ref.read(_reconciliationLinesProvider.notifier).state =
-                            [...ref.read(_reconciliationLinesProvider)];
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                          content: Text('Payment matched to bill'),
-                          backgroundColor: AppColors.success,
-                        ));
-                      },
-                    );
-                  },
-                ),
-        ),
-      ],
-    );
+          const SizedBox(height: 8),
+          // Allocation summary bar
+          if (selected.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: (remaining < -0.01 ? AppColors.error : AppColors.success).withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: (remaining < -0.01 ? AppColors.error : AppColors.success).withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Text('Selected: ${selected.length} bill(s)',
+                      style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)),
+                  const Spacer(),
+                  Text(
+                    'Allocated: UGX ${_fmt.format(allocatedTotal)}  •  Remaining: UGX ${_fmt.format(remaining)}',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: remaining < -0.01 ? AppColors.error : AppColors.success,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          Expanded(
+            child: bills.isEmpty
+                ? const Center(child: Text('No unpaid bills found'))
+                : ListView.separated(
+                    itemCount: bills.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final bill = bills[i];
+                      final isSelected = selected.containsKey(bill.id);
+                      final ctrl = selected[bill.id] ??
+                          TextEditingController(text: bill.total.toStringAsFixed(0));
+
+                      return CheckboxListTile(
+                        dense: true,
+                        value: isSelected,
+                        onChanged: (checked) {
+                          setS2(() {
+                            if (checked == true) {
+                              selected[bill.id] = ctrl;
+                            } else {
+                              selected.remove(bill.id);
+                              ctrl.dispose();
+                            }
+                          });
+                        },
+                        secondary: CircleAvatar(
+                          radius: 14,
+                          backgroundColor: AppColors.expense.withOpacity(0.1),
+                          child: Icon(Icons.description, size: 14, color: AppColors.expense),
+                        ),
+                        title: Text(
+                            '${bill.billNumber} — ${bill.vendorName ?? "Vendor"}',
+                            style: const TextStyle(fontSize: 13)),
+                        // Amount field shown when selected
+                        isThreeLine: isSelected,
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                                'Total: UGX ${_fmt.format(bill.total)}  •  ${_dateFmt.format(bill.date)}',
+                                style: const TextStyle(fontSize: 11)),
+                            if (isSelected) ...[
+                              const SizedBox(height: 4),
+                              SizedBox(
+                                height: 32,
+                                child: TextField(
+                                  controller: ctrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Amount to pay',
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    prefixText: 'UGX ',
+                                  ),
+                                  keyboardType: TextInputType.number,
+                                  onChanged: (_) => setS2(() {}),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          // Confirm multi-select button
+          if (selected.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  FilledButton.icon(
+                    icon: const Icon(Icons.check, size: 16),
+                    label: Text('Pay ${selected.length} Bill(s)'),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: remaining < -0.01
+                            ? AppColors.error
+                            : AppColors.success),
+                    onPressed: remaining < -0.01
+                        ? null
+                        : () {
+                            final labels = selected.keys
+                                .map((id) {
+                                  final b = allBills.firstWhere((b) => b.id == id,
+                                      orElse: () => allBills.first);
+                                  return b.billNumber;
+                                })
+                                .join(', ');
+                            setState(() {
+                              line.status = MatchStatus.matched;
+                              line.matchedRecordId = selected.keys.first;
+                              line.matchedRecordType = 'bill';
+                              line.matchedLabel = 'Bills: $labels';
+                            });
+                            ref.read(_reconciliationLinesProvider.notifier).state =
+                                [...ref.read(_reconciliationLinesProvider)];
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(
+                                  '${selected.length} bill(s) matched — UGX ${_fmt.format(allocatedTotal)}'),
+                              backgroundColor: AppColors.success,
+                            ));
+                          },
+                  ),
+                ],
+              ),
+            ),
+        ],
+      );
+    });
   }
 
   // ── Finalise reconciliation ──────────────────────────────────────────────

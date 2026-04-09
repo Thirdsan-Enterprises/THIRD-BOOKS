@@ -1,6 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:logger/logger.dart';
+
+import '../widgets/attachment_widget.dart';
 
 // API Configuration
 class ApiConfig {
@@ -263,5 +266,169 @@ class ApiClient {
     } catch (e) {
       return false;
     }
+  }
+
+  // ── Attachments ────────────────────────────────────────────────────────────
+
+  /// Upload one or more local files as attachments to a record.
+  /// Returns the list of [UploadedAttachment] objects created on the server.
+  Future<List<UploadedAttachment>> uploadAttachments(
+    String attachableType,
+    int attachableId,
+    List<PlatformFile> files, {
+    List<String?>? labels,
+  }) async {
+    final formData = FormData();
+    formData.fields.add(MapEntry('attachable_type', attachableType));
+    formData.fields.add(MapEntry('attachable_id', attachableId.toString()));
+
+    for (int i = 0; i < files.length; i++) {
+      final f = files[i];
+      if (f.path == null) continue;
+      formData.files.add(MapEntry(
+        'files[]',
+        await MultipartFile.fromFile(f.path!, filename: f.name),
+      ));
+      final label = labels != null && i < labels.length ? labels[i] : null;
+      if (label != null) {
+        formData.fields.add(MapEntry('labels[$i]', label));
+      }
+    }
+
+    try {
+      final resp = await _dio.post(
+        '/attachments',
+        data: formData,
+        options: Options(
+          headers: {
+            if (_authToken != null) 'Authorization': 'Bearer $_authToken',
+            if (_tenantId != null) 'X-Tenant-ID': _tenantId!,
+            'Content-Type': 'multipart/form-data',
+          },
+        ),
+      );
+      final list = (resp.data['attachments'] as List? ?? [])
+          .cast<Map<String, dynamic>>();
+      return list.map(UploadedAttachment.fromJson).toList();
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  // ── Banking — Statements ──────────────────────────────────────────────────
+
+  /// Fetch all uploaded bank statements for the company.
+  Future<List<Map<String, dynamic>>> getBankStatements({
+    int? bankAccountId,
+    String? status,
+  }) async {
+    final resp = await get('/banking/statements', queryParameters: {
+      if (bankAccountId != null) 'bank_account_id': bankAccountId,
+      if (status != null) 'status': status,
+      'per_page': 50,
+    });
+    final raw = resp.data['data'] as List? ?? [];
+    return raw.cast<Map<String, dynamic>>();
+  }
+
+  /// Upload a new bank statement (CSV file or JSON rows).
+  Future<Map<String, dynamic>> uploadBankStatement({
+    required int bankAccountId,
+    required String fromDate,
+    required String toDate,
+    String? referenceNumber,
+    String? notes,
+    double? openingBalance,
+    double? closingBalance,
+    PlatformFile? csvFile,
+    List<Map<String, dynamic>>? rows,
+  }) async {
+    final formData = FormData();
+    formData.fields.addAll([
+      MapEntry('bank_account_id', bankAccountId.toString()),
+      MapEntry('from_date', fromDate),
+      MapEntry('to_date', toDate),
+      if (referenceNumber != null) MapEntry('reference_number', referenceNumber),
+      if (notes != null) MapEntry('notes', notes),
+      if (openingBalance != null) MapEntry('opening_balance', openingBalance.toString()),
+      if (closingBalance != null) MapEntry('closing_balance', closingBalance.toString()),
+    ]);
+
+    if (csvFile?.path != null) {
+      formData.files.add(MapEntry(
+        'file',
+        await MultipartFile.fromFile(csvFile!.path!, filename: csvFile.name),
+      ));
+    }
+
+    try {
+      final resp = await _dio.post(
+        '/banking/statements',
+        data: formData,
+        options: Options(
+          headers: {
+            if (_authToken != null) 'Authorization': 'Bearer $_authToken',
+            if (_tenantId != null) 'X-Tenant-ID': _tenantId!,
+            'Content-Type': 'multipart/form-data',
+          },
+        ),
+      );
+      return resp.data['statement'] as Map<String, dynamic>? ?? {};
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// Delete an uploaded bank statement.
+  Future<void> deleteBankStatement(int statementId) async {
+    await delete('/banking/statements/$statementId');
+  }
+
+  /// Fetch a single statement with all its lines.
+  Future<Map<String, dynamic>> getBankStatement(int statementId) async {
+    final resp = await get('/banking/statements/$statementId');
+    return resp.data['statement'] as Map<String, dynamic>? ?? {};
+  }
+
+  // ── Banking — Reconciliation ──────────────────────────────────────────────
+
+  /// Return ALL chart of accounts (all types: assets, liabilities, loans, etc.)
+  /// for the CoA picker in bank reconciliation.
+  Future<List<Map<String, dynamic>>> getReconciliationAccounts({String? search}) async {
+    final resp = await get('/banking/reconciliation/accounts', queryParameters: {
+      if (search != null && search.isNotEmpty) 'search': search,
+    });
+    return (resp.data['accounts'] as List? ?? []).cast<Map<String, dynamic>>();
+  }
+
+  /// Return open bills and/or invoices available to reconcile against.
+  Future<List<Map<String, dynamic>>> getReconciliationItems({String? type}) async {
+    final resp = await get('/banking/reconciliation/items', queryParameters: {
+      if (type != null) 'type': type,
+    });
+    return (resp.data['items'] as List? ?? []).cast<Map<String, dynamic>>();
+  }
+
+  /// Reconcile one statement line against multiple bills/invoices.
+  Future<Map<String, dynamic>> reconcileStatementLine({
+    required int statementId,
+    required int lineId,
+    required int bankAccountId,
+    required List<Map<String, dynamic>> items,
+    // items: [{'type': 'bill', 'id': 12, 'amount': 500000}, ...]
+  }) async {
+    final resp = await post(
+      '/banking/statements/$statementId/lines/$lineId/reconcile',
+      data: {
+        'bank_account_id': bankAccountId,
+        'items': items,
+      },
+    );
+    return resp.data as Map<String, dynamic>? ?? {};
+  }
+
+  /// Reverse (undo) a reconciliation item.
+  Future<void> unreconcileItem(int itemId) async {
+    await delete('/banking/reconciliation-items/$itemId');
   }
 }

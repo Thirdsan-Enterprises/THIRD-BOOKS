@@ -8,10 +8,12 @@ import 'package:uuid/uuid.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/theme_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/models/invoice.dart';
 import '../../core/services/pdf_invoice_service.dart';
 import '../../core/services/company_settings_service.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/widgets/attachment_widget.dart';
 
 class InvoicesScreen extends ConsumerStatefulWidget {
   const InvoicesScreen({super.key});
@@ -355,6 +357,8 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
           double total = subtotal + vat;
           final fmt = NumberFormat('#,###');
 
+          final attachKey = GlobalKey<AttachmentPanelState>();
+
           return AlertDialog(
             title: const Text('Create New Invoice'),
             content: SizedBox(
@@ -536,6 +540,13 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 20),
+                    const Divider(height: 1),
+                    const SizedBox(height: 12),
+                    AttachmentPanel(
+                      key: attachKey,
+                      attachableType: 'invoice',
+                    ),
                   ],
                 ),
               ),
@@ -661,6 +672,14 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                 _DetailRow('Total', 'UGX ${_currencyFormat.format(invoice.total)}'),
                 _DetailRow('Amount Paid', 'UGX ${_currencyFormat.format(invoice.amountPaid)}'),
                 _DetailRow('Balance Due', 'UGX ${_currencyFormat.format(invoice.total - invoice.amountPaid)}'),
+                const SizedBox(height: 16),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                AttachmentPanel(
+                  attachableType: 'invoice',
+                  attachableId: invoice.syncSequence,
+                  apiClient: ref.read(apiClientProvider),
+                ),
               ],
             ),
           ),
