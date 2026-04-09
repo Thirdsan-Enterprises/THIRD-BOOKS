@@ -2,7 +2,7 @@
 ; Generates a single .exe installer for Windows
 
 #define MyAppName "ThirdBooks"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "ThirdBooks"
 #define MyAppURL "https://thirdbooks.digital"
 #define MyAppExeName "thirdbooks.exe"
