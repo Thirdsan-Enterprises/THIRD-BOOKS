@@ -1186,7 +1186,7 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
     try {
       final api = ref.read(apiClientProvider);
       final data = await api.getBankStatements();
-      setState(() { _statements = List<Map<String, dynamic>>.from(data['data'] ?? data ?? []); });
+      setState(() { _statements = List<Map<String, dynamic>>.from(data); });
     } catch (e) {
       setState(() { _error = e.toString(); });
     } finally {
@@ -1310,7 +1310,7 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
                           bankAccountId: selectedAccount!.id,
                           fromDate: DateFormat('yyyy-MM-dd').format(fromDate),
                           toDate: DateFormat('yyyy-MM-dd').format(toDate),
-                          csvFile: File(csvPath!),
+                          csvFilePath: csvPath!,
                         );
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(

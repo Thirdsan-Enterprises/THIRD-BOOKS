@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -333,19 +334,19 @@ class ApiClient {
 
   /// Upload a new bank statement (CSV file or JSON rows).
   Future<Map<String, dynamic>> uploadBankStatement({
-    required int bankAccountId,
+    required String bankAccountId,
     required String fromDate,
     required String toDate,
     String? referenceNumber,
     String? notes,
     double? openingBalance,
     double? closingBalance,
-    PlatformFile? csvFile,
+    String? csvFilePath,
     List<Map<String, dynamic>>? rows,
   }) async {
     final formData = FormData();
     formData.fields.addAll([
-      MapEntry('bank_account_id', bankAccountId.toString()),
+      MapEntry('bank_account_id', bankAccountId),
       MapEntry('from_date', fromDate),
       MapEntry('to_date', toDate),
       if (referenceNumber != null) MapEntry('reference_number', referenceNumber),
@@ -354,10 +355,11 @@ class ApiClient {
       if (closingBalance != null) MapEntry('closing_balance', closingBalance.toString()),
     ]);
 
-    if (csvFile?.path != null) {
+    if (csvFilePath != null) {
+      final file = File(csvFilePath);
       formData.files.add(MapEntry(
         'file',
-        await MultipartFile.fromFile(csvFile!.path!, filename: csvFile.name),
+        await MultipartFile.fromFile(csvFilePath, filename: file.uri.pathSegments.last),
       ));
     }
 
