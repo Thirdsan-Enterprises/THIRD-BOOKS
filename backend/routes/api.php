@@ -14,6 +14,9 @@ use App\Http\Controllers\SyncController;
 use App\Http\Controllers\ConflictController;
 use App\Http\Controllers\API\AccountDataController;
 use App\Http\Controllers\API\Outlets\OutletRevenueController;
+use App\Http\Controllers\API\AttachmentController;
+use App\Http\Controllers\API\Banking\BankStatementController;
+use App\Http\Controllers\API\Banking\BankReconciliationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -73,6 +76,27 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('bills', BillController::class);
         Route::post('/bills/{bill}/payment', [BillController::class, 'recordPayment']);
         Route::get('/bills/{bill}/pdf', [BillController::class, 'downloadPdf']);
+
+        // ── Attachments (polymorphic — bills, invoices, journal entries, payments) ─
+        Route::get('/attachments', [AttachmentController::class, 'index']);       // Global list / filter by type
+        Route::post('/attachments', [AttachmentController::class, 'store']);      // Upload one or more files
+        Route::get('/attachments/{attachment}', [AttachmentController::class, 'show']);
+        Route::delete('/attachments/{attachment}', [AttachmentController::class, 'destroy']);
+
+        // ── Banking — Uploaded Statements ────────────────────────────────────────
+        Route::prefix('banking')->group(function () {
+            // Tab: all uploaded statements
+            Route::get('/statements', [BankStatementController::class, 'index']);
+            Route::post('/statements', [BankStatementController::class, 'store']);      // Upload CSV or JSON rows
+            Route::get('/statements/{statement}', [BankStatementController::class, 'show']);
+            Route::delete('/statements/{statement}', [BankStatementController::class, 'destroy']); // Delete when errors found
+
+            // Reconciliation
+            Route::get('/reconciliation/accounts', [BankReconciliationController::class, 'accounts']); // All CoA types incl. loans
+            Route::get('/reconciliation/items', [BankReconciliationController::class, 'availableItems']); // Open bills / invoices
+            Route::post('/statements/{statement}/lines/{line}/reconcile', [BankReconciliationController::class, 'reconcile']); // 1 line → many bills
+            Route::delete('/reconciliation-items/{item}', [BankReconciliationController::class, 'unreconcile']); // Reverse
+        });
 
         // Outlet Revenue — posts DR Petty Cash / DR Payouts / CR Stakes JEs
         Route::prefix('outlet-revenues')->group(function () {

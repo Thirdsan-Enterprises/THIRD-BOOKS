@@ -38,6 +38,17 @@ class AccountController extends Controller
             $query->whereNull('parent_id');
         }
 
+        // for_reconciliation=true → return ALL types (assets, liabilities, equity, etc.)
+        // so the bank reconciliation CoA picker shows loans, bank accounts, and everything else.
+        // When this flag is present, any 'type' filter passed above is IGNORED.
+        if ($request->boolean('for_reconciliation')) {
+            $query->getQuery()->wheres = array_filter(
+                $query->getQuery()->wheres,
+                fn($w) => ($w['column'] ?? '') !== 'type'
+            );
+            $query->getQuery()->bindings['where'] = [];
+        }
+
         $accounts = $query->get();
 
         return response()->json([
