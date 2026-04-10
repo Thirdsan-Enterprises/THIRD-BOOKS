@@ -30,6 +30,11 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
         title: const Text('Asset Depreciation'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => setState(() {}),
+            tooltip: 'Refresh',
+          ),
+          IconButton(
             icon: const Icon(Icons.calculate),
             onPressed: _showDepreciationCalculator,
             tooltip: 'Depreciation Calculator',

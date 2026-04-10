@@ -13,7 +13,9 @@ import 'package:uuid/uuid.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/local_storage_service.dart';
 import '../../core/services/data_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/models/models.dart';
+import '../../core/widgets/attachment_widget.dart';
 
 // ---------------------------------------------------------------------------
 // State / Notifiers
@@ -664,6 +666,13 @@ class _CreditDebitNotesScreenState
                             Icon(Icons.sticky_note_2_outlined, size: 18),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 8),
+                    AttachmentPanel(
+                      attachableType: 'credit-note',
+                      apiClient: ref.read(apiClientProvider),
+                    ),
                   ],
                 ),
               ),
@@ -949,6 +958,13 @@ class _CreditDebitNotesScreenState
                         prefixIcon:
                             Icon(Icons.sticky_note_2_outlined, size: 18),
                       ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 8),
+                    AttachmentPanel(
+                      attachableType: 'debit-note',
+                      apiClient: ref.read(apiClientProvider),
                     ),
                   ],
                 ),

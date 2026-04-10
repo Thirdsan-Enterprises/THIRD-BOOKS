@@ -8,7 +8,9 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/models/journal_entry.dart';
+import '../../core/models/account.dart';
 import '../../core/widgets/attachment_widget.dart';
+import '../../core/widgets/account_search_field.dart';
 
 class JournalsScreen extends ConsumerStatefulWidget {
   const JournalsScreen({super.key});
@@ -770,27 +772,16 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                                 children: [
                                   Expanded(
                                     flex: 3,
-                                    child: DropdownButtonFormField<String>(
+                                    child: AccountSearchField(
+                                      accounts: accountsState.accounts,
                                       value: line.accountId.isEmpty ? null : line.accountId,
-                                      decoration: const InputDecoration(
-                                        hintText: 'Select account',
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                        isDense: true,
-                                      ),
-                                      items: accountsState.accounts
-                                          .map((a) => DropdownMenuItem(
-                                                value: a.id,
-                                                child: Text('${a.code} - ${a.name}'),
-                                              ))
-                                          .toList(),
                                       onChanged: (v) {
                                         setDialogState(() {
                                           line.accountId = v ?? '';
-                                          final account = accountsState.accounts.firstWhere(
-                                            (a) => a.id == v,
-                                            orElse: () => accountsState.accounts.first,
-                                          );
-                                          line.accountName = account.name;
+                                          final matched = accountsState.accounts
+                                              .cast<Account?>()
+                                              .firstWhere((a) => a?.id == v, orElse: () => null);
+                                          if (matched != null) line.accountName = matched.name;
                                         });
                                       },
                                     ),

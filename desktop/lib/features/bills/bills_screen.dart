@@ -19,6 +19,7 @@ import '../../core/models/payment.dart';
 import '../../core/models/models.dart' show JournalEntry, JournalLine, JournalEntryStatus;
 import '../../core/providers/asset_drafts_provider.dart';
 import '../../core/widgets/attachment_widget.dart';
+import '../../core/widgets/account_search_field.dart';
 
 class BillsScreen extends ConsumerStatefulWidget {
   const BillsScreen({super.key});
@@ -1229,21 +1230,9 @@ class _BillLineWidgetState extends State<_BillLineWidget> {
           // Account
           Expanded(
             flex: 3,
-            child: DropdownButtonFormField<String>(
+            child: AccountSearchField(
+              accounts: widget.accounts,
               value: widget.line.accountId.isEmpty ? null : widget.line.accountId,
-              decoration: const InputDecoration(
-                hintText: 'Select account',
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                isDense: true,
-              ),
-              items: widget.accounts
-                  .map<DropdownMenuItem<String>>((a) => DropdownMenuItem(
-                        value: a.id,
-                        child: Text('${a.code} - ${a.name}',
-                            overflow: TextOverflow.ellipsis),
-                      ))
-                  .toList(),
               onChanged: (v) {
                 setState(() => widget.line.accountId = v ?? '');
                 widget.onChanged();

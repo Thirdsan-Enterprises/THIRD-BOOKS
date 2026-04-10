@@ -1549,6 +1549,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         totalCredits += -netRaw;
       }
       rows.add({
+        'accountId': 'acct-${account.code}',
         'code': account.code,
         'account': account.name,
         'type': account.type.name[0].toUpperCase() + account.type.name.substring(1),
@@ -1571,64 +1572,68 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               Text('As at ${DateFormat('MMMM d, yyyy').format(DateTime.now())}',
                   style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12)),
               const SizedBox(height: 16),
-              Table(
-                columnWidths: const {
-                  0: FixedColumnWidth(56),
-                  1: FlexColumnWidth(3),
-                  2: FlexColumnWidth(1.5),
-                  3: FlexColumnWidth(1.5),
-                  4: FlexColumnWidth(1.5),
-                },
-                children: [
-                  TableRow(
-                    decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceVariant),
-                    children: const [
-                      Padding(padding: EdgeInsets.all(8), child: Text('Code', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-                      Padding(padding: EdgeInsets.all(8), child: Text('Account Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-                      Padding(padding: EdgeInsets.all(8), child: Text('Type', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-                      Padding(padding: EdgeInsets.all(8), child: Text('Debit (UGX)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12), textAlign: TextAlign.right)),
-                      Padding(padding: EdgeInsets.all(8), child: Text('Credit (UGX)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12), textAlign: TextAlign.right)),
-                    ],
+              // Header row
+              Container(
+                color: Theme.of(context).colorScheme.surfaceVariant,
+                child: Row(
+                  children: const [
+                    SizedBox(width: 56, child: Padding(padding: EdgeInsets.all(8), child: Text('Code', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                    Expanded(flex: 3, child: Padding(padding: EdgeInsets.all(8), child: Text('Account Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                    Expanded(flex: 2, child: Padding(padding: EdgeInsets.all(8), child: Text('Type', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                    Expanded(flex: 2, child: Padding(padding: EdgeInsets.all(8), child: Text('Debit (UGX)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12), textAlign: TextAlign.right))),
+                    Expanded(flex: 2, child: Padding(padding: EdgeInsets.all(8), child: Text('Credit (UGX)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12), textAlign: TextAlign.right))),
+                  ],
+                ),
+              ),
+              // Data rows — tappable to open ledger drill-down
+              ...rows.map((row) => InkWell(
+                onTap: () => _showLedgerDrillDown(context, {
+                  'accountId': row['accountId'],
+                  'name': row['account'],
+                }),
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.4))),
                   ),
-                  ...rows.map((row) => TableRow(
-                    decoration: BoxDecoration(
-                      border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.4))),
-                    ),
+                  child: Row(
                     children: [
-                      Padding(padding: const EdgeInsets.all(8), child: Text(row['code'] as String, style: const TextStyle(fontSize: 12, fontFamily: 'monospace'))),
-                      Padding(padding: const EdgeInsets.all(8), child: Text(row['account'] as String, style: const TextStyle(fontSize: 12))),
-                      Padding(padding: const EdgeInsets.all(8), child: Text(row['type'] as String, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline))),
-                      Padding(padding: const EdgeInsets.all(8), child: Text(
+                      SizedBox(width: 56, child: Padding(padding: const EdgeInsets.all(8), child: Text(row['code'] as String, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')))),
+                      Expanded(flex: 3, child: Padding(padding: const EdgeInsets.all(8), child: Text(row['account'] as String, style: const TextStyle(fontSize: 12)))),
+                      Expanded(flex: 2, child: Padding(padding: const EdgeInsets.all(8), child: Text(row['type'] as String, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)))),
+                      Expanded(flex: 2, child: Padding(padding: const EdgeInsets.all(8), child: Text(
                         (row['debit'] as double) > 0 ? NumberFormat('#,##0').format(row['debit']) : '—',
                         style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: (row['debit'] as double) > 0 ? AppColors.debit : Theme.of(context).colorScheme.outline),
                         textAlign: TextAlign.right,
-                      )),
-                      Padding(padding: const EdgeInsets.all(8), child: Text(
+                      ))),
+                      Expanded(flex: 2, child: Padding(padding: const EdgeInsets.all(8), child: Text(
                         (row['credit'] as double) > 0 ? NumberFormat('#,##0').format(row['credit']) : '—',
                         style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: (row['credit'] as double) > 0 ? AppColors.income : Theme.of(context).colorScheme.outline),
                         textAlign: TextAlign.right,
-                      )),
-                    ],
-                  )),
-                  TableRow(
-                    decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.08)),
-                    children: [
-                      const Padding(padding: EdgeInsets.all(8), child: SizedBox.shrink()),
-                      const Padding(padding: EdgeInsets.all(8), child: Text('TOTALS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
-                      const Padding(padding: EdgeInsets.all(8), child: SizedBox.shrink()),
-                      Padding(padding: const EdgeInsets.all(8), child: Text(
-                        NumberFormat('#,##0').format(totalDebits),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'monospace', color: AppColors.primary),
-                        textAlign: TextAlign.right,
-                      )),
-                      Padding(padding: const EdgeInsets.all(8), child: Text(
-                        NumberFormat('#,##0').format(totalCredits),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'monospace', color: AppColors.primary),
-                        textAlign: TextAlign.right,
-                      )),
+                      ))),
                     ],
                   ),
-                ],
+                ),
+              )),
+              // Totals row
+              Container(
+                color: AppColors.primary.withOpacity(0.08),
+                child: Row(
+                  children: [
+                    const SizedBox(width: 56, child: SizedBox.shrink()),
+                    const Expanded(flex: 3, child: Padding(padding: EdgeInsets.all(8), child: Text('TOTALS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                    const Expanded(flex: 2, child: SizedBox.shrink()),
+                    Expanded(flex: 2, child: Padding(padding: const EdgeInsets.all(8), child: Text(
+                      NumberFormat('#,##0').format(totalDebits),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'monospace', color: AppColors.primary),
+                      textAlign: TextAlign.right,
+                    ))),
+                    Expanded(flex: 2, child: Padding(padding: const EdgeInsets.all(8), child: Text(
+                      NumberFormat('#,##0').format(totalCredits),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'monospace', color: AppColors.primary),
+                      textAlign: TextAlign.right,
+                    ))),
+                  ],
+                ),
               ),
               const SizedBox(height: 12),
               Row(
