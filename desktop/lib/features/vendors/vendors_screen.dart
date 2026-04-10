@@ -792,7 +792,7 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
   void _showCreateBillForVendor(BuildContext context, Vendor vendor) {
     final accountsState = ref.read(accountsProvider);
     final expenseAccounts = accountsState.accounts
-        .where((a) => a.type.toLowerCase().contains('expense') || a.type.toLowerCase().contains('cost'))
+        .where((a) => a.type == AccountType.expense)
         .toList();
     final allAccounts = expenseAccounts.isNotEmpty ? expenseAccounts : accountsState.accounts;
 
