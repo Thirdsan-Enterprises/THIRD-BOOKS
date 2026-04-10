@@ -5,6 +5,7 @@
 
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 
@@ -143,14 +144,77 @@ class AttachmentPanelState extends State<AttachmentPanel> {
     );
     if (result == null) return;
 
-    setState(() {
-      for (final f in result.files) {
-        // Avoid duplicates by name
-        if (!_pending.any((p) => p.name == f.name)) {
-          _pending.add(f);
+    // If we already know the record ID and have an API client, upload immediately.
+    if (widget.attachableId != null && widget.apiClient != null) {
+      setState(() => _isUploading = true);
+      try {
+        final newAttachments = await widget.apiClient!.uploadAttachments(
+          widget.attachableType,
+          widget.attachableId!,
+          result.files,
+        );
+        setState(() => _uploaded.addAll(newAttachments));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${result.files.length} file(s) uploaded'),
+              backgroundColor: AppColors.success,
+              duration: const Duration(seconds: 2),
+            ),
+          );
         }
+      } catch (e) {
+        // Upload failed — queue as pending so user can retry
+        setState(() {
+          for (final f in result.files) {
+            if (!_pending.any((p) => p.name == f.name)) _pending.add(f);
+          }
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Upload failed (offline?): $e'),
+              backgroundColor: AppColors.error,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } finally {
+        setState(() => _isUploading = false);
       }
-    });
+    } else {
+      // New record — queue files; parent calls uploadPending() after save
+      setState(() {
+        for (final f in result.files) {
+          if (!_pending.any((p) => p.name == f.name)) _pending.add(f);
+        }
+      });
+    }
+  }
+
+  // ── Upload pending files manually (for create dialogs, or retry) ──────────
+  Future<void> _uploadPendingNow() async {
+    if (_pending.isEmpty || widget.attachableId == null || widget.apiClient == null) return;
+    setState(() => _isUploading = true);
+    try {
+      final newAttachments = await widget.apiClient!.uploadAttachments(
+        widget.attachableType,
+        widget.attachableId!,
+        _pending,
+      );
+      setState(() {
+        _uploaded.addAll(newAttachments);
+        _pending.clear();
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    } finally {
+      setState(() => _isUploading = false);
+    }
   }
 
   // ── Remove a pending (not-yet-uploaded) file ──────────────────────────────
@@ -238,9 +302,19 @@ class AttachmentPanelState extends State<AttachmentPanel> {
               style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
             ),
             const Spacer(),
-            if (!widget.readOnly)
+            if (widget.attachableId != null && widget.apiClient != null)
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 18),
+                tooltip: 'Reload attachments',
+                onPressed: _isLoading ? null : _loadAttachments,
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+              ),
+            // Hide "Add Files" when existing record hasn't synced (no server ID to attach to)
+            if (!widget.readOnly &&
+                !(widget.attachableId == null && widget.apiClient != null))
               TextButton.icon(
-                onPressed: _pickFiles,
+                onPressed: _isUploading ? null : _pickFiles,
                 icon: const Icon(Icons.add, size: 16),
                 label: const Text('Add Files'),
                 style: TextButton.styleFrom(
@@ -271,12 +345,26 @@ class AttachmentPanelState extends State<AttachmentPanel> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.cloud_upload_outlined, size: 18, color: theme.colorScheme.outline),
-                const SizedBox(width: 8),
-                Text(
-                  'No attachments yet. Click "Add Files" to attach receipts, PDFs, or images.',
-                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-                ),
+                // Existing record that hasn't synced to the server yet
+                if (widget.attachableId == null && widget.apiClient != null) ...[
+                  Icon(Icons.sync_disabled, size: 18, color: theme.colorScheme.outline),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      'Sync this record to the server first, then you can attach and view files here.',
+                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+                    ),
+                  ),
+                ] else ...[
+                  Icon(Icons.cloud_upload_outlined, size: 18, color: theme.colorScheme.outline),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      'No attachments yet. Click "Add Files" to attach receipts, PDFs, or images.',
+                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+                    ),
+                  ),
+                ],
               ],
             ),
           )
@@ -317,6 +405,24 @@ class AttachmentPanelState extends State<AttachmentPanel> {
                             onPressed: () => _removePending(f),
                           ),
                   )),
+              // "Upload now" bar — only shown when there are queued files and
+              // we have a record ID + API client to upload them to
+              if (_pending.isNotEmpty &&
+                  widget.attachableId != null &&
+                  widget.apiClient != null &&
+                  !_isUploading)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: FilledButton.icon(
+                    onPressed: _uploadPendingNow,
+                    icon: const Icon(Icons.cloud_upload_outlined, size: 16),
+                    label: Text('Upload ${_pending.length} pending file(s)'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      textStyle: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ),
             ],
           ),
       ],
@@ -350,16 +456,16 @@ class AttachmentPanelState extends State<AttachmentPanel> {
     }
   }
 
-  void _openOrCopyUrl(String url) {
-    // On desktop, copy the URL so the user can open it in a browser
-    // (url_launcher not in pubspec; can be added later)
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('File URL: $url', overflow: TextOverflow.ellipsis),
-        action: SnackBarAction(label: 'OK', onPressed: () {}),
-        duration: const Duration(seconds: 5),
-      ),
-    );
+  Future<void> _openOrCopyUrl(String url) async {
+    await Clipboard.setData(ClipboardData(text: url));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('File URL copied to clipboard — paste in your browser to open'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 }
 

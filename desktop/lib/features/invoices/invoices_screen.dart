@@ -347,6 +347,9 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     DateTime invoiceDate = DateTime.now();
     DateTime dueDate = DateTime.now().add(const Duration(days: 30));
 
+    // Key must live outside StatefulBuilder so it survives rebuilds
+    final attachKey = GlobalKey<AttachmentPanelState>();
+
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -356,8 +359,6 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
           double vat = enableVAT ? subtotal * 0.18 : 0.0;
           double total = subtotal + vat;
           final fmt = NumberFormat('#,###');
-
-          final attachKey = GlobalKey<AttachmentPanelState>();
 
           return AlertDialog(
             title: const Text('Create New Invoice'),
