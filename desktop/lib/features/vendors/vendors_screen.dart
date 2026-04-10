@@ -16,6 +16,7 @@ import '../../core/services/theme_service.dart';
 import '../../core/models/vendor.dart';
 import '../../core/models/bill.dart';
 import '../../core/models/account.dart';
+import '../../core/widgets/account_search_field.dart';
 
 class VendorsScreen extends ConsumerStatefulWidget {
   const VendorsScreen({super.key});
@@ -1273,20 +1274,9 @@ class _VendBillLineWidgetState extends State<_VendBillLineWidget> {
         children: [
           Expanded(
             flex: 3,
-            child: DropdownButtonFormField<String>(
+            child: AccountSearchField(
+              accounts: widget.accounts,
               value: widget.line.accountId.isEmpty ? null : widget.line.accountId,
-              decoration: const InputDecoration(
-                hintText: 'Account',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                isDense: true,
-              ),
-              items: widget.accounts
-                  .map((a) => DropdownMenuItem(
-                        value: a.id,
-                        child: Text('${a.code} - ${a.name}',
-                            overflow: TextOverflow.ellipsis),
-                      ))
-                  .toList(),
               onChanged: (v) {
                 setState(() => widget.line.accountId = v ?? '');
                 widget.onChanged();

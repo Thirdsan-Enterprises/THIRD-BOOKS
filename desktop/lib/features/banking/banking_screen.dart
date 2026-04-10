@@ -1413,13 +1413,34 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
     if (_loading) return const Center(child: CircularProgressIndicator());
 
     if (_error != null) {
+      final isOffline = _error!.contains('DioException') ||
+          _error!.contains('SocketException') ||
+          _error!.contains('Connection refused') ||
+          _error!.contains('null') ||
+          _error!.contains('Network');
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            Icon(
+              isOffline ? Icons.cloud_off_outlined : Icons.error_outline,
+              size: 48,
+              color: isOffline
+                  ? Theme.of(context).colorScheme.outline
+                  : Colors.red,
+            ),
             const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: Colors.red)),
+            Text(
+              isOffline
+                  ? 'Offline — connect to server to view uploaded statements'
+                  : _error!,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: isOffline
+                    ? Theme.of(context).colorScheme.outline
+                    : Colors.red,
+              ),
+            ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: _loadStatements,

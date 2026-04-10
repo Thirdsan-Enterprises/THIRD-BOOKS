@@ -40,6 +40,11 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
         title: const Text('Asset Management'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => setState(() {}),
+            tooltip: 'Refresh',
+          ),
+          IconButton(
             icon: const Icon(Icons.trending_down),
             onPressed: () => Navigator.pushNamed(context, '/depreciation'),
             tooltip: 'Depreciation',
