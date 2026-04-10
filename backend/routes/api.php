@@ -17,6 +17,7 @@ use App\Http\Controllers\API\Outlets\OutletRevenueController;
 use App\Http\Controllers\API\AttachmentController;
 use App\Http\Controllers\API\Banking\BankStatementController;
 use App\Http\Controllers\API\Banking\BankReconciliationController;
+use App\Http\Controllers\API\UserController;
 
 /*
 |--------------------------------------------------------------------------
@@ -42,6 +43,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Tenant-specific routes
     Route::middleware('tenant')->group(function () {
+
+        // Tenant User Management (admin-only write, all users can list)
+        Route::get('/users', [UserController::class, 'index']);
+        Route::post('/users', [UserController::class, 'store']);
+        Route::put('/users/{user}', [UserController::class, 'update']);
+        Route::delete('/users/{user}', [UserController::class, 'destroy']);
 
         // Dashboard
         Route::get('/dashboard/overview', [ReportController::class, 'dashboardOverview']);
