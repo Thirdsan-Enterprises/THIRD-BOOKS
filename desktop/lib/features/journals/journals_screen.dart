@@ -638,6 +638,9 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
       _JournalLineData(),
     ];
 
+    // Key must live outside the StatefulBuilder so it survives rebuilds
+    final attachKey = GlobalKey<AttachmentPanelState>();
+
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -645,8 +648,6 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
           double totalDebit = lines.fold(0, (sum, line) => sum + line.debit);
           double totalCredit = lines.fold(0, (sum, line) => sum + line.credit);
           bool isBalanced = (totalDebit - totalCredit).abs() < 0.01;
-
-          final attachKey = GlobalKey<AttachmentPanelState>();
 
           return AlertDialog(
             title: const Text('New Journal Entry'),
