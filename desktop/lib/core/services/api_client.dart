@@ -433,4 +433,60 @@ class ApiClient {
   Future<void> unreconcileItem(int itemId) async {
     await delete('/banking/reconciliation-items/$itemId');
   }
+
+  // ── User Management (tenant-scoped) ─────────────────────────────────────────
+
+  /// List all users belonging to the current tenant.
+  Future<List<Map<String, dynamic>>> listUsers() async {
+    try {
+      final resp = await get('/users');
+      return (resp.data['users'] as List? ?? []).cast<Map<String, dynamic>>();
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// Create a new user in the current tenant.
+  Future<Map<String, dynamic>> createUser({
+    required String name,
+    required String email,
+    required String password,
+    required String role,
+  }) async {
+    try {
+      final resp = await post('/users', data: {
+        'name': name,
+        'email': email,
+        'password': password,
+        'role': role,
+      });
+      return resp.data['user'] as Map<String, dynamic>? ?? {};
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// Update a user's role or active status.
+  Future<Map<String, dynamic>> updateUser(
+    int userId, {
+    String? role,
+    bool? isActive,
+    String? name,
+  }) async {
+    try {
+      final resp = await put('/users/$userId', data: {
+        if (name != null) 'name': name,
+        if (role != null) 'role': role,
+        if (isActive != null) 'is_active': isActive,
+      });
+      return resp.data['user'] as Map<String, dynamic>? ?? {};
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// Remove a user from the current tenant.
+  Future<void> deleteUser(int userId) async {
+    await delete('/users/$userId');
+  }
 }

@@ -8,6 +8,9 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/theme_service.dart';
 import '../../core/services/company_settings_service.dart';
 import '../../core/services/sync_service.dart';
+import '../../core/services/api_client.dart';
+import '../../core/services/local_storage_service.dart';
+import '../../core/services/local_backup_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -376,111 +379,335 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _buildUsersPermissions(BuildContext context) {
-    final users = [
-      {'name': 'Admin', 'email': 'admin@magicbet.ug', 'role': 'Administrator', 'status': 'Active'},
-    ];
+    final api = ref.read(apiClientProvider);
+    final connectivity = ref.watch(connectivityProvider);
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildSectionHeader(context, 'Users & Permissions', 'Manage team access and roles'),
-              FilledButton.icon(
-                onPressed: () {},
-                icon: const Icon(Icons.person_add, size: 18),
-                label: const Text('Invite User'),
+    return StatefulBuilder(builder: (context, setS) {
+      List<Map<String, dynamic>> users = [];
+      bool loading = true;
+      String? error;
+
+      void loadUsers() {
+        setS(() { loading = true; error = null; });
+        api.listUsers().then((list) {
+          setS(() { users = list; loading = false; });
+        }).catchError((e) {
+          setS(() { loading = false; error = e.toString(); });
+        });
+      }
+
+      Future<void> showInviteDialog() async {
+        final nameCtrl = TextEditingController();
+        final emailCtrl = TextEditingController();
+        final passCtrl = TextEditingController();
+        String role = 'accountant';
+        final formKey = GlobalKey<FormState>();
+
+        await showDialog(
+          context: context,
+          builder: (ctx) => StatefulBuilder(builder: (ctx, setSd) => AlertDialog(
+            title: const Text('Add Team Member'),
+            content: SizedBox(
+              width: 420,
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(labelText: 'Full Name *'),
+                      validator: (v) => (v ?? '').isEmpty ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: emailCtrl,
+                      decoration: const InputDecoration(labelText: 'Email Address *'),
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (v) => (v ?? '').contains('@') ? null : 'Valid email required',
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: passCtrl,
+                      decoration: const InputDecoration(labelText: 'Password *'),
+                      obscureText: true,
+                      validator: (v) => (v ?? '').length >= 8 ? null : 'Min 8 characters',
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: role,
+                      decoration: const InputDecoration(labelText: 'Role *'),
+                      items: const [
+                        DropdownMenuItem(value: 'admin',       child: Text('Admin')),
+                        DropdownMenuItem(value: 'accountant',  child: Text('Accountant')),
+                        DropdownMenuItem(value: 'manager',     child: Text('Manager')),
+                        DropdownMenuItem(value: 'user',        child: Text('Staff')),
+                        DropdownMenuItem(value: 'viewer',      child: Text('Viewer (read-only)')),
+                      ],
+                      onChanged: (v) => setSd(() => role = v ?? role),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () async {
+                  if (!formKey.currentState!.validate()) return;
+                  Navigator.pop(ctx);
+                  try {
+                    await api.createUser(
+                      name: nameCtrl.text.trim(),
+                      email: emailCtrl.text.trim(),
+                      password: passCtrl.text,
+                      role: role,
+                    );
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('User created successfully'),
+                        backgroundColor: AppColors.success,
+                      ));
+                      loadUsers();
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('Failed to create user: $e'),
+                        backgroundColor: AppColors.error,
+                      ));
+                    }
+                  }
+                },
+                child: const Text('Create User'),
+              ),
+            ],
+          )),
+        );
+      }
+
+      Future<void> changeRole(Map<String, dynamic> user, String newRole) async {
+        try {
+          await api.updateUser(user['id'] as int, role: newRole);
+          loadUsers();
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Failed to update role: $e'),
+              backgroundColor: AppColors.error,
+            ));
+          }
+        }
+      }
+
+      Future<void> toggleActive(Map<String, dynamic> user) async {
+        final active = user['is_active'] as bool? ?? true;
+        try {
+          await api.updateUser(user['id'] as int, isActive: !active);
+          loadUsers();
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Update failed: $e'),
+              backgroundColor: AppColors.error,
+            ));
+          }
+        }
+      }
+
+      Future<void> deleteUser(Map<String, dynamic> user) async {
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Remove User'),
+            content: Text('Remove ${user['name']} (${user['email']}) from this tenant?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Remove'),
               ),
             ],
           ),
-          const SizedBox(height: 24),
-          Card(
-            child: DataTable(
-              columns: const [
-                DataColumn(label: Text('User')),
-                DataColumn(label: Text('Role')),
-                DataColumn(label: Text('Status')),
-                DataColumn(label: Text('Actions')),
+        );
+        if (ok == true) {
+          try {
+            await api.deleteUser(user['id'] as int);
+            loadUsers();
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text('Failed: $e'),
+                backgroundColor: AppColors.error,
+              ));
+            }
+          }
+        }
+      }
+
+      // Trigger initial load once
+      if (loading && error == null && users.isEmpty) {
+        Future.microtask(loadUsers);
+      }
+
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildSectionHeader(context, 'Users & Permissions', 'Manage team access and roles'),
+                Row(children: [
+                  OutlinedButton.icon(
+                    onPressed: loadUsers,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('Refresh'),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: connectivity.isOnline ? showInviteDialog : null,
+                    icon: const Icon(Icons.person_add, size: 18),
+                    label: const Text('Add User'),
+                  ),
+                ]),
               ],
-              rows: users.map((user) {
-                return DataRow(cells: [
-                  DataCell(
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 18,
-                          backgroundColor: AppColors.primary.withOpacity(0.1),
-                          child: Text(
-                            user['name']![0],
-                            style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(user['name']!, style: const TextStyle(fontWeight: FontWeight.w500)),
-                            Text(user['email']!, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  DataCell(
-                    DropdownButton<String>(
-                      value: user['role'],
-                      underline: const SizedBox(),
-                      items: ['Administrator', 'Accountant', 'Viewer']
-                          .map((r) => DropdownMenuItem(value: r, child: Text(r)))
-                          .toList(),
-                      onChanged: (v) {},
-                    ),
-                  ),
-                  DataCell(_buildStatusBadge(user['status']!)),
-                  DataCell(
-                    Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                          onPressed: () {},
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          onPressed: () {},
-                        ),
-                      ],
-                    ),
-                  ),
-                ]);
-              }).toList(),
             ),
-          ),
-          const SizedBox(height: 32),
-          Text('Role Permissions', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  _PermissionRow('View Dashboard', [true, true, true]),
-                  _PermissionRow('Manage Transactions', [true, true, false]),
-                  _PermissionRow('Create/Edit Invoices', [true, true, false]),
-                  _PermissionRow('View Reports', [true, true, true]),
-                  _PermissionRow('Export Data', [true, true, false]),
-                  _PermissionRow('Manage Users', [true, false, false]),
-                  _PermissionRow('Company Settings', [true, false, false]),
-                ],
+            if (!connectivity.isOnline)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.warning.withOpacity(0.3)),
+                  ),
+                  child: Row(children: [
+                    Icon(Icons.wifi_off, size: 16, color: AppColors.warning),
+                    const SizedBox(width: 8),
+                    const Text('Offline — user management requires an internet connection.',
+                        style: TextStyle(fontSize: 13)),
+                  ]),
+                ),
+              ),
+            const SizedBox(height: 24),
+            if (loading)
+              const Center(child: CircularProgressIndicator())
+            else if (error != null)
+              Center(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.error_outline, color: AppColors.error, size: 40),
+                  const SizedBox(height: 8),
+                  Text(error!, style: const TextStyle(color: AppColors.error)),
+                  const SizedBox(height: 12),
+                  OutlinedButton(onPressed: loadUsers, child: const Text('Retry')),
+                ]),
+              )
+            else
+              Card(
+                child: users.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.all(32),
+                        child: Center(child: Text('No users found. Add a team member above.')),
+                      )
+                    : DataTable(
+                        columns: const [
+                          DataColumn(label: Text('User')),
+                          DataColumn(label: Text('Role')),
+                          DataColumn(label: Text('Status')),
+                          DataColumn(label: Text('Actions')),
+                        ],
+                        rows: users.map((user) {
+                          final active = user['is_active'] as bool? ?? true;
+                          final role = user['role'] as String? ?? 'user';
+                          return DataRow(cells: [
+                            DataCell(Row(children: [
+                              CircleAvatar(
+                                radius: 18,
+                                backgroundColor: AppColors.primary.withOpacity(0.1),
+                                child: Text(
+                                  ((user['name'] as String?) ?? '?')[0].toUpperCase(),
+                                  style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(user['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.w500)),
+                                  Text(user['email'] ?? '',
+                                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline)),
+                                ],
+                              ),
+                            ])),
+                            DataCell(DropdownButton<String>(
+                              value: ['admin', 'accountant', 'manager', 'user', 'viewer'].contains(role)
+                                  ? role : 'user',
+                              underline: const SizedBox(),
+                              items: const [
+                                DropdownMenuItem(value: 'admin',      child: Text('Admin')),
+                                DropdownMenuItem(value: 'accountant', child: Text('Accountant')),
+                                DropdownMenuItem(value: 'manager',    child: Text('Manager')),
+                                DropdownMenuItem(value: 'user',       child: Text('Staff')),
+                                DropdownMenuItem(value: 'viewer',     child: Text('Viewer')),
+                              ],
+                              onChanged: connectivity.isOnline
+                                  ? (v) { if (v != null) changeRole(user, v); }
+                                  : null,
+                            )),
+                            DataCell(_buildStatusBadge(active ? 'Active' : 'Inactive')),
+                            DataCell(Row(children: [
+                              Tooltip(
+                                message: active ? 'Deactivate' : 'Activate',
+                                child: IconButton(
+                                  icon: Icon(
+                                    active ? Icons.pause_circle_outline : Icons.play_circle_outline,
+                                    size: 18,
+                                    color: active ? AppColors.warning : AppColors.success,
+                                  ),
+                                  onPressed: connectivity.isOnline ? () => toggleActive(user) : null,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, size: 18),
+                                color: AppColors.error,
+                                tooltip: 'Remove user',
+                                onPressed: connectivity.isOnline ? () => deleteUser(user) : null,
+                              ),
+                            ])),
+                          ]);
+                        }).toList(),
+                      ),
+              ),
+            const SizedBox(height: 32),
+            Text('Role Permissions Matrix', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(children: [
+                  _PermissionRow('', []),                    // column headers
+                  const Divider(height: 8),
+                  _PermissionRow('View Dashboard & Reports', [true, true, true, true, true]),
+                  _PermissionRow('Create & Edit Invoices',   [true, true, true, false, false]),
+                  _PermissionRow('Create & Edit Bills',      [true, true, true, false, false]),
+                  _PermissionRow('Post Journal Entries',     [true, true, false, false, false]),
+                  _PermissionRow('Approve Payments',         [true, true, true, false, false]),
+                  _PermissionRow('Bank Reconciliation',      [true, true, false, false, false]),
+                  _PermissionRow('Manage Users',             [true, false, false, false, false]),
+                  _PermissionRow('Company Settings',         [true, false, false, false, false]),
+                  _PermissionRow('Export & Backup Data',     [true, true, false, false, false]),
+                ]),
               ),
             ),
-          ),
-        ],
-      ),
-    );
+          ],
+        ),
+      );
+    });
   }
 
   Widget _buildChartOfAccountsSettings(BuildContext context) {
@@ -1460,6 +1687,196 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
+          // ── Local Backup Card ─────────────────────────────────────────────
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.secondary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.save_alt, color: AppColors.secondary),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Local Backup & Restore', style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Export all your data to a .thirdbooks file stored on your device. '
+                          'Import it to restore or migrate to another machine without needing internet.',
+                          style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.outline),
+                        ),
+                      ]),
+                    ),
+                  ]),
+                  const SizedBox(height: 20),
+                  Row(children: [
+                    FilledButton.icon(
+                      onPressed: () async {
+                        final backup = LocalBackupService(LocalStorageService.instance);
+                        try {
+                          final result = await backup.exportBackup();
+                          if (result == null) return; // cancelled
+                          if (!mounted) return;
+                          showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: Row(children: [
+                                const Icon(Icons.check_circle, color: AppColors.success),
+                                const SizedBox(width: 8),
+                                const Text('Backup Created'),
+                              ]),
+                              content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('Saved to:\n${result.filePath}', style: const TextStyle(fontSize: 13)),
+                                const SizedBox(height: 12),
+                                const Divider(),
+                                const SizedBox(height: 8),
+                                ...result.counts.entries
+                                    .where((e) => e.value > 0)
+                                    .map((e) => Text('${e.key.replaceAll('_', ' ')}: ${e.value}',
+                                        style: const TextStyle(fontSize: 13))),
+                                const SizedBox(height: 8),
+                                Text('Total: ${result.totalRecords} records',
+                                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                              ]),
+                              actions: [
+                                FilledButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: const Text('Done')),
+                              ],
+                            ),
+                          );
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text('Export failed: $e'),
+                              backgroundColor: AppColors.error,
+                            ));
+                          }
+                        }
+                      },
+                      icon: const Icon(Icons.download, size: 18),
+                      label: const Text('Export Backup'),
+                    ),
+                    const SizedBox(width: 12),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        // Pick once, preview, confirm, then restore from same path
+                        final picked = await FilePicker.platform.pickFiles(
+                          dialogTitle: 'Select ThirdBooks Backup',
+                          type: FileType.any,
+                        );
+                        if (picked == null || picked.files.single.path == null) return;
+                        final filePath = picked.files.single.path!;
+
+                        final backup = LocalBackupService(LocalStorageService.instance);
+                        try {
+                          final preview = await backup.previewRestoreFromPath(filePath);
+                          if (!mounted) return;
+                          if (preview.error != null) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(preview.error!),
+                              backgroundColor: AppColors.error,
+                            ));
+                            return;
+                          }
+
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Import Backup?'),
+                              content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('Exported: ${preview.exportedAt}'),
+                                const SizedBox(height: 12),
+                                const Text('This will OVERWRITE all current local data with:'),
+                                const SizedBox(height: 8),
+                                ...preview.counts.entries
+                                    .where((e) => e.value > 0)
+                                    .map((e) => Text('  • ${e.key.replaceAll('_', ' ')}: ${e.value}',
+                                        style: const TextStyle(fontSize: 13))),
+                                const SizedBox(height: 8),
+                                Text('Total: ${preview.totalRecords} records',
+                                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                              ]),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                FilledButton(
+                                  style: FilledButton.styleFrom(backgroundColor: AppColors.warning),
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: const Text('Import & Overwrite'),
+                                ),
+                              ],
+                            ),
+                          );
+
+                          if (confirm != true || !mounted) return;
+                          final result = await backup.restoreFromFile(filePath);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text('Restored ${result.totalRecords} records successfully'),
+                              backgroundColor: AppColors.success,
+                            ));
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text('Import failed: $e'),
+                              backgroundColor: AppColors.error,
+                            ));
+                          }
+                        }
+                      },
+                      icon: const Icon(Icons.upload, size: 18),
+                      label: const Text('Import Backup'),
+                    ),
+                  ]),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // ── Cloud Sync Info Card ───────────────────────────────────────────
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.info.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.cloud_sync, color: AppColors.info),
+                    ),
+                    const SizedBox(width: 16),
+                    Text('Cloud Sync — How It Works', style: Theme.of(context).textTheme.titleMedium),
+                  ]),
+                  const SizedBox(height: 16),
+                  const _CloudSyncStep(step: '1', title: 'Sign in on any machine',
+                      detail: 'Use your email and password. The app connects to api.thirdbooks.digital.'),
+                  const _CloudSyncStep(step: '2', title: 'Data syncs automatically',
+                      detail: 'All your invoices, bills, journals and bank data are stored in your private cloud tenant.'),
+                  const _CloudSyncStep(step: '3', title: 'Offline edits sync when back online',
+                      detail: 'Work without internet — changes are queued and uploaded automatically when connectivity returns.'),
+                  const _CloudSyncStep(step: '4', title: 'Multiple users on one account',
+                      detail: 'Add team members under Users & Permissions. Each person logs in with their own credentials.'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
           // ── Danger Zone Card ──────────────────────────────────────────────
           Card(
             shape: RoundedRectangleBorder(
@@ -1673,22 +2090,82 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
+// ── Cloud Sync Step ───────────────────────────────────────────────────────────
+class _CloudSyncStep extends StatelessWidget {
+  final String step;
+  final String title;
+  final String detail;
+
+  const _CloudSyncStep({required this.step, required this.title, required this.detail});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+          width: 28, height: 28,
+          decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.12), shape: BoxShape.circle),
+          alignment: Alignment.center,
+          child: Text(step, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.primary)),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            const SizedBox(height: 2),
+            Text(detail, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline)),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+// ── Permission Matrix Row ─────────────────────────────────────────────────────
 class _PermissionRow extends StatelessWidget {
   final String permission;
-  final List<bool> roles; // [Admin, Accountant, Viewer]
+  /// [Admin, Accountant, Manager, Staff, Viewer]
+  final List<bool> roles;
 
   const _PermissionRow(this.permission, this.roles);
 
   @override
   Widget build(BuildContext context) {
+    // Header row sentinel — permission == '' means render column labels
+    if (permission.isEmpty) {
+      const labels = ['Admin', 'Accountant', 'Manager', 'Staff', 'Viewer'];
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Row(
+          children: [
+            const Expanded(flex: 3, child: SizedBox()),
+            ...labels.map((l) => Expanded(
+                  child: Center(
+                    child: Text(l,
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                        textAlign: TextAlign.center),
+                  ),
+                )),
+          ],
+        ),
+      );
+    }
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
-          Expanded(flex: 2, child: Text(permission)),
-          Expanded(child: Center(child: Icon(roles[0] ? Icons.check : Icons.close, color: roles[0] ? AppColors.income : Colors.grey, size: 20))),
-          Expanded(child: Center(child: Icon(roles[1] ? Icons.check : Icons.close, color: roles[1] ? AppColors.income : Colors.grey, size: 20))),
-          Expanded(child: Center(child: Icon(roles[2] ? Icons.check : Icons.close, color: roles[2] ? AppColors.income : Colors.grey, size: 20))),
+          Expanded(flex: 3, child: Text(permission, style: const TextStyle(fontSize: 13))),
+          ...List.generate(roles.length, (i) {
+            final has = i < roles.length ? roles[i] : false;
+            return Expanded(
+              child: Center(
+                child: Icon(has ? Icons.check_circle : Icons.remove,
+                    color: has ? AppColors.income : Colors.grey.shade300, size: 18),
+              ),
+            );
+          }),
         ],
       ),
     );
