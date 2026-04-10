@@ -172,6 +172,12 @@ class DepreciationSchedulesNotifier
     state = state.where((s) => s.id != id).toList();
     await _save();
   }
+
+  /// Clear all schedules — used by the settings "clear cache" action.
+  Future<void> clearAll() async {
+    state = [];
+    await _save();
+  }
 }
 
 // ---------------------------------------------------------------------------

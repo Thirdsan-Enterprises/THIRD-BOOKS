@@ -3,6 +3,8 @@
 // and shown in the Assets screen until confirmed/posted.
 // © 2026 ThirdBooks. All rights reserved.
 
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/local_storage_service.dart';
 
@@ -75,6 +77,10 @@ class AssetDraft {
 class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
   final LocalStorageService _storage;
 
+  // Completer that resolves once the initial load from disk is done.
+  // All mutation methods await this so they never race with _load().
+  final Completer<void> _loadCompleter = Completer<void>();
+
   AssetDraftsNotifier(this._storage) : super([]) {
     _load();
   }
@@ -84,7 +90,10 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
       final list =
           await _storage.loadData('asset_drafts', AssetDraft.fromJson);
       state = list;
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      if (!_loadCompleter.isCompleted) _loadCompleter.complete();
+    }
   }
 
   Future<void> _save() async {
@@ -101,6 +110,8 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
     String? billReference,
     required DateTime date,
   }) async {
+    // Wait for initial load so we never overwrite existing drafts.
+    await _loadCompleter.future;
     state = [
       ...state,
       AssetDraft(
@@ -118,6 +129,7 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
   }
 
   Future<void> confirmAsset(String id) async {
+    await _loadCompleter.future;
     state = state
         .map((a) => a.id == id ? a.copyWith(isConfirmed: true) : a)
         .toList();
@@ -125,7 +137,14 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
   }
 
   Future<void> removeDraft(String id) async {
+    await _loadCompleter.future;
     state = state.where((a) => a.id != id).toList();
+    await _save();
+  }
+
+  /// Clear all drafts — used by the settings "clear cache" action.
+  Future<void> clearAll() async {
+    state = [];
     await _save();
   }
 }
