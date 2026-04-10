@@ -479,6 +479,8 @@ class _CreditDebitNotesScreenState
     NoteStatus selectedStatus = note?.status ?? NoteStatus.draft;
     DateTime selectedDate = note?.date ?? DateTime.now();
     final dateFmt = DateFormat('MMM d, yyyy');
+    // Pre-generate so attachments are stored immediately (reuse existing ID on edit).
+    final noteId = note?.id ?? const Uuid().v4();
 
     showDialog(
       context: context,
@@ -671,7 +673,7 @@ class _CreditDebitNotesScreenState
                     const SizedBox(height: 8),
                     AttachmentPanel(
                       attachableType: 'credit-note',
-                      apiClient: ref.read(apiClientProvider),
+                      localRecordId: noteId,
                     ),
                   ],
                 ),
@@ -704,7 +706,7 @@ class _CreditDebitNotesScreenState
                             orElse: () => null);
 
                 final cn = CreditNote(
-                  id: note?.id ?? const Uuid().v4(),
+                  id: noteId,
                   creditNoteNumber: numCtrl.text.trim(),
                   customerId: selectedCustomerId!,
                   customerName: customer?.name,
@@ -773,6 +775,8 @@ class _CreditDebitNotesScreenState
     NoteStatus selectedStatus = note?.status ?? NoteStatus.draft;
     DateTime selectedDate = note?.date ?? DateTime.now();
     final dateFmt = DateFormat('MMM d, yyyy');
+    // Pre-generate so attachments are stored immediately (reuse existing ID on edit).
+    final debitNoteId = note?.id ?? const Uuid().v4();
 
     showDialog(
       context: context,
@@ -964,7 +968,7 @@ class _CreditDebitNotesScreenState
                     const SizedBox(height: 8),
                     AttachmentPanel(
                       attachableType: 'debit-note',
-                      apiClient: ref.read(apiClientProvider),
+                      localRecordId: debitNoteId,
                     ),
                   ],
                 ),
@@ -997,7 +1001,7 @@ class _CreditDebitNotesScreenState
                             orElse: () => null);
 
                 final dn = DebitNote(
-                  id: note?.id ?? const Uuid().v4(),
+                  id: debitNoteId,
                   debitNoteNumber: numCtrl.text.trim(),
                   vendorId: selectedVendorId!,
                   vendorName: vendor?.name,

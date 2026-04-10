@@ -12,7 +12,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/theme_service.dart';
-import '../../core/services/api_client.dart';
+import '../../core/services/api_client.dart'; // retained for data_service compatibility
 import '../../core/models/bill.dart';
 import '../../core/models/account.dart';
 import '../../core/models/payment.dart';
@@ -470,7 +470,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
     DateTime billDate = DateTime.now();
     DateTime dueDate = DateTime.now().add(const Duration(days: 30));
 
-    final attachKey = GlobalKey<AttachmentPanelState>();
+    // Pre-generate the bill ID so attachments can be stored immediately.
+    final billId = const Uuid().v4();
 
     showDialog(
       context: context,
@@ -694,8 +695,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                     const Divider(height: 1),
                     const SizedBox(height: 12),
                     AttachmentPanel(
-                      key: attachKey,
                       attachableType: 'bill',
+                      localRecordId: billId,
                     ),
                   ],
                 ),
@@ -741,7 +742,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                   final taxAmount = enableVAT ? subtotal * 0.18 : 0.0;
                   final total = subtotal + taxAmount;
                   final now = DateTime.now();
-                  final billId = now.millisecondsSinceEpoch.toString();
+                  // billId was pre-generated above so attachments are already stored under it.
                   final vendor = vendorsState.vendors.firstWhere((v) => v.id == selectedVendorId);
 
                   final bill = Bill(
@@ -850,8 +851,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
               const SizedBox(height: 12),
               AttachmentPanel(
                 attachableType: 'bill',
-                attachableId: bill.syncSequence,
-                apiClient: ref.read(apiClientProvider),
+                localRecordId: bill.id,
               ),
             ],
           ),

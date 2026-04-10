@@ -674,8 +674,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
               const SizedBox(height: 12),
               AttachmentPanel(
                 attachableType: payment.isReceived ? 'payment' : 'bill-payment',
-                attachableId: payment.syncSequence,
-                apiClient: ref.read(apiClientProvider),
+                localRecordId: payment.id,
               ),
             ],
           ),

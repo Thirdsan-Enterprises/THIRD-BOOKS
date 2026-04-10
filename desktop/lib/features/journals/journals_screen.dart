@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
@@ -638,8 +639,8 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
       _JournalLineData(),
     ];
 
-    // Key must live outside the StatefulBuilder so it survives rebuilds
-    final attachKey = GlobalKey<AttachmentPanelState>();
+    // Pre-generate the entry ID so attachments are stored immediately.
+    final newEntryId = const Uuid().v4();
 
     showDialog(
       context: context,
@@ -877,8 +878,8 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                     const Divider(height: 1),
                     const SizedBox(height: 12),
                     AttachmentPanel(
-                      key: attachKey,
                       attachableType: 'journal-entry',
+                      localRecordId: newEntryId,
                     ),
                   ],
                 ),
@@ -905,6 +906,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                   }
                   _saveEntry(
                     context: context,
+                    entryId: newEntryId,
                     date: selectedDate,
                     description: descriptionController.text,
                     reference: referenceController.text.isEmpty ? null : referenceController.text,
@@ -932,6 +934,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                         }
                         _saveEntry(
                           context: context,
+                          entryId: newEntryId,
                           date: selectedDate,
                           description: descriptionController.text,
                           reference: referenceController.text.isEmpty ? null : referenceController.text,
@@ -952,6 +955,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
 
   void _saveEntry({
     required BuildContext context,
+    required String entryId,
     required DateTime date,
     required String description,
     String? reference,
@@ -972,7 +976,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
     }).toList();
 
     final entry = JournalEntry(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: entryId,
       entryNumber: 'JE-${DateFormat('yyyyMMdd').format(date)}-${DateTime.now().millisecondsSinceEpoch % 1000}',
       date: date,
       description: description,
@@ -1130,8 +1134,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                 const SizedBox(height: 12),
                 AttachmentPanel(
                   attachableType: 'journal-entry',
-                  attachableId: entry.syncSequence,
-                  apiClient: ref.read(apiClientProvider),
+                  localRecordId: entry.id,
                 ),
               ],
             ),

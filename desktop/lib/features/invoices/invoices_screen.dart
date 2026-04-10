@@ -347,8 +347,8 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     DateTime invoiceDate = DateTime.now();
     DateTime dueDate = DateTime.now().add(const Duration(days: 30));
 
-    // Key must live outside StatefulBuilder so it survives rebuilds
-    final attachKey = GlobalKey<AttachmentPanelState>();
+    // Pre-generate the invoice ID so attachments are stored immediately.
+    final newInvoiceId = const Uuid().v4();
 
     showDialog(
       context: context,
@@ -545,8 +545,8 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                     const Divider(height: 1),
                     const SizedBox(height: 12),
                     AttachmentPanel(
-                      key: attachKey,
                       attachableType: 'invoice',
+                      localRecordId: newInvoiceId,
                     ),
                   ],
                 ),
@@ -555,11 +555,11 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
               OutlinedButton(
-                onPressed: () => _createInvoice(ctx, selectedCustomerId, selectedCustomerName, selectedCurrency, exchangeRate, invoiceDate, dueDate, lines, InvoiceStatus.draft),
+                onPressed: () => _createInvoice(ctx, newInvoiceId, selectedCustomerId, selectedCustomerName, selectedCurrency, exchangeRate, invoiceDate, dueDate, lines, InvoiceStatus.draft),
                 child: const Text('Save as Draft'),
               ),
               FilledButton(
-                onPressed: () => _createInvoice(ctx, selectedCustomerId, selectedCustomerName, selectedCurrency, exchangeRate, invoiceDate, dueDate, lines, InvoiceStatus.pending),
+                onPressed: () => _createInvoice(ctx, newInvoiceId, selectedCustomerId, selectedCustomerName, selectedCurrency, exchangeRate, invoiceDate, dueDate, lines, InvoiceStatus.pending),
                 child: const Text('Create Invoice'),
               ),
             ],
@@ -569,7 +569,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     );
   }
 
-  void _createInvoice(BuildContext ctx, String? customerId, String? customerName, String currency, double exchangeRate, DateTime invoiceDate, DateTime dueDate, List<_InvoiceLineData> lines, InvoiceStatus status) {
+  void _createInvoice(BuildContext ctx, String invoiceId, String? customerId, String? customerName, String currency, double exchangeRate, DateTime invoiceDate, DateTime dueDate, List<_InvoiceLineData> lines, InvoiceStatus status) {
     if (customerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a customer')));
       return;
@@ -579,7 +579,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
       return;
     }
 
-    final id = const Uuid().v4();
+    final id = invoiceId;
     final invoiceNumber = 'INV-${DateFormat('yyyyMM').format(invoiceDate)}-${DateTime.now().millisecondsSinceEpoch % 10000}';
     final enableVAT = ref.read(appSettingsProvider).enableVAT;
     final vatRate = enableVAT ? 18.0 : 0.0;
@@ -678,8 +678,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                 const SizedBox(height: 12),
                 AttachmentPanel(
                   attachableType: 'invoice',
-                  attachableId: invoice.syncSequence,
-                  apiClient: ref.read(apiClientProvider),
+                  localRecordId: invoice.id,
                 ),
               ],
             ),
