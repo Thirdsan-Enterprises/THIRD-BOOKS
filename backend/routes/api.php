@@ -18,6 +18,7 @@ use App\Http\Controllers\API\AttachmentController;
 use App\Http\Controllers\API\Banking\BankStatementController;
 use App\Http\Controllers\API\Banking\BankReconciliationController;
 use App\Http\Controllers\API\UserController;
+use App\Http\Controllers\API\Notes\CreditDebitNoteController;
 
 /*
 |--------------------------------------------------------------------------
@@ -143,6 +144,24 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/status', [SyncController::class, 'status']); // Get sync status
             Route::post('/device', [SyncController::class, 'updateDevice']); // Update device state
             Route::get('/replay/{aggregateType}/{aggregateId}', [SyncController::class, 'replay']); // Replay events
+        });
+
+        // ── Credit Notes (customer-side adjustments) ─────────────────────────────
+        Route::prefix('credit-notes')->group(function () {
+            Route::get('/',    [CreditDebitNoteController::class, 'indexCredit']);
+            Route::post('/',   [CreditDebitNoteController::class, 'storeCredit']);
+            Route::get('/{creditNote}',    [CreditDebitNoteController::class, 'showCredit']);
+            Route::put('/{creditNote}',    [CreditDebitNoteController::class, 'updateCredit']);
+            Route::delete('/{creditNote}', [CreditDebitNoteController::class, 'destroyCredit']);
+        });
+
+        // ── Debit Notes (vendor-side adjustments) ────────────────────────────────
+        Route::prefix('debit-notes')->group(function () {
+            Route::get('/',    [CreditDebitNoteController::class, 'indexDebit']);
+            Route::post('/',   [CreditDebitNoteController::class, 'storeDebit']);
+            Route::get('/{debitNote}',    [CreditDebitNoteController::class, 'showDebit']);
+            Route::put('/{debitNote}',    [CreditDebitNoteController::class, 'updateDebit']);
+            Route::delete('/{debitNote}', [CreditDebitNoteController::class, 'destroyDebit']);
         });
 
         // Conflict Resolution
