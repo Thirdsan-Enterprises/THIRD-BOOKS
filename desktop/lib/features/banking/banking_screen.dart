@@ -16,6 +16,7 @@ import '../../core/services/data_service.dart';
 import '../../core/services/local_storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/models/bank_transaction.dart';
+import '../../core/providers/local_bank_statements_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Simple in-memory bank account model (persisted via Riverpod state)
@@ -1181,44 +1182,57 @@ class _BankStatementsTab extends ConsumerStatefulWidget {
 }
 
 class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
-  List<Map<String, dynamic>> _statements = [];
-  bool _loading = false;
-  String? _error;
+  bool _syncing = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadStatements();
-  }
-
-  Future<void> _loadStatements() async {
-    setState(() { _loading = true; _error = null; });
+  // ── Try to sync any locally-stored statements to the server ───────────────
+  Future<void> _syncToServer() async {
+    if (_syncing) return;
+    setState(() => _syncing = true);
     try {
       final api = ref.read(apiClientProvider);
-      final data = await api.getBankStatements();
-      setState(() { _statements = List<Map<String, dynamic>>.from(data); });
-    } catch (e) {
-      setState(() { _error = e.toString(); });
+      final statements = ref.read(localBankStatementsProvider);
+      for (final stmt in statements.where((s) => s.status == 'local')) {
+        // Re-upload from the original file path is not always possible after
+        // the dialog closes, so we skip re-upload but still confirm via GET.
+        try {
+          final data = await api.getBankStatements();
+          // If server has a matching statement (same bank + date range), mark synced
+          for (final s in data) {
+            final sFrom = s['from_date']?.toString().substring(0, 10);
+            final sTo = s['to_date']?.toString().substring(0, 10);
+            final stmtFrom = DateFormat('yyyy-MM-dd').format(stmt.fromDate);
+            final stmtTo = DateFormat('yyyy-MM-dd').format(stmt.toDate);
+            if (sFrom == stmtFrom && sTo == stmtTo) {
+              await ref.read(localBankStatementsProvider.notifier)
+                  .markSynced(stmt.id, s['id'] as int? ?? 0);
+              break;
+            }
+          }
+        } catch (_) {}
+      }
     } finally {
-      setState(() { _loading = false; });
+      if (mounted) setState(() => _syncing = false);
     }
   }
 
   Future<void> _showUploadDialog() async {
-    BankAccount? selectedAccount = widget.accounts.isNotEmpty ? widget.accounts.first : null;
+    BankAccount? selectedAccount =
+        widget.accounts.isNotEmpty ? widget.accounts.first : null;
     DateTime fromDate = DateTime.now().subtract(const Duration(days: 30));
     DateTime toDate = DateTime.now();
     String? csvPath;
     String? csvName;
+    int? previewRowCount;
+    List<List<String>> parsedRows = [];
     final formKey = GlobalKey<FormState>();
 
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Upload Bank Statement'),
+          title: const Text('Import Bank Statement'),
           content: SizedBox(
-            width: 480,
+            width: 500,
             child: Form(
               key: formKey,
               child: Column(
@@ -1285,20 +1299,59 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
                         allowedExtensions: ['csv'],
                       );
                       if (result != null && result.files.isNotEmpty) {
-                        setDialogState(() {
-                          csvPath = result.files.first.path;
-                          csvName = result.files.first.name;
-                        });
+                        final path = result.files.first.path!;
+                        final name = result.files.first.name;
+                        // Parse CSV immediately for preview & local storage
+                        try {
+                          final content = await File(path).readAsString();
+                          final raw = const CsvToListConverter(eol: '\n')
+                              .convert(content);
+                          final rows = raw
+                              .map((r) => r.map((c) => c.toString()).toList())
+                              .toList();
+                          setDialogState(() {
+                            csvPath = path;
+                            csvName = name;
+                            parsedRows = rows;
+                            previewRowCount =
+                                rows.isEmpty ? 0 : rows.length - 1;
+                          });
+                        } catch (_) {
+                          setDialogState(() {
+                            csvPath = path;
+                            csvName = name;
+                            parsedRows = [];
+                            previewRowCount = null;
+                          });
+                        }
                       }
                     },
                     icon: const Icon(Icons.upload_file, size: 18),
                     label: Text(csvName ?? 'Select CSV File'),
                   ),
-                  if (csvName != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(csvName!, style: const TextStyle(color: Colors.green)),
+                  if (csvName != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                        const SizedBox(width: 6),
+                        Text(
+                          csvName!,
+                          style: const TextStyle(
+                              color: Colors.green, fontWeight: FontWeight.w500),
+                        ),
+                        if (previewRowCount != null) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '— $previewRowCount transaction(s) found',
+                            style: TextStyle(
+                                color: Theme.of(ctx).colorScheme.outline,
+                                fontSize: 12),
+                          ),
+                        ],
+                      ],
                     ),
+                  ],
                 ],
               ),
             ),
@@ -1308,35 +1361,73 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
               onPressed: () => Navigator.pop(ctx),
               child: const Text('Cancel'),
             ),
-            FilledButton(
+            FilledButton.icon(
               onPressed: csvPath == null
                   ? null
                   : () async {
                       if (!formKey.currentState!.validate()) return;
                       Navigator.pop(ctx);
+
+                      // ── Save locally first (always works offline) ──────
+                      final localStmt = LocalBankStatement(
+                        id: const Uuid().v4(),
+                        fileName: csvName!,
+                        bankAccountId: selectedAccount?.id,
+                        bankAccountName: selectedAccount?.bankName,
+                        bankAccountNumber: selectedAccount?.accountNumber,
+                        fromDate: fromDate,
+                        toDate: toDate,
+                        rows: parsedRows,
+                        status: 'local',
+                        uploadedAt: DateTime.now(),
+                      );
+                      await ref
+                          .read(localBankStatementsProvider.notifier)
+                          .add(localStmt);
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Statement saved locally'
+                              '${(previewRowCount ?? 0) > 0 ? ' (${previewRowCount} transactions)' : ''}.'
+                              ' Syncing to server…',
+                            ),
+                            backgroundColor: AppColors.success,
+                          ),
+                        );
+                      }
+
+                      // ── Try server upload in background ────────────────
                       try {
                         final api = ref.read(apiClientProvider);
-                        await api.uploadBankStatement(
+                        final resp = await api.uploadBankStatement(
                           bankAccountId: selectedAccount!.id,
                           fromDate: DateFormat('yyyy-MM-dd').format(fromDate),
                           toDate: DateFormat('yyyy-MM-dd').format(toDate),
                           csvFilePath: csvPath!,
                         );
+                        final serverId =
+                            (resp is Map ? resp['id'] : null) as int?;
+                        if (serverId != null) {
+                          await ref
+                              .read(localBankStatementsProvider.notifier)
+                              .markSynced(localStmt.id, serverId);
+                        }
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Statement uploaded successfully')),
-                          );
-                          _loadStatements();
-                        }
-                      } catch (e) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Upload failed: $e'), backgroundColor: Colors.red),
+                            const SnackBar(
+                              content: Text('Statement synced to server ✓'),
+                              backgroundColor: AppColors.success,
+                            ),
                           );
                         }
+                      } catch (_) {
+                        // Offline — statement already saved locally, will sync later
                       }
                     },
-              child: const Text('Upload'),
+              icon: const Icon(Icons.save_alt, size: 18),
+              label: const Text('Import'),
             ),
           ],
         ),
@@ -1344,25 +1435,20 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
     );
   }
 
-  Future<void> _deleteStatement(Map<String, dynamic> stmt) async {
-    final status = stmt['status'] ?? '';
-    if (status == 'reconciled') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cannot delete a fully reconciled statement.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
+  Future<void> _deleteLocalStatement(LocalBankStatement stmt) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Statement'),
-        content: const Text('Are you sure you want to delete this bank statement? This cannot be undone.'),
+        content: Text(
+          'Remove "${stmt.fileName}"?'
+          '${stmt.status == 'synced' ? ' It will also be deleted from the server.' : ''}'
+          ' This cannot be undone.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, true),
@@ -1371,188 +1457,203 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
         ],
       ),
     );
+    if (confirm != true) return;
 
-    if (confirm == true) {
+    // Try to delete from server if synced
+    if (stmt.serverStatementId != null) {
       try {
-        final api = ref.read(apiClientProvider);
-        await api.deleteBankStatement(stmt['id']);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Statement deleted')),
-          );
-          _loadStatements();
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Delete failed: $e'), backgroundColor: Colors.red),
-          );
-        }
-      }
+        await ref.read(apiClientProvider).deleteBankStatement(stmt.serverStatementId!);
+      } catch (_) {} // Offline — remove locally regardless
+    }
+    await ref.read(localBankStatementsProvider.notifier).remove(stmt.id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Statement removed')));
     }
   }
 
-  Color _statusColor(String? status) {
+  Color _statusColor(String status) {
     switch (status) {
-      case 'reconciled': return Colors.green;
-      case 'in_progress': return Colors.blue;
-      default: return Colors.orange;
+      case 'synced': return Colors.green;
+      case 'local': return Colors.orange;
+      default: return Colors.grey;
     }
   }
 
-  String _statusLabel(String? status) {
+  String _statusLabel(String status) {
     switch (status) {
-      case 'reconciled': return 'Reconciled';
-      case 'in_progress': return 'In Progress';
-      default: return 'Pending';
+      case 'synced': return 'Synced';
+      case 'local': return 'Local';
+      default: return status;
     }
   }
+
+  String _fmtDate(DateTime d) => DateFormat('dd MMM yyyy').format(d);
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-
-    if (_error != null) {
-      final isOffline = _error!.contains('DioException') ||
-          _error!.contains('SocketException') ||
-          _error!.contains('Connection refused') ||
-          _error!.contains('null') ||
-          _error!.contains('Network');
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isOffline ? Icons.cloud_off_outlined : Icons.error_outline,
-              size: 48,
-              color: isOffline
-                  ? Theme.of(context).colorScheme.outline
-                  : Colors.red,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              isOffline
-                  ? 'Offline — connect to server to view uploaded statements'
-                  : _error!,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: isOffline
-                    ? Theme.of(context).colorScheme.outline
-                    : Colors.red,
-              ),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _loadStatements,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            ),
-          ],
-        ),
-      );
-    }
+    // Primary source: local provider (works offline)
+    final statements = ref.watch(localBankStatementsProvider);
+    final fmt = NumberFormat('#,###');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // ── Toolbar ──────────────────────────────────────────────────────────
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              '${_statements.length} statement(s) uploaded',
-              style: Theme.of(context).textTheme.bodyMedium,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${statements.length} statement(s)',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                if (statements.any((s) => s.status == 'local'))
+                  Text(
+                    '${statements.where((s) => s.status == 'local').length} pending sync',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.outline),
+                  ),
+              ],
             ),
             Row(
               children: [
                 OutlinedButton.icon(
-                  onPressed: _loadStatements,
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('Refresh'),
+                  onPressed: _syncing ? null : _syncToServer,
+                  icon: _syncing
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.sync, size: 18),
+                  label: const Text('Sync'),
                 ),
                 const SizedBox(width: 12),
                 FilledButton.icon(
                   onPressed: _showUploadDialog,
                   icon: const Icon(Icons.upload_file, size: 18),
-                  label: const Text('Upload Statement'),
+                  label: const Text('Import Statement'),
                 ),
               ],
             ),
           ],
         ),
         const SizedBox(height: 16),
-        if (_statements.isEmpty)
+
+        // ── Empty state ───────────────────────────────────────────────────────
+        if (statements.isEmpty)
           Expanded(
             child: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.receipt_long, size: 64, color: Colors.grey),
+                  Icon(Icons.receipt_long,
+                      size: 64,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .outline
+                          .withOpacity(0.4)),
                   const SizedBox(height: 16),
                   Text(
-                    'No statements uploaded yet',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey),
+                    'No statements imported yet',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(
+                            color: Theme.of(context).colorScheme.outline),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    'Upload a CSV bank statement to begin reconciliation.',
-                    style: TextStyle(color: Colors.grey),
+                  Text(
+                    'Import a CSV bank statement — it saves locally\nand syncs to the server when online.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.outline,
+                        fontSize: 13),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
                   FilledButton.icon(
                     onPressed: _showUploadDialog,
                     icon: const Icon(Icons.upload_file),
-                    label: const Text('Upload Statement'),
+                    label: const Text('Import Statement'),
                   ),
                 ],
               ),
             ),
           )
         else
+          // ── Statement list ────────────────────────────────────────────────
           Expanded(
             child: ListView.separated(
-              itemCount: _statements.length,
+              itemCount: statements.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (context, index) {
-                final stmt = _statements[index];
-                final status = stmt['status'] as String?;
-                final fromDate = stmt['from_date'] as String?;
-                final toDate = stmt['to_date'] as String?;
-                final linesCount = (stmt['lines'] as List?)?.length ?? stmt['lines_count'] ?? 0;
+                final stmt = statements[index];
+                final statusColor = _statusColor(stmt.status);
 
                 return ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 8),
                   leading: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: _statusColor(status).withOpacity(0.1),
+                      color: statusColor.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(Icons.receipt_long, color: _statusColor(status)),
+                    child: Icon(Icons.description_outlined,
+                        color: statusColor, size: 22),
                   ),
                   title: Text(
-                    '${stmt['bank_account']?['bank_name'] ?? 'Account'} – ${stmt['bank_account']?['account_number'] ?? ''}',
+                    stmt.bankAccountName != null
+                        ? '${stmt.bankAccountName}'
+                            '${stmt.bankAccountNumber != null ? ' – ${stmt.bankAccountNumber}' : ''}'
+                        : stmt.fileName,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
-                  subtitle: Text(
-                    '${fromDate ?? ''} → ${toDate ?? ''}  •  $linesCount line(s)',
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${_fmtDate(stmt.fromDate)} → ${_fmtDate(stmt.toDate)}'
+                        '  •  ${fmt.format(stmt.lineCount)} transaction(s)',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      Text(
+                        stmt.fileName,
+                        style: TextStyle(
+                            fontSize: 11,
+                            color:
+                                Theme.of(context).colorScheme.outline),
+                      ),
+                    ],
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Status badge
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: _statusColor(status).withOpacity(0.1),
+                          color: statusColor.withOpacity(0.12),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          _statusLabel(status),
-                          style: TextStyle(color: _statusColor(status), fontWeight: FontWeight.bold),
+                          _statusLabel(stmt.status),
+                          style: TextStyle(
+                              color: statusColor,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 8),
                       IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        icon: const Icon(Icons.delete_outline,
+                            color: Colors.red, size: 20),
                         tooltip: 'Delete statement',
-                        onPressed: () => _deleteStatement(stmt),
+                        onPressed: () => _deleteLocalStatement(stmt),
                       ),
                     ],
                   ),

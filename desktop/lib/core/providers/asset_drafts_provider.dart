@@ -4,6 +4,7 @@
 // © 2026 ThirdBooks. All rights reserved.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../services/local_storage_service.dart';
 
 // ---------------------------------------------------------------------------
 // Asset Draft Model (sourced from bills)
@@ -42,15 +43,55 @@ class AssetDraft {
         date: date,
         isConfirmed: isConfirmed ?? this.isConfirmed,
       );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'assetName': assetName,
+        'category': category,
+        'amount': amount,
+        'currency': currency,
+        'vendorName': vendorName,
+        'billReference': billReference,
+        'date': date.toIso8601String(),
+        'isConfirmed': isConfirmed,
+      };
+
+  factory AssetDraft.fromJson(Map<String, dynamic> j) => AssetDraft(
+        id: j['id'] as String,
+        assetName: j['assetName'] as String,
+        category: j['category'] as String,
+        amount: (j['amount'] as num).toDouble(),
+        currency: j['currency'] as String,
+        vendorName: j['vendorName'] as String?,
+        billReference: j['billReference'] as String?,
+        date: DateTime.parse(j['date'] as String),
+        isConfirmed: j['isConfirmed'] as bool? ?? false,
+      );
 }
 
 // ---------------------------------------------------------------------------
-// Asset Drafts Notifier
+// Asset Drafts Notifier — persists to local storage
 // ---------------------------------------------------------------------------
 class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
-  AssetDraftsNotifier() : super([]);
+  final LocalStorageService _storage;
 
-  void addFromBill({
+  AssetDraftsNotifier(this._storage) : super([]) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final list =
+          await _storage.loadData('asset_drafts', AssetDraft.fromJson);
+      state = list;
+    } catch (_) {}
+  }
+
+  Future<void> _save() async {
+    await _storage.saveData('asset_drafts', state, (a) => a.toJson());
+  }
+
+  Future<void> addFromBill({
     required String id,
     required String assetName,
     required String category,
@@ -59,7 +100,7 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
     String? vendorName,
     String? billReference,
     required DateTime date,
-  }) {
+  }) async {
     state = [
       ...state,
       AssetDraft(
@@ -73,30 +114,38 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
         date: date,
       ),
     ];
+    await _save();
   }
 
-  void confirmAsset(String id) {
+  Future<void> confirmAsset(String id) async {
     state = state
         .map((a) => a.id == id ? a.copyWith(isConfirmed: true) : a)
         .toList();
+    await _save();
   }
 
-  void removeDraft(String id) {
+  Future<void> removeDraft(String id) async {
     state = state.where((a) => a.id != id).toList();
+    await _save();
   }
 }
 
 final assetDraftsProvider =
     StateNotifierProvider<AssetDraftsNotifier, List<AssetDraft>>(
-  (ref) => AssetDraftsNotifier(),
+  (ref) => AssetDraftsNotifier(ref.read(localStorageServiceProvider)),
 );
 
+// ---------------------------------------------------------------------------
 // Categories that are considered assets (not expenses)
+// ---------------------------------------------------------------------------
 const kAssetCategories = [
   'Equipment',
   'Vehicle',
   'Furniture',
   'Electronics',
+  'Building',
+  'Land',
+  'Machinery',
 ];
 
 bool isAssetCategory(String? category) =>

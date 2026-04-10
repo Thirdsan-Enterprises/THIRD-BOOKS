@@ -779,24 +779,32 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                   if (isAssetCategory(selectedCategory)) {
                     ref.read(assetDraftsProvider.notifier).addFromBill(
                       id: billId,
-                      assetName: '${selectedCategory ?? 'Asset'} (from bill)',
+                      assetName: selectedCategory == null
+                          ? 'Asset from bill'
+                          : vendor.name.isNotEmpty
+                              ? '$selectedCategory — ${vendor.name}'
+                              : selectedCategory!,
                       category: selectedCategory!,
                       amount: subtotal,
                       currency: selectedCurrency,
+                      vendorName: vendor.name,
+                      billReference: referenceCtrl.text.trim().isEmpty
+                          ? null
+                          : referenceCtrl.text.trim(),
                       date: billDate,
                     );
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Bill saved. "$selectedCategory" added as draft asset.'),
+                        content: Text(
+                          'Bill saved. "$selectedCategory" added to Assets — go to Assets to set up depreciation.',
+                        ),
                         backgroundColor: AppColors.info,
-                        duration: const Duration(seconds: 4),
+                        duration: const Duration(seconds: 5),
                       ),
                     );
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('Bill saved — queued for sync'),
-                      ),
+                      const SnackBar(content: Text('Bill saved — queued for sync')),
                     );
                   }
                 },
