@@ -3,8 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/providers/asset_drafts_provider.dart';
+import '../../core/providers/depreciation_schedules_provider.dart';
 
 /// Asset Depreciation Screen
 ///
@@ -66,29 +67,40 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
   }
 
   Widget _buildSummarySection() {
+    final schedules = ref.watch(depreciationSchedulesProvider);
+    final fmt = NumberFormat('#,###');
+    final active = schedules.where((s) => s.isActive).length;
+    final totalDep = schedules.fold<double>(
+        0, (s, d) => s + d.accumulatedDepreciation);
+    final now = DateTime.now();
+    final thisMonthDep = schedules
+        .where((s) =>
+            s.isActive &&
+            s.period == 'monthly' &&
+            s.lastRunDate != null &&
+            s.lastRunDate!.year == now.year &&
+            s.lastRunDate!.month == now.month)
+        .fold<double>(0, (s, d) => s + d.nextDepreciation);
+    final due = schedules.where((s) => s.isActive && s.isDue).length;
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        border: Border(
-          bottom: BorderSide(color: Theme.of(context).dividerColor),
-        ),
+        border:
+            Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
       ),
       child: Row(
         children: [
           Expanded(
             child: _buildSummaryCard(
-              'Active Schedules',
-              '0',
-              Icons.schedule,
-              AppColors.primary,
-            ),
+              'Active Schedules', '$active', Icons.schedule, AppColors.primary),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: _buildSummaryCard(
-              'Total Depreciation',
-              'UGX 0',
+              'Total Depreciated',
+              'UGX ${fmt.format(totalDep)}',
               Icons.trending_down,
               AppColors.warning,
             ),
@@ -97,7 +109,7 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
           Expanded(
             child: _buildSummaryCard(
               'This Month',
-              'UGX 0',
+              'UGX ${fmt.format(thisMonthDep)}',
               Icons.calendar_today,
               AppColors.info,
             ),
@@ -105,11 +117,7 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
           const SizedBox(width: 16),
           Expanded(
             child: _buildSummaryCard(
-              'Pending Entries',
-              '0',
-              Icons.pending_actions,
-              AppColors.error,
-            ),
+              'Due for Entry', '$due', Icons.pending_actions, AppColors.error),
           ),
         ],
       ),
@@ -152,269 +160,425 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
   }
 
   Widget _buildSchedulesList() {
-    // TODO: Replace with actual data from database
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.schedule_outlined,
-            size: 64,
-            color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No depreciation schedules found',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
+    final schedules = ref.watch(depreciationSchedulesProvider);
+    final fmt = NumberFormat('#,###');
+    final dateFmt = DateFormat('dd MMM yyyy');
+
+    if (schedules.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.schedule_outlined,
+                size: 64,
+                color: Theme.of(context)
+                    .colorScheme
+                    .outline
+                    .withOpacity(0.3)),
+            const SizedBox(height: 16),
+            Text('No depreciation schedules yet',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.outline)),
+            const SizedBox(height: 8),
+            const Text('Confirm assets first, then set up depreciation'),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _showSetupDepreciationDialog,
+              icon: const Icon(Icons.add),
+              label: const Text('Setup Depreciation'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: schedules.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, i) {
+        final s = schedules[i];
+        final pct = s.percentageDepreciated;
+        final isDue = s.isDue && s.isActive;
+
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      _categoryIcon(s.assetCategory),
+                      size: 20,
+                      color: s.isActive ? AppColors.primary : Colors.grey,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(s.assetName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 15)),
+                    ),
+                    if (isDue)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.warning.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text('Due',
+                            style: TextStyle(
+                                color: AppColors.warning,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold)),
+                      ),
+                    const SizedBox(width: 8),
+                    Switch(
+                      value: s.isActive,
+                      onChanged: (_) => ref
+                          .read(depreciationSchedulesProvider.notifier)
+                          .toggleActive(s.id),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 12),
+                // Progress bar
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: (pct / 100).clamp(0.0, 1.0),
+                    minHeight: 6,
+                    backgroundColor:
+                        Theme.of(context).colorScheme.surfaceVariant,
+                    color: pct >= 80 ? AppColors.error : AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Key figures
+                Row(
+                  children: [
+                    _DepField('Original',
+                        'UGX ${fmt.format(s.assetValue)}'),
+                    _DepField('Current Value',
+                        'UGX ${fmt.format(s.currentValue)}'),
+                    _DepField('Depreciated',
+                        '${pct.toStringAsFixed(1)}%'),
+                    _DepField(
+                      'Next ${s.period == 'monthly' ? 'month' : 'year'}',
+                      'UGX ${fmt.format(s.nextDepreciation)}',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(
+                      '${s.method == 'declining_balance' ? 'Declining Balance' : 'Straight Line'}'
+                      '  •  ${s.rate}% / ${s.period}'
+                      '  •  Started ${dateFmt.format(s.startDate)}',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.outline),
+                    ),
+                    const Spacer(),
+                    if (s.isActive)
+                      TextButton.icon(
+                        onPressed: isDue
+                            ? () async {
+                                await ref
+                                    .read(depreciationSchedulesProvider
+                                        .notifier)
+                                    .runDepreciation(s.id);
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                          'Depreciation applied: UGX ${fmt.format(s.nextDepreciation)}'),
+                                      backgroundColor: AppColors.success,
+                                    ),
+                                  );
+                                }
+                              }
+                            : null,
+                        icon: const Icon(Icons.play_arrow, size: 16),
+                        label: const Text('Run Now'),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline,
+                          size: 18, color: AppColors.error),
+                      tooltip: 'Remove schedule',
+                      onPressed: () => ref
+                          .read(depreciationSchedulesProvider.notifier)
+                          .remove(s.id),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
-          const Text('Set up depreciation for your assets'),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _showSetupDepreciationDialog,
-            icon: const Icon(Icons.add),
-            label: const Text('Setup Depreciation'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
+  IconData _categoryIcon(String cat) {
+    switch (cat) {
+      case 'Vehicle': return Icons.directions_car;
+      case 'Equipment': return Icons.build;
+      case 'Furniture': return Icons.chair;
+      case 'Electronics': return Icons.devices;
+      case 'Building': return Icons.business;
+      case 'Machinery': return Icons.precision_manufacturing;
+      default: return Icons.inventory_2;
+    }
+  }
+
   void _showSetupDepreciationDialog() {
+    final confirmedAssets =
+        ref.read(assetDraftsProvider).where((a) => a.isConfirmed).toList();
+
+    if (confirmedAssets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No confirmed assets yet. Go to Assets, add a bill with an asset category, then confirm it.',
+          ),
+          duration: Duration(seconds: 5),
+        ),
+      );
+      return;
+    }
+
     final formKey = GlobalKey<FormState>();
     final rateController = TextEditingController(text: '20');
     DateTime startDate = DateTime.now();
     String selectedMethod = 'declining_balance';
     String selectedPeriod = 'yearly';
-
-    // Sample data - TODO: Get from database
-    String selectedAsset = 'Select Asset';
+    AssetDraft? selectedAsset;
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Setup Asset Depreciation'),
-          content: SizedBox(
-            width: 600,
-            child: Form(
-              key: formKey,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Asset Selection
-                    DropdownButtonFormField<String>(
-                      value: selectedAsset,
-                      decoration: const InputDecoration(
-                        labelText: 'Select Asset *',
-                        prefixIcon: Icon(Icons.inventory_2),
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'Select Asset',
-                          child: Text('Select Asset'),
-                        ),
-                        // TODO: Load from database
-                      ],
-                      onChanged: (value) {
-                        setState(() => selectedAsset = value!);
-                      },
-                      validator: (v) => v == 'Select Asset' ? 'Please select an asset' : null,
-                    ),
-                    const SizedBox(height: 16),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setS) {
+          final rate = double.tryParse(rateController.text) ?? 20.0;
+          final assetVal = selectedAsset?.amount ?? 0.0;
+          final exY1 = selectedMethod == 'declining_balance'
+              ? assetVal * rate / 100
+              : assetVal * rate / 100;
+          final exY2 = selectedMethod == 'declining_balance'
+              ? (assetVal - exY1) * rate / 100
+              : assetVal * rate / 100;
+          final fmt = NumberFormat('#,###');
 
-                    // Depreciation Method
-                    DropdownButtonFormField<String>(
-                      value: selectedMethod,
-                      decoration: const InputDecoration(
-                        labelText: 'Depreciation Method',
-                        prefixIcon: Icon(Icons.calculate),
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'declining_balance',
-                          child: Text('Declining Balance (Percentage-based)'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'straight_line',
-                          child: Text('Straight Line'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() => selectedMethod = value!);
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Depreciation Rate
-                    TextFormField(
-                      controller: rateController,
-                      decoration: const InputDecoration(
-                        labelText: 'Depreciation Rate *',
-                        suffixText: '%',
-                        prefixIcon: Icon(Icons.percent),
-                        hintText: '20',
-                      ),
-                      keyboardType: TextInputType.number,
-                      validator: (v) {
-                        if (v?.isEmpty ?? true) return 'Required';
-                        final rate = double.tryParse(v!);
-                        if (rate == null || rate <= 0 || rate > 100) {
-                          return 'Enter a valid percentage (0-100)';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Period
-                    DropdownButtonFormField<String>(
-                      value: selectedPeriod,
-                      decoration: const InputDecoration(
-                        labelText: 'Period *',
-                        prefixIcon: Icon(Icons.date_range),
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'monthly',
-                          child: Text('Monthly'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'yearly',
-                          child: Text('Yearly'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() => selectedPeriod = value!);
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Start Date
-                    InkWell(
-                      onTap: () async {
-                        final date = await showDatePicker(
-                          context: context,
-                          initialDate: startDate,
-                          firstDate: DateTime(2000),
-                          lastDate: DateTime(2100),
-                        );
-                        if (date != null) {
-                          setState(() => startDate = date);
-                        }
-                      },
-                      child: InputDecorator(
+          return AlertDialog(
+            title: const Text('Setup Asset Depreciation'),
+            content: SizedBox(
+              width: 580,
+              child: Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Asset picker
+                      DropdownButtonFormField<AssetDraft>(
+                        value: selectedAsset,
                         decoration: const InputDecoration(
-                          labelText: 'Start Date *',
-                          prefixIcon: Icon(Icons.calendar_today),
+                          labelText: 'Select Asset *',
+                          prefixIcon: Icon(Icons.inventory_2),
                         ),
-                        child: Text(
-                          DateFormat('MMM dd, yyyy').format(startDate),
-                        ),
+                        items: confirmedAssets
+                            .map((a) => DropdownMenuItem(
+                                  value: a,
+                                  child: Text(
+                                    '${a.assetName}  (${a.currency} ${NumberFormat('#,###').format(a.amount)})',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ))
+                            .toList(),
+                        onChanged: (v) => setS(() => selectedAsset = v),
+                        validator: (v) =>
+                            v == null ? 'Please select an asset' : null,
                       ),
-                    ),
-                    const SizedBox(height: 24),
+                      const SizedBox(height: 16),
 
-                    // Calculation Preview
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.info.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.info.withOpacity(0.3)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.info_outline, color: AppColors.info, size: 20),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Depreciation Preview',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                            ],
+                      DropdownButtonFormField<String>(
+                        value: selectedMethod,
+                        decoration: const InputDecoration(
+                          labelText: 'Depreciation Method',
+                          prefixIcon: Icon(Icons.calculate),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'declining_balance',
+                            child: Text('Declining Balance (Reducing Balance)'),
                           ),
-                          const SizedBox(height: 12),
-                          _buildPreviewRow(
-                            'Method:',
-                            selectedMethod == 'declining_balance'
-                                ? 'Declining Balance'
-                                : 'Straight Line',
-                          ),
-                          _buildPreviewRow(
-                            'Rate:',
-                            '${rateController.text}% per ${selectedPeriod == 'monthly' ? 'month' : 'year'}',
-                          ),
-                          _buildPreviewRow(
-                            'Start Date:',
-                            DateFormat('MMM dd, yyyy').format(startDate),
-                          ),
-                          const Divider(height: 16),
-                          const Text(
-                            'Example Calculation (Declining Balance):',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Asset Value: UGX 10,000,000\n'
-                            'Year 1: 10M × 20% = 2M depreciation → 8M remaining\n'
-                            'Year 2: 8M × 20% = 1.6M depreciation → 6.4M remaining\n'
-                            'Year 3: 6.4M × 20% = 1.28M depreciation → 5.12M remaining',
-                            style: TextStyle(fontSize: 12, height: 1.5),
+                          DropdownMenuItem(
+                            value: 'straight_line',
+                            child: Text('Straight Line'),
                           ),
                         ],
+                        onChanged: (v) => setS(() => selectedMethod = v!),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 16),
+
+                      TextFormField(
+                        controller: rateController,
+                        decoration: const InputDecoration(
+                          labelText: 'Annual Depreciation Rate *',
+                          suffixText: '%',
+                          prefixIcon: Icon(Icons.percent),
+                          hintText: '20',
+                        ),
+                        keyboardType: TextInputType.number,
+                        onChanged: (_) => setS(() {}),
+                        validator: (v) {
+                          final r = double.tryParse(v ?? '');
+                          if (r == null || r <= 0 || r > 100) {
+                            return 'Enter a percentage between 1 and 100';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      DropdownButtonFormField<String>(
+                        value: selectedPeriod,
+                        decoration: const InputDecoration(
+                          labelText: 'Run Period',
+                          prefixIcon: Icon(Icons.date_range),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'monthly', child: Text('Monthly')),
+                          DropdownMenuItem(
+                              value: 'yearly', child: Text('Yearly')),
+                        ],
+                        onChanged: (v) => setS(() => selectedPeriod = v!),
+                      ),
+                      const SizedBox(height: 16),
+
+                      InkWell(
+                        onTap: () async {
+                          final d = await showDatePicker(
+                            context: dialogContext,
+                            initialDate: startDate,
+                            firstDate: DateTime(2000),
+                            lastDate: DateTime(2100),
+                          );
+                          if (d != null) setS(() => startDate = d);
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Start Date *',
+                            prefixIcon: Icon(Icons.calendar_today),
+                          ),
+                          child: Text(DateFormat('dd MMM yyyy').format(startDate)),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Live preview box
+                      if (selectedAsset != null)
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: AppColors.info.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color: AppColors.info.withOpacity(0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(children: [
+                                const Icon(Icons.info_outline,
+                                    color: AppColors.info, size: 18),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Projection for ${selectedAsset!.assetName}',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13),
+                                ),
+                              ]),
+                              const SizedBox(height: 10),
+                              _buildPreviewRow('Asset Value',
+                                  'UGX ${fmt.format(assetVal)}'),
+                              _buildPreviewRow('Method',
+                                  selectedMethod == 'declining_balance'
+                                      ? 'Declining Balance'
+                                      : 'Straight Line'),
+                              _buildPreviewRow(
+                                  'Rate', '$rate% per year'),
+                              const Divider(height: 16),
+                              _buildPreviewRow(
+                                  'Year 1 Depreciation',
+                                  'UGX ${fmt.format(exY1)}'
+                                  '  →  UGX ${fmt.format(assetVal - exY1)} remaining'),
+                              _buildPreviewRow(
+                                  'Year 2 Depreciation',
+                                  'UGX ${fmt.format(exY2)}'
+                                  '  →  UGX ${fmt.format(assetVal - exY1 - exY2)} remaining'),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                if (!formKey.currentState!.validate()) return;
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () async {
+                  if (!formKey.currentState!.validate()) return;
+                  if (selectedAsset == null) return;
 
-                final rate = double.parse(rateController.text);
-
-                // TODO: Save depreciation schedule
-                // final depreciation = AssetDepreciationCompanion.insert(
-                //   id: const Uuid().v4(),
-                //   assetId: selectedAssetId,
-                //   method: selectedMethod,
-                //   rate: rate,
-                //   period: selectedPeriod,
-                //   startDate: startDate,
-                //   isActive: const Value(true),
-                //   createdAt: DateTime.now(),
-                //   updatedAt: DateTime.now(),
-                // );
-                // await ref.read(databaseProvider).insertAssetDepreciation(depreciation);
-
-                if (mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Depreciation schedule created'),
-                      backgroundColor: AppColors.success,
-                    ),
+                  final schedule = DepreciationSchedule(
+                    id: const Uuid().v4(),
+                    assetDraftId: selectedAsset!.id,
+                    assetName: selectedAsset!.assetName,
+                    assetCategory: selectedAsset!.category,
+                    assetValue: selectedAsset!.amount,
+                    currentValue: selectedAsset!.amount,
+                    method: selectedMethod,
+                    rate: double.parse(rateController.text),
+                    period: selectedPeriod,
+                    startDate: startDate,
+                    createdAt: DateTime.now(),
                   );
-                }
-              },
-              child: const Text('Create Schedule'),
-            ),
-          ],
-        ),
+
+                  await ref
+                      .read(depreciationSchedulesProvider.notifier)
+                      .add(schedule);
+
+                  if (mounted) {
+                    Navigator.pop(dialogContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                            'Depreciation schedule created for ${selectedAsset!.assetName}'),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
+                  }
+                },
+                child: const Text('Create Schedule'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -625,6 +789,35 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
             },
             child: const Text('Generate'),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Small helper: one stat column inside the depreciation schedule card
+// ---------------------------------------------------------------------------
+class _DepField extends StatelessWidget {
+  final String label;
+  final String value;
+  const _DepField(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: TextStyle(
+                  fontSize: 10,
+                  color: Theme.of(context).colorScheme.outline)),
+          const SizedBox(height: 2),
+          Text(value,
+              style: const TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis),
         ],
       ),
     );
