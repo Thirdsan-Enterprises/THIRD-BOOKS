@@ -489,4 +489,92 @@ class ApiClient {
   Future<void> deleteUser(int userId) async {
     await delete('/users/$userId');
   }
+
+  // ── Invoice Payments ───────────────────────────────────────────────────────
+
+  /// Record a payment against an invoice.
+  Future<Map<String, dynamic>> recordInvoicePayment(
+    String invoiceId, {
+    required double amount,
+    required String paymentDate,
+    String? paymentMethod,
+    String? reference,
+  }) async {
+    try {
+      final resp = await post('/invoices/$invoiceId/payment', data: {
+        'amount': amount,
+        'payment_date': paymentDate,
+        if (paymentMethod != null) 'payment_method': paymentMethod,
+        if (reference != null) 'reference': reference,
+      });
+      return resp.data as Map<String, dynamic>? ?? {};
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  // ── Bill Payments ─────────────────────────────────────────────────────────
+
+  /// Record a payment against a bill.
+  Future<Map<String, dynamic>> recordBillPayment(
+    String billId, {
+    required double amount,
+    required String paymentDate,
+    String? paymentMethod,
+    String? reference,
+  }) async {
+    try {
+      final resp = await post('/bills/$billId/payment', data: {
+        'amount': amount,
+        'payment_date': paymentDate,
+        if (paymentMethod != null) 'payment_method': paymentMethod,
+        if (reference != null) 'reference': reference,
+      });
+      return resp.data as Map<String, dynamic>? ?? {};
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  // ── Customer / Vendor Statements ──────────────────────────────────────────
+
+  /// Fetch aged receivables report from the server.
+  Future<Map<String, dynamic>> getAgedReceivables() async {
+    try {
+      final resp = await get('/reports/aged-receivables');
+      return resp.data as Map<String, dynamic>? ?? {};
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// Fetch aged payables report from the server.
+  Future<Map<String, dynamic>> getAgedPayables() async {
+    try {
+      final resp = await get('/reports/aged-payables');
+      return resp.data as Map<String, dynamic>? ?? {};
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// Fetch statement for a specific customer.
+  Future<Map<String, dynamic>> getCustomerStatement(String customerId) async {
+    try {
+      final resp = await get('/customers/$customerId/statement');
+      return resp.data as Map<String, dynamic>? ?? {};
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// Fetch statement for a specific vendor.
+  Future<Map<String, dynamic>> getVendorStatement(String vendorId) async {
+    try {
+      final resp = await get('/vendors/$vendorId/statement');
+      return resp.data as Map<String, dynamic>? ?? {};
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
 }
