@@ -215,6 +215,19 @@ class LocalAttachmentsNotifier extends StateNotifier<List<LocalAttachment>> {
               a.attachableType == attachableType &&
               a.localRecordId == localRecordId)
           .toList();
+
+  /// Clear all attachments and delete their local files.
+  /// Used by the settings "clear cache" action.
+  Future<void> clearAll() async {
+    for (final att in state) {
+      try {
+        final file = File(att.localPath);
+        if (await file.exists()) await file.delete();
+      } catch (_) {}
+    }
+    state = [];
+    await _save();
+  }
 }
 
 // ---------------------------------------------------------------------------

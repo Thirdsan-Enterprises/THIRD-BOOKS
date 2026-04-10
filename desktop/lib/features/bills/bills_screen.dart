@@ -525,14 +525,20 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                             value: selectedCategory,
                             decoration: const InputDecoration(labelText: 'Category'),
                             items: [
+                              // Non-asset expense categories
                               'Inventory',
-                              'Equipment',
                               'Office Supplies',
                               'Utilities',
                               'Raw Materials',
                               'Services',
+                              // Asset categories (match kAssetCategories)
+                              'Equipment',
                               'Vehicle',
                               'Furniture',
+                              'Electronics',
+                              'Machinery',
+                              'Building',
+                              'Land',
                             ]
                                 .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                                 .toList(),

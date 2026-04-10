@@ -136,6 +136,12 @@ class LocalBankStatementsNotifier
     state = state.where((s) => s.id != id).toList();
     await _save();
   }
+
+  /// Clear all statements — used by the settings "clear cache" action.
+  Future<void> clearAll() async {
+    state = [];
+    await _save();
+  }
 }
 
 // ---------------------------------------------------------------------------

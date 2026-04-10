@@ -30,7 +30,9 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
     'Equipment',
     'Furniture',
     'Electronics',
-    'Other',
+    'Machinery',
+    'Building',
+    'Land',
   ];
 
   @override

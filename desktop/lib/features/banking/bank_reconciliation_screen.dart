@@ -716,76 +716,200 @@ class _BankReconciliationScreenState
 
   Widget _buildOutletsTab(BankStatementLine line, dynamic db, String query,
       BuildContext ctx, void Function(String) onSearch) {
-    return Column(
-      children: [
-        TextField(
-          decoration: InputDecoration(
-            hintText: 'Search outlets...',
-            prefixIcon: const Icon(Icons.search, size: 18),
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: 8),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+    // Per-outlet amount controllers — supports partial receipts across
+    // multiple outlets from a single bank deposit.
+    final selected = <String, TextEditingController>{};
+    // Keep outlet objects for label construction on confirm.
+    final selectedOutlets = <String, Outlet>{};
+
+    return StatefulBuilder(builder: (ctx2, setS2) {
+      double allocatedTotal = 0;
+      for (final ctrl in selected.values) {
+        allocatedTotal += double.tryParse(ctrl.text.replaceAll(',', '')) ?? 0;
+      }
+      final remaining = line.amount.abs() - allocatedTotal;
+
+      return Column(
+        children: [
+          TextField(
+            decoration: InputDecoration(
+              hintText: 'Search outlets...',
+              prefixIcon: const Icon(Icons.search, size: 18),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onChanged: (v) => onSearch(v.trim().toLowerCase()),
           ),
-          onChanged: (v) => onSearch(v.trim().toLowerCase()),
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: FutureBuilder<List<Outlet>>(
-            future: db.getAllOutlets(),
-            builder: (ctx2, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final outs = (snap.data ?? [])
-                  .where((o) =>
-                      query.isEmpty ||
-                      o.name.toLowerCase().contains(query) ||
-                      o.outletCode.toLowerCase().contains(query))
-                  .toList();
-              if (outs.isEmpty) {
-                return const Center(child: Text('No outlets found'));
-              }
-              return ListView.separated(
-                itemCount: outs.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (_, i) {
-                  final out = outs[i];
-                  return ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      radius: 14,
-                      backgroundColor: AppColors.income.withOpacity(0.1),
-                      child:
-                          Icon(Icons.store, size: 14, color: AppColors.income),
-                    ),
-                    title:
-                        Text(out.name, style: const TextStyle(fontSize: 13)),
-                    subtitle: Text(
-                        '${out.outletCode}${out.city != null ? '  •  ${out.city}' : ''}',
-                        style: const TextStyle(fontSize: 11)),
-                    onTap: () {
-                      setState(() {
-                        line.status = MatchStatus.matched;
-                        line.matchedRecordId = out.id;
-                        line.matchedRecordType = 'outlet';
-                        line.matchedLabel = '${out.name} (${out.outletCode})';
-                      });
-                      ref.read(_reconciliationLinesProvider.notifier).state =
-                          [...ref.read(_reconciliationLinesProvider)];
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Deposit matched to outlet'),
-                        backgroundColor: AppColors.success,
-                      ));
-                    },
-                  );
-                },
-              );
-            },
+          const SizedBox(height: 8),
+          // Allocation summary bar
+          if (selected.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: (remaining < -0.01 ? AppColors.error : AppColors.income)
+                    .withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: (remaining < -0.01
+                            ? AppColors.error
+                            : AppColors.income)
+                        .withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Text('Selected: ${selected.length} outlet(s)',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w500, fontSize: 12)),
+                  const Spacer(),
+                  Text(
+                    'Allocated: UGX ${_fmt.format(allocatedTotal)}  •  Remaining: UGX ${_fmt.format(remaining)}',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: remaining < -0.01
+                            ? AppColors.error
+                            : AppColors.income,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          Expanded(
+            child: FutureBuilder<List<Outlet>>(
+              future: db.getAllOutlets(),
+              builder: (ctx3, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final outs = (snap.data ?? [])
+                    .where((o) =>
+                        query.isEmpty ||
+                        o.name.toLowerCase().contains(query) ||
+                        o.outletCode.toLowerCase().contains(query))
+                    .toList();
+                if (outs.isEmpty) {
+                  return const Center(child: Text('No outlets found'));
+                }
+                return ListView.separated(
+                  itemCount: outs.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (_, i) {
+                    final out = outs[i];
+                    final isSelected = selected.containsKey(out.id);
+                    final ctrl = selected[out.id] ??
+                        TextEditingController(
+                            text: line.amount.abs().toStringAsFixed(0));
+
+                    return CheckboxListTile(
+                      dense: true,
+                      value: isSelected,
+                      onChanged: (checked) {
+                        setS2(() {
+                          if (checked == true) {
+                            selected[out.id] = ctrl;
+                            selectedOutlets[out.id] = out;
+                          } else {
+                            selected.remove(out.id);
+                            selectedOutlets.remove(out.id);
+                            ctrl.dispose();
+                          }
+                        });
+                      },
+                      secondary: CircleAvatar(
+                        radius: 14,
+                        backgroundColor: AppColors.income.withOpacity(0.1),
+                        child: Icon(Icons.store,
+                            size: 14, color: AppColors.income),
+                      ),
+                      title: Text(out.name,
+                          style: const TextStyle(fontSize: 13)),
+                      isThreeLine: isSelected,
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                              '${out.outletCode}${out.city != null ? '  •  ${out.city}' : ''}',
+                              style: const TextStyle(fontSize: 11)),
+                          if (isSelected) ...[
+                            const SizedBox(height: 4),
+                            SizedBox(
+                              height: 32,
+                              child: TextField(
+                                controller: ctrl,
+                                decoration: const InputDecoration(
+                                  labelText: 'Amount received',
+                                  isDense: true,
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
+                                  prefixText: 'UGX ',
+                                ),
+                                keyboardType: TextInputType.number,
+                                onChanged: (_) => setS2(() {}),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
           ),
-        ),
-      ],
-    );
+          // Confirm button
+          if (selected.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  FilledButton.icon(
+                    icon: const Icon(Icons.check, size: 16),
+                    label: Text('Receive from ${selected.length} Outlet(s)'),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: remaining < -0.01
+                            ? AppColors.error
+                            : AppColors.income),
+                    onPressed: remaining < -0.01
+                        ? null
+                        : () {
+                            final labels = selected.keys
+                                .map((id) {
+                                  final o = selectedOutlets[id];
+                                  return o != null
+                                      ? '${o.name} (${o.outletCode})'
+                                      : id;
+                                })
+                                .join(', ');
+                            setState(() {
+                              line.status = MatchStatus.matched;
+                              line.matchedRecordId = selected.keys.first;
+                              line.matchedRecordType = 'outlet';
+                              line.matchedLabel = labels;
+                            });
+                            ref
+                                .read(_reconciliationLinesProvider.notifier)
+                                .state = [
+                              ...ref.read(_reconciliationLinesProvider)
+                            ];
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context)
+                                .showSnackBar(SnackBar(
+                              content: Text(
+                                  '${selected.length} outlet(s) matched — UGX ${_fmt.format(allocatedTotal)}'),
+                              backgroundColor: AppColors.income,
+                            ));
+                          },
+                  ),
+                ],
+              ),
+            ),
+        ],
+      );
+    });
   }
 
   Widget _buildBillsTab(BankStatementLine line, dynamic billsState,

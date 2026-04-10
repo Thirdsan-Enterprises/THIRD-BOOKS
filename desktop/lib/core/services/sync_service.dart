@@ -9,6 +9,10 @@ import 'api_client.dart';
 import 'local_storage_service.dart';
 import 'data_service.dart';
 import '../models/models.dart';
+import '../providers/local_bank_statements_provider.dart';
+import '../providers/asset_drafts_provider.dart';
+import '../providers/depreciation_schedules_provider.dart';
+import '../providers/local_attachments_provider.dart';
 
 // ============================================================================
 // Connectivity State
@@ -484,8 +488,9 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
   Future<void> clearLocalCache() async {
     try {
       await _localStorage.initialize();
-      // Clear JSON file cache
+      // Clear JSON file cache — includes all local-only stores.
       await Future.wait([
+        // Core synced entities
         _localStorage.saveAccounts([]),
         _localStorage.saveCustomers([]),
         _localStorage.saveVendors([]),
@@ -494,6 +499,19 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
         _localStorage.saveJournalEntries([]),
         _localStorage.savePayments([]),
         _localStorage.clearSyncQueue(),
+        // Local-only stores (not synced from cloud; user-generated on device)
+        _localStorage.saveCreditNotes([]),
+        _localStorage.saveDebitNotes([]),
+        _localStorage.saveOutletSettlements([]),
+        // Extended local stores (generic key-based)
+        _localStorage.saveData<Map<String, dynamic>>(
+            'local_bank_statements', [], (s) => s),
+        _localStorage.saveData<Map<String, dynamic>>(
+            'asset_drafts', [], (s) => s),
+        _localStorage.saveData<Map<String, dynamic>>(
+            'depreciation_schedules', [], (s) => s),
+        _localStorage.saveData<Map<String, dynamic>>(
+            'local_attachments', [], (s) => s),
       ]);
       // Also wipe the SQLite/Drift database so outlet revenues, expenditures,
       // outlets, journals, assets etc. are fully gone — true blank slate.
@@ -505,6 +523,16 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
       _ref.invalidate(dashboardDataProvider);
       _ref.invalidate(outletAnalyticsProvider);
       _ref.invalidate(outletRevenueSummaryProvider);
+      // Reset StateNotifier-based local stores so their in-memory state
+      // matches the now-empty disk — no restart required.
+      try {
+        _ref.read(localBankStatementsProvider.notifier).clearAll();
+        _ref.read(assetDraftsProvider.notifier).clearAll();
+        _ref.read(depreciationSchedulesProvider.notifier).clearAll();
+        _ref.read(localAttachmentsProvider.notifier).clearAll();
+      } catch (_) {
+        // Providers may not be initialised — the JSON files are already empty.
+      }
 
       state = state.copyWith(pendingChanges: 0);
       debugPrint('Local cache and database cleared.');
