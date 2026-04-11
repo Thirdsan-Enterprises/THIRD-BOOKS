@@ -4,8 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:logger/logger.dart';
 
-import '../widgets/attachment_widget.dart';
-
 // API Configuration
 class ApiConfig {
   // Production API URL
@@ -272,8 +270,8 @@ class ApiClient {
   // ── Attachments ────────────────────────────────────────────────────────────
 
   /// Upload one or more local files as attachments to a record.
-  /// Returns the list of [UploadedAttachment] objects created on the server.
-  Future<List<UploadedAttachment>> uploadAttachments(
+  /// Returns the list of [_UploadedAttachment] objects created on the server.
+  Future<List<_UploadedAttachment>> uploadAttachments(
     String attachableType,
     int attachableId,
     List<PlatformFile> files, {
@@ -310,7 +308,7 @@ class ApiClient {
       );
       final list = (resp.data['attachments'] as List? ?? [])
           .cast<Map<String, dynamic>>();
-      return list.map(UploadedAttachment.fromJson).toList();
+      return list.map(_UploadedAttachment.fromJson).toList();
     } on DioException catch (e) {
       throw _handleError(e);
     }
@@ -577,4 +575,39 @@ class ApiClient {
       throw _handleError(e);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Server attachment response model — used only by ApiClient.uploadAttachments.
+// Kept here so the widget layer has no dependency on server-specific types.
+// ---------------------------------------------------------------------------
+class _UploadedAttachment {
+  final int id;
+  final String fileName;
+  final String? label;
+  final int? fileSize;
+  final String? url;
+  final String? mimeType;
+  final String uploadedAt;
+
+  const _UploadedAttachment({
+    required this.id,
+    required this.fileName,
+    this.label,
+    this.fileSize,
+    this.url,
+    this.mimeType,
+    required this.uploadedAt,
+  });
+
+  factory _UploadedAttachment.fromJson(Map<String, dynamic> j) =>
+      _UploadedAttachment(
+        id: j['id'] as int,
+        fileName: j['file_name'] as String,
+        label: j['label'] as String?,
+        fileSize: j['file_size'] as int?,
+        url: j['url'] as String?,
+        mimeType: j['mime_type'] as String?,
+        uploadedAt: j['created_at'] as String? ?? '',
+      );
 }
