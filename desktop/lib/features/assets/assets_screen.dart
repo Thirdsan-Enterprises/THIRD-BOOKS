@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/providers/asset_drafts_provider.dart';
+import '../../core/services/data_service.dart';
+import '../../core/models/bill.dart';
 
 /// Assets Management Screen
 ///
@@ -76,6 +78,12 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
   }
 
   Widget _buildSummarySection() {
+    final entries = _buildAssetEntries();
+    final totalCount   = entries.length;
+    final activeCount  = entries.where((e) => e.isActive).length;
+    final totalValue   = entries.fold<double>(0, (s, e) => s + e.amount);
+    final fmt          = NumberFormat('#,###');
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -89,7 +97,7 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
           Expanded(
             child: _buildSummaryCard(
               'Total Assets',
-              '0',
+              totalCount.toString(),
               Icons.inventory_2,
               AppColors.primary,
             ),
@@ -97,8 +105,17 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
           const SizedBox(width: 16),
           Expanded(
             child: _buildSummaryCard(
+              'Active Assets',
+              activeCount.toString(),
+              Icons.check_circle_outline,
+              AppColors.success,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: _buildSummaryCard(
               'Purchase Value',
-              'UGX 0',
+              'UGX ${fmt.format(totalValue)}',
               Icons.shopping_cart,
               AppColors.info,
             ),
@@ -106,18 +123,9 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
           const SizedBox(width: 16),
           Expanded(
             child: _buildSummaryCard(
-              'Current Value',
-              'UGX 0',
-              Icons.account_balance_wallet,
-              AppColors.success,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: _buildSummaryCard(
-              'Depreciation',
-              'UGX 0',
-              Icons.trending_down,
+              'Pending Confirmation',
+              entries.where((e) => e.isDraft && !e.isActive).length.toString(),
+              Icons.pending_outlined,
               AppColors.warning,
             ),
           ),
@@ -183,13 +191,49 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
     );
   }
 
-  Widget _buildAssetsList() {
+  // ── Unified asset entry ─────────────────────────────────────────────────────
+  // Merges AssetDraft records (manually added or created via bill dialog) with
+  // Bills that have an asset category but were loaded from storage without
+  // generating a draft (e.g. synced from server or added before this feature).
+  List<_AssetEntry> _buildAssetEntries() {
     final drafts = ref.watch(assetDraftsProvider);
+    final bills  = ref.watch(billsProvider).bills;
+
+    final draftIds = drafts.map((d) => d.id).toSet();
+
+    // Convert manual drafts first.
+    final entries = drafts
+        .map((d) => _AssetEntry.fromDraft(d))
+        .toList();
+
+    // Add bills with asset categories that do NOT already have a draft.
+    for (final bill in bills) {
+      if (!isAssetCategory(bill.category)) continue;
+      if (draftIds.contains(bill.id)) continue; // already covered by draft
+      entries.add(_AssetEntry.fromBill(bill));
+    }
+
+    // Sort: confirmed/paid first, then by date descending.
+    entries.sort((a, b) {
+      if (a.isActive != b.isActive) return a.isActive ? -1 : 1;
+      return b.date.compareTo(a.date);
+    });
+
+    return entries;
+  }
+
+  Widget _buildAssetsList() {
     final fmt = _currencyFormat;
 
-    // Filter by selected category
-    final filtered = drafts.where((d) =>
-        _selectedCategory == 'All' || d.category == _selectedCategory).toList();
+    final all = _buildAssetEntries();
+    final filtered = all
+        .where((e) => _selectedCategory == 'All' || e.category == _selectedCategory)
+        .toList();
+
+    // Update summary stats reactively.
+    final totalCount       = all.length;
+    final totalPurchase    = all.fold<double>(0, (s, e) => s + e.amount);
+    final totalActive      = all.where((e) => e.isActive).length;
 
     if (filtered.isEmpty) {
       return Center(
@@ -210,8 +254,9 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Asset-type bills (Equipment, Vehicle, Furniture, Electronics)\n'
-              'will appear here as drafts when you create them in Bills.',
+              'Asset-type bills (Equipment, Vehicle, Furniture, Electronics,\n'
+              'Machinery, Building, Land) appear here automatically when\n'
+              'created in Bills, or add one manually below.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.outline,
@@ -232,7 +277,10 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       itemCount: filtered.length,
       itemBuilder: (context, index) {
-        final draft = filtered[index];
+        final entry = filtered[index];
+        final statusColor = entry.isActive ? AppColors.success : AppColors.warning;
+        final statusLabel = entry.isActive ? 'Active' : 'Pending';
+
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
           child: ListTile(
@@ -241,16 +289,12 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
             leading: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: (draft.isConfirmed
-                        ? AppColors.success
-                        : AppColors.warning)
-                    .withOpacity(0.1),
+                color: statusColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
-                _categoryIcon(draft.category),
-                color:
-                    draft.isConfirmed ? AppColors.success : AppColors.warning,
+                _categoryIcon(entry.category),
+                color: statusColor,
                 size: 24,
               ),
             ),
@@ -258,27 +302,21 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    draft.assetName,
+                    entry.name,
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: (draft.isConfirmed
-                            ? AppColors.success
-                            : AppColors.warning)
-                        .withOpacity(0.1),
+                    color: statusColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    draft.isConfirmed ? 'Active' : 'Draft',
+                    statusLabel,
                     style: TextStyle(
-                      color: draft.isConfirmed
-                          ? AppColors.success
-                          : AppColors.warning,
+                      color: statusColor,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -291,27 +329,35 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
               children: [
                 const SizedBox(height: 4),
                 Text(
-                  '${draft.currency} ${NumberFormat('#,###').format(draft.amount)}  ·  ${draft.category}  ·  ${DateFormat('MMM d, yyyy').format(draft.date)}',
+                  '${entry.currency} ${NumberFormat('#,###').format(entry.amount)}'
+                  '  ·  ${entry.category}'
+                  '  ·  ${DateFormat('MMM d, yyyy').format(entry.date)}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
-                if (draft.vendorName != null)
-                  Text('Vendor: ${draft.vendorName}',
+                if (entry.vendorName != null)
+                  Text('Vendor: ${entry.vendorName}',
                       style: Theme.of(context).textTheme.bodySmall),
-                if (draft.billReference != null)
-                  Text('Ref: ${draft.billReference}',
+                if (entry.reference != null)
+                  Text('Ref: ${entry.reference}',
                       style: Theme.of(context).textTheme.bodySmall),
+                if (entry.source == _AssetSource.bill)
+                  Text(
+                    'Source: Bill ${entry.billNumber ?? ''}',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: AppColors.info,
+                        ),
+                  ),
               ],
             ),
-            trailing: draft.isConfirmed
-                ? const Icon(Icons.check_circle, color: AppColors.success)
-                : Row(
+            trailing: entry.isDraft
+                ? Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       TextButton(
                         onPressed: () {
                           ref
                               .read(assetDraftsProvider.notifier)
-                              .confirmAsset(draft.id);
+                              .confirmAsset(entry.id);
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text('Asset confirmed and activated'),
@@ -326,11 +372,12 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
                             size: 18, color: AppColors.error),
                         onPressed: () => ref
                             .read(assetDraftsProvider.notifier)
-                            .removeDraft(draft.id),
+                            .removeDraft(entry.id),
                         tooltip: 'Remove draft',
                       ),
                     ],
-                  ),
+                  )
+                : const Icon(Icons.check_circle, color: AppColors.success),
           ),
         );
       },
@@ -589,4 +636,71 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
       ),
     );
   }
+}
+
+// ── Unified asset entry ────────────────────────────────────────────────────────
+// Wraps either an AssetDraft (manual / from bill dialog) or a Bill with an
+// asset category so the assets list can render them from a single model.
+
+enum _AssetSource { draft, bill }
+
+class _AssetEntry {
+  final String id;
+  final String name;
+  final String category;
+  final double amount;
+  final String currency;
+  final String? vendorName;
+  final String? reference;
+  final String? billNumber;
+  final DateTime date;
+  final bool isActive;  // true = confirmed/paid
+  final bool isDraft;   // true = can be confirmed / removed
+  final _AssetSource source;
+
+  const _AssetEntry({
+    required this.id,
+    required this.name,
+    required this.category,
+    required this.amount,
+    required this.currency,
+    this.vendorName,
+    this.reference,
+    this.billNumber,
+    required this.date,
+    required this.isActive,
+    required this.isDraft,
+    required this.source,
+  });
+
+  factory _AssetEntry.fromDraft(AssetDraft d) => _AssetEntry(
+        id: d.id,
+        name: d.assetName,
+        category: d.category,
+        amount: d.amount,
+        currency: d.currency,
+        vendorName: d.vendorName,
+        reference: d.billReference,
+        date: d.date,
+        isActive: d.isConfirmed,
+        isDraft: !d.isConfirmed,
+        source: _AssetSource.draft,
+      );
+
+  factory _AssetEntry.fromBill(Bill b) => _AssetEntry(
+        id: b.id,
+        name: b.category != null && (b.vendorName?.isNotEmpty ?? false)
+            ? '${b.category} — ${b.vendorName}'
+            : b.category ?? b.billNumber,
+        category: b.category ?? 'Equipment',
+        amount: b.subtotal,
+        currency: b.currencyCode,
+        vendorName: b.vendorName,
+        reference: b.reference,
+        billNumber: b.billNumber,
+        date: b.date,
+        isActive: b.status == BillStatus.paid,
+        isDraft: false, // Bills sourced directly are not editable here
+        source: _AssetSource.bill,
+      );
 }

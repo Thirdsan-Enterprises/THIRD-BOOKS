@@ -4,11 +4,14 @@
 // © 2026 ThirdBooks. All rights reserved.
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:uuid/uuid.dart';
 
 import '../providers/local_attachments_provider.dart';
@@ -165,7 +168,9 @@ class AttachmentPanel extends ConsumerWidget {
     }
   }
 
-  // ── Open a file using the OS default application ─────────────────────────
+  // ── In-app file viewer ────────────────────────────────────────────────────
+  // Opens images and PDFs inside the app.  For other file types a dialog
+  // offers Download (save a copy to a user-chosen location) and Print options.
   Future<void> _openFile(BuildContext context, LocalAttachment att) async {
     final file = File(att.localPath);
     if (!await file.exists()) {
@@ -178,22 +183,228 @@ class AttachmentPanel extends ConsumerWidget {
       return;
     }
 
+    final mime = att.mimeType ?? '';
+    final name = att.fileName.toLowerCase();
+
+    if (mime.contains('image') ||
+        name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.png') ||
+        name.endsWith('.gif') ||
+        name.endsWith('.webp')) {
+      // ── Image viewer ──────────────────────────────────────────────────────
+      if (context.mounted) {
+        await showDialog(
+          context: context,
+          builder: (_) => _AttachmentViewerDialog(
+            title: att.fileName,
+            child: InteractiveViewer(
+              child: Image.file(file, fit: BoxFit.contain),
+            ),
+            onDownload: () => _saveFileCopy(context, att),
+            onPrint: () => _printImageFile(context, att),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (mime.contains('pdf') || name.endsWith('.pdf')) {
+      // ── PDF viewer using the printing package ─────────────────────────────
+      if (context.mounted) {
+        await showDialog(
+          context: context,
+          builder: (_) => _AttachmentViewerDialog(
+            title: att.fileName,
+            child: PdfPreview(
+              build: (_) async => await file.readAsBytes(),
+              allowPrinting: true,
+              allowSharing: false,
+              canChangeOrientation: false,
+              canChangePageFormat: false,
+              canDebug: false,
+              pdfPreviewPageDecoration: const BoxDecoration(),
+            ),
+            onDownload: () => _saveFileCopy(context, att),
+            onPrint: null, // PdfPreview already has a print button
+          ),
+        );
+      }
+      return;
+    }
+
+    // ── Other file types: offer Download / Print ─────────────────────────────
+    if (context.mounted) {
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(_iconFor(mime, att.fileName),
+                  color: Theme.of(ctx).colorScheme.primary, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  att.fileName,
+                  style: const TextStyle(fontSize: 15),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This file type cannot be previewed inside the app.\n'
+                'Choose an action:',
+                style: Theme.of(ctx).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 8),
+              if (att.sizeHuman.isNotEmpty)
+                Text(
+                  'Size: ${att.sizeHuman}',
+                  style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(ctx).colorScheme.outline,
+                      ),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _saveFileCopy(context, att);
+              },
+              icon: const Icon(Icons.download, size: 18),
+              label: const Text('Download'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _printGenericFile(context, att);
+              },
+              icon: const Icon(Icons.print, size: 18),
+              label: const Text('Print'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  // ── Save a copy to a user-chosen location ─────────────────────────────────
+  Future<void> _saveFileCopy(BuildContext context, LocalAttachment att) async {
+    final ext = att.fileName.contains('.')
+        ? att.fileName.split('.').last
+        : '';
+    final savePath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save ${att.fileName}',
+      fileName: att.fileName,
+      type: ext.isNotEmpty ? FileType.custom : FileType.any,
+      allowedExtensions: ext.isNotEmpty ? [ext] : null,
+    );
+    if (savePath == null) return;
     try {
-      if (Platform.isLinux) {
-        await Process.run('xdg-open', [att.localPath]);
-      } else if (Platform.isMacOS) {
-        await Process.run('open', [att.localPath]);
-      } else if (Platform.isWindows) {
-        await Process.run('explorer', [att.localPath]);
+      await File(att.localPath).copy(savePath);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Saved to $savePath'),
+          backgroundColor: AppColors.success,
+        ));
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Could not open file: $e'),
+          content: Text('Could not save file: $e'),
           backgroundColor: AppColors.error,
         ));
       }
     }
+  }
+
+  // ── Print an image file ───────────────────────────────────────────────────
+  Future<void> _printImageFile(BuildContext context, LocalAttachment att) async {
+    try {
+      final bytes = await File(att.localPath).readAsBytes();
+      await Printing.layoutPdf(
+        onLayout: (_) async {
+          final doc = await _buildImagePdf(bytes, att.fileName);
+          return doc;
+        },
+        name: att.fileName,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Print error: $e'),
+          backgroundColor: AppColors.error,
+        ));
+      }
+    }
+  }
+
+  // ── Build a single-page PDF wrapping an image (for printing) ─────────────
+  Future<Uint8List> _buildImagePdf(Uint8List imageBytes, String name) async {
+    final pdf = pw.Document();
+    final image = pw.MemoryImage(imageBytes);
+    pdf.addPage(
+      pw.Page(
+        build: (_) => pw.Center(child: pw.Image(image, fit: pw.BoxFit.contain)),
+      ),
+    );
+    return pdf.save();
+  }
+
+  // ── Print other file types (best-effort: plain text or open-in-OS) ────────
+  Future<void> _printGenericFile(BuildContext context, LocalAttachment att) async {
+    try {
+      final bytes = await File(att.localPath).readAsBytes();
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: att.fileName,
+      );
+    } catch (_) {
+      // Fall back: open with OS default app for printing.
+      try {
+        if (Platform.isWindows) {
+          await Process.run('cmd', ['/c', 'start', '', att.localPath]);
+        } else if (Platform.isMacOS) {
+          await Process.run('open', [att.localPath]);
+        } else {
+          await Process.run('xdg-open', [att.localPath]);
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Could not print file: $e'),
+            backgroundColor: AppColors.error,
+          ));
+        }
+      }
+    }
+  }
+
+  // ── icon helper (shared with tile) ───────────────────────────────────────
+  static IconData _iconFor(String? mime, String name) {
+    if (mime?.contains('pdf') == true || name.endsWith('.pdf')) {
+      return Icons.picture_as_pdf;
+    }
+    if (mime?.contains('image') == true) return Icons.image_outlined;
+    if (name.endsWith('.xlsx') ||
+        name.endsWith('.xls') ||
+        name.endsWith('.csv')) {
+      return Icons.table_chart_outlined;
+    }
+    if (name.endsWith('.doc') || name.endsWith('.docx')) {
+      return Icons.article_outlined;
+    }
+    return Icons.insert_drive_file_outlined;
   }
 
   // ── Confirm and delete ────────────────────────────────────────────────────
@@ -282,7 +493,7 @@ class _AttachmentTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(_iconFor(att.mimeType, att.fileName),
+            Icon(AttachmentPanel._iconFor(att.mimeType, att.fileName),
                 size: 22, color: theme.colorScheme.primary),
             const SizedBox(width: 10),
             Expanded(
@@ -344,20 +555,111 @@ class _AttachmentTile extends StatelessWidget {
       ),
     );
   }
+}
 
-  IconData _iconFor(String? mime, String name) {
-    if (mime?.contains('pdf') == true || name.endsWith('.pdf')) {
-      return Icons.picture_as_pdf;
-    }
-    if (mime?.contains('image') == true) return Icons.image_outlined;
-    if (name.endsWith('.xlsx') ||
-        name.endsWith('.xls') ||
-        name.endsWith('.csv')) {
-      return Icons.table_chart_outlined;
-    }
-    if (name.endsWith('.doc') || name.endsWith('.docx')) {
-      return Icons.article_outlined;
-    }
-    return Icons.insert_drive_file_outlined;
+// ---------------------------------------------------------------------------
+// Generic in-app attachment viewer dialog
+// Wraps any content (image viewer, PDF preview) with a header, close button,
+// and optional Download / Print action buttons in the footer.
+// ---------------------------------------------------------------------------
+class _AttachmentViewerDialog extends StatelessWidget {
+  final String title;
+  final Widget child;
+  final VoidCallback? onDownload;
+  final VoidCallback? onPrint;
+
+  const _AttachmentViewerDialog({
+    required this.title,
+    required this.child,
+    this.onDownload,
+    this.onPrint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: SizedBox(
+        width: MediaQuery.of(context).size.width * 0.80,
+        height: MediaQuery.of(context).size.height * 0.85,
+        child: Column(
+          children: [
+            // ── Header ──────────────────────────────────────────────────────
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceVariant,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(12)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.attach_file,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () => Navigator.pop(context),
+                    tooltip: 'Close',
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // ── Content ─────────────────────────────────────────────────────
+            Expanded(child: child),
+            // ── Footer ──────────────────────────────────────────────────────
+            const Divider(height: 1),
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (onDownload != null)
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        onDownload!();
+                      },
+                      icon: const Icon(Icons.download, size: 16),
+                      label: const Text('Download'),
+                    ),
+                  if (onDownload != null && onPrint != null)
+                    const SizedBox(width: 10),
+                  if (onPrint != null)
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        onPrint!();
+                      },
+                      icon: const Icon(Icons.print, size: 16),
+                      label: const Text('Print'),
+                    ),
+                  const SizedBox(width: 10),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
