@@ -20,7 +20,8 @@ import '../../core/models/models.dart' show JournalEntry, JournalLine, JournalEn
 import '../../core/providers/asset_drafts_provider.dart';
 import '../../core/widgets/attachment_widget.dart';
 import '../../core/widgets/account_search_field.dart';
-import '../banking/banking_screen.dart' show bankingProvider, BankTxType;
+import '../banking/banking_screen.dart' show bankingProvider;
+import '../../core/models/bank_transaction.dart' show BankTxType;
 
 class BillsScreen extends ConsumerStatefulWidget {
   const BillsScreen({super.key});

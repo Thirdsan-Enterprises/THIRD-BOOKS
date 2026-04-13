@@ -1454,17 +1454,18 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
 
                       // ── Opening-balance JE: DR Bank / CR Retained Earnings ──
                       if (openingBal != null && openingBal > 0 && selectedAccount != null) {
-                        final bankCoaId = _bankCoaId(selectedAccount);
+                        final account = selectedAccount!; // snapshot non-nullable for flow analysis
+                        final bankCoaId = _bankCoaId(account);
                         if (bankCoaId != null) {
                           final jeId = const Uuid().v4();
                           final now = DateTime.now();
                           ref.read(journalsProvider.notifier).addEntry(
                             JournalEntry(
                               id: jeId,
-                              entryNumber: 'OB-${DateFormat('yyyyMMdd').format(fromDate)}-${selectedAccount.id}',
+                              entryNumber: 'OB-${DateFormat('yyyyMMdd').format(fromDate)}-${account.id}',
                               date: fromDate,
                               description:
-                                  'Opening balance — ${selectedAccount.bankName} (${selectedAccount.accountNumber})',
+                                  'Opening balance — ${account.bankName} (${account.accountNumber})',
                               reference: csvName,
                               status: JournalEntryStatus.posted,
                               lines: [
@@ -1473,7 +1474,7 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
                                   journalEntryId: jeId,
                                   accountId: bankCoaId,
                                   accountCode: bankCoaId.replaceFirst('acct-', ''),
-                                  accountName: selectedAccount.bankName,
+                                  accountName: account.bankName,
                                   debit: openingBal,
                                   credit: 0,
                                   description: 'Opening balance brought forward',
