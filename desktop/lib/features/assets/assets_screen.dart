@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../core/database/app_database.dart';
+import '../../core/database/app_database.dart' hide Bill;
 import '../../core/theme/app_theme.dart';
 import '../../core/providers/asset_drafts_provider.dart';
 import '../../core/services/data_service.dart';
