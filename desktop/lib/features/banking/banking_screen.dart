@@ -16,6 +16,7 @@ import '../../core/services/data_service.dart';
 import '../../core/services/local_storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/models/bank_transaction.dart';
+import '../../core/models/models.dart' show JournalEntry, JournalLine, JournalEntryStatus;
 import '../../core/providers/local_bank_statements_provider.dart';
 
 // ---------------------------------------------------------------------------
@@ -1225,6 +1226,8 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
     int? previewRowCount;
     List<List<String>> parsedRows = [];
     final formKey = GlobalKey<FormState>();
+    final openingBalCtrl = TextEditingController();
+    final closingBalCtrl = TextEditingController();
 
     await showDialog(
       context: context,
@@ -1309,12 +1312,40 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
                           final rows = raw
                               .map((r) => r.map((c) => c.toString()).toList())
                               .toList();
+                          // Auto-detect closing balance from last "Balance" column
+                          String? autoClosing;
+                          if (rows.length >= 2) {
+                            final header = rows.first
+                                .map((h) => h.toLowerCase().trim())
+                                .toList();
+                            final balIdx = header.indexWhere((h) =>
+                                h == 'balance' ||
+                                h == 'running balance' ||
+                                h == 'closing balance');
+                            if (balIdx >= 0) {
+                              // Walk from last data row upwards until we find a non-empty value
+                              for (int i = rows.length - 1; i >= 1; i--) {
+                                final cell = rows[i].length > balIdx
+                                    ? rows[i][balIdx].trim()
+                                    : '';
+                                if (cell.isNotEmpty) {
+                                  autoClosing = cell.replaceAll(RegExp(r'[^\d.\-]'), '');
+                                  break;
+                                }
+                              }
+                            }
+                          }
                           setDialogState(() {
                             csvPath = path;
                             csvName = name;
                             parsedRows = rows;
                             previewRowCount =
                                 rows.isEmpty ? 0 : rows.length - 1;
+                            if (autoClosing != null &&
+                                autoClosing!.isNotEmpty &&
+                                closingBalCtrl.text.isEmpty) {
+                              closingBalCtrl.text = autoClosing!;
+                            }
                           });
                         } catch (_) {
                           setDialogState(() {
@@ -1352,6 +1383,36 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
                       ],
                     ),
                   ],
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: openingBalCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Opening Balance',
+                            hintText: '0.00',
+                            prefixText: 'UGX ',
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextFormField(
+                          controller: closingBalCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Closing Balance',
+                            hintText: 'Auto-detected from CSV',
+                            prefixText: 'UGX ',
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -1366,6 +1427,10 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
                   ? null
                   : () async {
                       if (!formKey.currentState!.validate()) return;
+                      final openingBal = double.tryParse(
+                          openingBalCtrl.text.trim().replaceAll(',', ''));
+                      final closingBal = double.tryParse(
+                          closingBalCtrl.text.trim().replaceAll(',', ''));
                       Navigator.pop(ctx);
 
                       // ── Save locally first (always works offline) ──────
@@ -1378,12 +1443,58 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
                         fromDate: fromDate,
                         toDate: toDate,
                         rows: parsedRows,
+                        openingBalance: openingBal,
+                        closingBalance: closingBal,
                         status: 'local',
                         uploadedAt: DateTime.now(),
                       );
                       await ref
                           .read(localBankStatementsProvider.notifier)
                           .add(localStmt);
+
+                      // ── Opening-balance JE: DR Bank / CR Retained Earnings ──
+                      if (openingBal != null && openingBal > 0 && selectedAccount != null) {
+                        final bankCoaId = _bankCoaId(selectedAccount);
+                        if (bankCoaId != null) {
+                          final jeId = const Uuid().v4();
+                          final now = DateTime.now();
+                          ref.read(journalsProvider.notifier).addEntry(
+                            JournalEntry(
+                              id: jeId,
+                              entryNumber: 'OB-${DateFormat('yyyyMMdd').format(fromDate)}-${selectedAccount.id}',
+                              date: fromDate,
+                              description:
+                                  'Opening balance — ${selectedAccount.bankName} (${selectedAccount.accountNumber})',
+                              reference: csvName,
+                              status: JournalEntryStatus.posted,
+                              lines: [
+                                JournalLine(
+                                  id: '$jeId-1',
+                                  journalEntryId: jeId,
+                                  accountId: bankCoaId,
+                                  accountCode: bankCoaId.replaceFirst('acct-', ''),
+                                  accountName: selectedAccount.bankName,
+                                  debit: openingBal,
+                                  credit: 0,
+                                  description: 'Opening balance brought forward',
+                                ),
+                                JournalLine(
+                                  id: '$jeId-2',
+                                  journalEntryId: jeId,
+                                  accountId: 'acct-175',
+                                  accountCode: '175',
+                                  accountName: 'Retained Earnings',
+                                  debit: 0,
+                                  credit: openingBal,
+                                  description: 'Opening balance brought forward',
+                                ),
+                              ],
+                              createdAt: now,
+                              updatedAt: now,
+                            ),
+                          );
+                        }
+                      }
 
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -1470,6 +1581,254 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Statement removed')));
     }
+  }
+
+  // ── In-app statement viewer ───────────────────────────────────────────────
+  void _viewStatement(LocalBankStatement stmt) {
+    final fmt       = NumberFormat('#,###');
+    final dateFmt   = DateFormat('dd MMM yyyy');
+    final rows      = stmt.rows;
+    final hasRows   = rows.isNotEmpty;
+    final headers   = hasRows ? rows.first : <String>[];
+    final dataRows  = hasRows ? rows.skip(1).toList() : <List<String>>[];
+
+    // Best-effort column index detection (case-insensitive header matching).
+    int _col(String label) {
+      final idx = headers.indexWhere(
+          (h) => h.toLowerCase().contains(label.toLowerCase()));
+      return idx;
+    }
+
+    final colDate   = _col('date');
+    final colDesc   = _col('description') >= 0 ? _col('description') : _col('narration');
+    final colDebit  = _col('debit') >= 0 ? _col('debit') : _col('dr');
+    final colCredit = _col('credit') >= 0 ? _col('credit') : _col('cr');
+    final colBal    = _col('balance');
+    final colRef    = _col('ref');
+
+    String cellAt(List<String> row, int idx) =>
+        (idx >= 0 && idx < row.length) ? row[idx] : '';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: SizedBox(
+          width: 860,
+          height: 600,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Header ────────────────────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.receipt_long, color: Colors.white, size: 24),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            stmt.bankAccountName != null
+                                ? '${stmt.bankAccountName}'
+                                    '${stmt.bankAccountNumber != null ? ' – ${stmt.bankAccountNumber}' : ''}'
+                                : stmt.fileName,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            '${_fmtDate(stmt.fromDate)} → ${_fmtDate(stmt.toDate)}'
+                            '  •  ${fmt.format(stmt.lineCount)} transaction(s)'
+                            '  •  ${stmt.fileName}',
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              // ── Column headers ─────────────────────────────────────────────
+              if (hasRows)
+                Container(
+                  color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      SizedBox(width: 90,  child: Text(colDate   >= 0 ? headers[colDate]   : 'Date',        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700))),
+                      Expanded(flex: 3,    child: Text(colDesc   >= 0 ? headers[colDesc]   : 'Description', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700))),
+                      if (colRef >= 0)
+                        SizedBox(width: 90, child: Text(headers[colRef], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700))),
+                      SizedBox(width: 100, child: Text(colDebit  >= 0 ? headers[colDebit]  : 'Debit',       style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.expense), textAlign: TextAlign.right)),
+                      SizedBox(width: 100, child: Text(colCredit >= 0 ? headers[colCredit] : 'Credit',      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.income), textAlign: TextAlign.right)),
+                      if (colBal >= 0)
+                        SizedBox(width: 110, child: Text(headers[colBal], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700), textAlign: TextAlign.right)),
+                    ],
+                  ),
+                ),
+              const Divider(height: 1),
+              // ── Rows ───────────────────────────────────────────────────────
+              Expanded(
+                child: !hasRows
+                    ? const Center(child: Text('No transaction rows found in this statement.'))
+                    : dataRows.isEmpty
+                        ? const Center(child: Text('Statement has no transaction rows (header-only).'))
+                        : ListView.separated(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: dataRows.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (_, i) {
+                              final row    = dataRows[i];
+                              final debit  = cellAt(row, colDebit);
+                              final credit = cellAt(row, colCredit);
+                              final bal    = cellAt(row, colBal);
+                              final isCredit = debit.isEmpty ||
+                                  double.tryParse(debit.replaceAll(',', '')) == 0;
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                child: Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 90,
+                                      child: Text(cellAt(row, colDate),
+                                          style: const TextStyle(fontSize: 12)),
+                                    ),
+                                    Expanded(
+                                      flex: 3,
+                                      child: Text(
+                                        cellAt(row, colDesc),
+                                        style: const TextStyle(fontSize: 13),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    if (colRef >= 0)
+                                      SizedBox(
+                                        width: 90,
+                                        child: Text(
+                                          cellAt(row, colRef),
+                                          style: TextStyle(
+                                              fontSize: 11,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .outline),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    SizedBox(
+                                      width: 100,
+                                      child: isCredit
+                                          ? const SizedBox.shrink()
+                                          : Text(debit,
+                                              style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: AppColors.expense,
+                                                  fontFamily: 'monospace'),
+                                              textAlign: TextAlign.right),
+                                    ),
+                                    SizedBox(
+                                      width: 100,
+                                      child: isCredit
+                                          ? Text(credit,
+                                              style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: AppColors.income,
+                                                  fontFamily: 'monospace'),
+                                              textAlign: TextAlign.right)
+                                          : const SizedBox.shrink(),
+                                    ),
+                                    if (colBal >= 0)
+                                      SizedBox(
+                                        width: 110,
+                                        child: Text(bal,
+                                            style: const TextStyle(
+                                                fontSize: 12,
+                                                fontFamily: 'monospace',
+                                                fontWeight: FontWeight.w600),
+                                            textAlign: TextAlign.right),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+              ),
+              // ── Footer ────────────────────────────────────────────────────
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _statusColor(stmt.status).withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _statusLabel(stmt.status),
+                        style: TextStyle(
+                            color: _statusColor(stmt.status),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Uploaded ${_fmtDate(stmt.uploadedAt)}',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.outline),
+                    ),
+                    if (stmt.openingBalance != null || stmt.closingBalance != null) ...[
+                      const SizedBox(width: 16),
+                      if (stmt.openingBalance != null)
+                        Text(
+                          'Opening: ${NumberFormat('#,##0.00').format(stmt.openingBalance)}',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.outline),
+                        ),
+                      if (stmt.openingBalance != null && stmt.closingBalance != null)
+                        const Text('  →  ', style: TextStyle(fontSize: 12)),
+                      if (stmt.closingBalance != null)
+                        Text(
+                          'Closing: ${NumberFormat('#,##0.00').format(stmt.closingBalance)}',
+                          style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600),
+                        ),
+                    ],
+                    const Spacer(),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Color _statusColor(String status) {
@@ -1596,6 +1955,8 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
                 return ListTile(
                   contentPadding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 8),
+                  // ── Tap to view rows ────────────────────────────────────
+                  onTap: () => _viewStatement(stmt),
                   leading: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
@@ -1624,14 +1985,24 @@ class _BankStatementsTabState extends ConsumerState<_BankStatementsTab> {
                         stmt.fileName,
                         style: TextStyle(
                             fontSize: 11,
-                            color:
-                                Theme.of(context).colorScheme.outline),
+                            color: Theme.of(context).colorScheme.outline),
                       ),
                     ],
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // ── View button ──────────────────────────────────
+                      TextButton.icon(
+                        onPressed: () => _viewStatement(stmt),
+                        icon: const Icon(Icons.table_rows_outlined, size: 16),
+                        label: const Text('View'),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                      ),
                       // Status badge
                       Container(
                         padding: const EdgeInsets.symmetric(

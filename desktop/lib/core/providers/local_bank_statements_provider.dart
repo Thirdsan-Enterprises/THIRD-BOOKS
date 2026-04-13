@@ -19,6 +19,10 @@ class LocalBankStatement {
   final DateTime toDate;
   /// Parsed CSV rows — first item is the header row.
   final List<List<String>> rows;
+  /// Opening balance at the start of the statement period.
+  final double? openingBalance;
+  /// Closing balance at the end of the statement period.
+  final double? closingBalance;
   /// 'local' = not yet synced, 'synced' = accepted by server.
   final String status;
   /// Server-assigned ID once the statement is synced.
@@ -34,6 +38,8 @@ class LocalBankStatement {
     required this.fromDate,
     required this.toDate,
     required this.rows,
+    this.openingBalance,
+    this.closingBalance,
     this.status = 'local',
     this.serverStatementId,
     required this.uploadedAt,
@@ -44,6 +50,8 @@ class LocalBankStatement {
   LocalBankStatement copyWith({
     String? status,
     int? serverStatementId,
+    double? openingBalance,
+    double? closingBalance,
   }) =>
       LocalBankStatement(
         id: id,
@@ -54,6 +62,8 @@ class LocalBankStatement {
         fromDate: fromDate,
         toDate: toDate,
         rows: rows,
+        openingBalance: openingBalance ?? this.openingBalance,
+        closingBalance: closingBalance ?? this.closingBalance,
         status: status ?? this.status,
         serverStatementId: serverStatementId ?? this.serverStatementId,
         uploadedAt: uploadedAt,
@@ -68,6 +78,8 @@ class LocalBankStatement {
         'fromDate': fromDate.toIso8601String(),
         'toDate': toDate.toIso8601String(),
         'rows': rows,
+        'openingBalance': openingBalance,
+        'closingBalance': closingBalance,
         'status': status,
         'serverStatementId': serverStatementId,
         'uploadedAt': uploadedAt.toIso8601String(),
@@ -87,6 +99,8 @@ class LocalBankStatement {
       fromDate: DateTime.parse(j['fromDate'] as String),
       toDate: DateTime.parse(j['toDate'] as String),
       rows: rows,
+      openingBalance: (j['openingBalance'] as num?)?.toDouble(),
+      closingBalance: (j['closingBalance'] as num?)?.toDouble(),
       status: j['status'] as String? ?? 'local',
       serverStatementId: j['serverStatementId'] as int?,
       uploadedAt: DateTime.parse(j['uploadedAt'] as String),

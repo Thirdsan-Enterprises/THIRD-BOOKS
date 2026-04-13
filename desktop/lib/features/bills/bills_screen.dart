@@ -20,6 +20,7 @@ import '../../core/models/models.dart' show JournalEntry, JournalLine, JournalEn
 import '../../core/providers/asset_drafts_provider.dart';
 import '../../core/widgets/attachment_widget.dart';
 import '../../core/widgets/account_search_field.dart';
+import '../banking/banking_screen.dart' show bankingProvider, BankTxType;
 
 class BillsScreen extends ConsumerStatefulWidget {
   const BillsScreen({super.key});
@@ -1040,6 +1041,50 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                   createdAt: now,
                   updatedAt: now,
                 ));
+
+                // Record a bank transaction so the banking screen's
+                // statement view and running balance reflect this payment.
+                // payAccId is like 'acct-101' (ABSA) / 'acct-102' (MTN) /
+                // 'acct-100' (Petty Cash).  We match it to the banking provider
+                // accounts by CoA ID stored in the _bankCoaId mapping.
+                final bankState = ref.read(bankingProvider);
+                final matchedBankAccount = bankState.accounts
+                    .cast<dynamic>()
+                    .firstWhere(
+                      (a) {
+                        // _bankCoaId logic replicated here to find the account
+                        final n = (a.bankName as String).toLowerCase();
+                        if (payAccId == 'acct-102') {
+                          return n.contains('mtn') ||
+                              n.contains('mobile money') ||
+                              n.contains('momo');
+                        }
+                        if (payAccId == 'acct-101') return n.contains('absa');
+                        if (payAccId == 'acct-103') return n.contains('stanbic');
+                        if (payAccId == 'acct-100') {
+                          return n.contains('petty') ||
+                              (n.contains('cash') && !n.contains('stancash'));
+                        }
+                        return false;
+                      },
+                      orElse: () => null,
+                    );
+
+                if (matchedBankAccount != null) {
+                  // Bill payment = money leaves the bank → debit (outflow).
+                  ref.read(bankingProvider.notifier).recordTransaction(
+                    bankAccountId: matchedBankAccount.id as String,
+                    date: now,
+                    description:
+                        'Bill payment: ${bill.billNumber} — ${bill.vendorName ?? ''}',
+                    type: BankTxType.debit,
+                    amount: amount,
+                    reference: payment.reference ?? payment.paymentNumber,
+                    sourceType: 'bill_payment',
+                    sourceId: payment.id,
+                    sourceLabel: bill.billNumber,
+                  );
+                }
 
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
