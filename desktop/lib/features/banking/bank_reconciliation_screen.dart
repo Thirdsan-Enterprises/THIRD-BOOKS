@@ -885,6 +885,13 @@ class _BankReconciliationScreenState
     String acctQuery = '';
     String tab2Query = '';
 
+    // Multi-select state for Outlets and Bills tabs.
+    // These must live in the OUTER closure so they survive outer StatefulBuilder
+    // rebuilds triggered by search queries — keeping checked items intact.
+    final outletSelected = <String, TextEditingController>{};
+    final outletSelectedObjects = <String, Outlet>{};
+    final billSelected = <String, TextEditingController>{};
+
     // Show ALL account types — includes loans, liabilities, assets, etc.
     final acctTypes = AccountType.values.toList();
 
@@ -1057,10 +1064,12 @@ class _BankReconciliationScreenState
                           isDebit
                               ? _buildBillsTab(
                                   line, billsState, tab2Query, ctx,
-                                  (q) => setS(() => tab2Query = q))
+                                  (q) => setS(() => tab2Query = q),
+                                  billSelected)
                               : _buildOutletsTab(
                                   line, db, tab2Query, ctx,
-                                  (q) => setS(() => tab2Query = q)),
+                                  (q) => setS(() => tab2Query = q),
+                                  outletSelected, outletSelectedObjects),
                         ],
                       ),
                     ),
@@ -1101,12 +1110,11 @@ class _BankReconciliationScreenState
   }
 
   Widget _buildOutletsTab(BankStatementLine line, dynamic db, String query,
-      BuildContext ctx, void Function(String) onSearch) {
-    // Per-outlet amount controllers — supports partial receipts across
-    // multiple outlets from a single bank deposit.
-    final selected = <String, TextEditingController>{};
-    // Keep outlet objects for label construction on confirm.
-    final selectedOutlets = <String, Outlet>{};
+      BuildContext ctx, void Function(String) onSearch,
+      Map<String, TextEditingController> selected,
+      Map<String, Outlet> selectedOutlets) {
+    // selected and selectedOutlets are passed in from the outer closure so
+    // they survive StatefulBuilder rebuilds caused by search query changes.
 
     return StatefulBuilder(builder: (ctx2, setS2) {
       double allocatedTotal = 0;
@@ -1299,7 +1307,10 @@ class _BankReconciliationScreenState
   }
 
   Widget _buildBillsTab(BankStatementLine line, dynamic billsState,
-      String query, BuildContext ctx, void Function(String) onSearch) {
+      String query, BuildContext ctx, void Function(String) onSearch,
+      Map<String, TextEditingController> selected) {
+    // selected is passed in from the outer closure so it survives
+    // StatefulBuilder rebuilds caused by search query changes.
     final allBills = (billsState.bills as List<Bill>)
         .where((b) => b.status != BillStatus.paid)
         .toList()
@@ -1311,9 +1322,6 @@ class _BankReconciliationScreenState
                 b.billNumber.toLowerCase().contains(query) ||
                 (b.vendorName ?? '').toLowerCase().contains(query))
             .toList();
-
-    // Multi-select state — track selected bill IDs and their allocated amounts
-    final selected = <String, TextEditingController>{};
 
     return StatefulBuilder(builder: (ctx2, setS2) {
       double allocatedTotal = 0;
