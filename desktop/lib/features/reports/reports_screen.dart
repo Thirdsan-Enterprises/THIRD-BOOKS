@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -26,6 +27,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   String _selectedPeriod = 'This Month';
   String _selectedReportType = 'all';
   final _currencyFormat = NumberFormat.currency(symbol: 'UGX ', decimalDigits: 0);
+
+  /// "As at" date used for the Trial Balance — defaults to today.
+  /// All JEs dated after this cutoff are excluded from the computation.
+  DateTime _trialBalanceAsAt = DateTime.now();
 
   final List<Map<String, dynamic>> _reportCategories = [
     {
@@ -278,15 +283,118 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: _reportCategories.map((category) {
-          return _ReportCategorySection(
-            category: category['category'],
-            icon: category['icon'],
-            color: category['color'],
-            reports: List<Map<String, dynamic>>.from(category['reports']),
-            onReportTap: (report) => _showReportPreview(context, report, category['category']),
-          );
-        }).toList(),
+        children: [
+          // ── Quick-share banner for the accountant ──────────────────────────
+          Container(
+            margin: const EdgeInsets.only(bottom: 20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [AppColors.primary.withOpacity(0.12), AppColors.primary.withOpacity(0.04)],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.primary.withOpacity(0.25)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.description_outlined,
+                        color: AppColors.primary, size: 22),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Trial Balance — Share with Accountant',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 14)),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Copy as Markdown or save a .md file — paste into WhatsApp, email, or any notes app.',
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.outline,
+                              fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            icon: const Icon(Icons.calendar_today, size: 14),
+                            label: Text(
+                              DateFormat('d MMM yyyy').format(_trialBalanceAsAt),
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            onPressed: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: _trialBalanceAsAt,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now(),
+                                helpText: 'Trial Balance "As at" date',
+                              );
+                              if (picked != null) {
+                                setState(() => _trialBalanceAsAt = picked);
+                              }
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            icon: const Icon(Icons.copy, size: 16),
+                            label: const Text('Copy'),
+                            onPressed: () => _copyTrialBalanceMd(),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton.icon(
+                            icon: const Icon(Icons.save_alt, size: 16),
+                            label: const Text('Save .md'),
+                            onPressed: () => _saveTrialBalanceMd(),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // ── Report category sections ──────────────────────────────────────
+          ..._reportCategories.map((category) {
+            return _ReportCategorySection(
+              category: category['category'],
+              icon: category['icon'],
+              color: category['color'],
+              reports: List<Map<String, dynamic>>.from(category['reports']),
+              onReportTap: (report) =>
+                  _showReportPreview(context, report, category['category']),
+            );
+          }),
+        ],
       ),
     );
   }
@@ -315,10 +423,43 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Text('Period: $_selectedPeriod', style: const TextStyle(fontWeight: FontWeight.w500)),
+                  if (report['name'] == 'Trial Balance') ...[
+                    const Text('As at:', style: TextStyle(fontWeight: FontWeight.w500)),
+                    const SizedBox(width: 8),
+                    StatefulBuilder(
+                      builder: (_, setInner) => OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        icon: const Icon(Icons.calendar_today, size: 14),
+                        label: Text(
+                          DateFormat('d MMM yyyy').format(_trialBalanceAsAt),
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                        onPressed: () async {
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: _trialBalanceAsAt,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime.now(),
+                            helpText: 'Trial Balance "As at" date',
+                          );
+                          if (picked != null) {
+                            setState(() => _trialBalanceAsAt = picked);
+                            setInner(() {});
+                          }
+                        },
+                      ),
+                    ),
+                  ] else ...[
+                    Text('Period: $_selectedPeriod',
+                        style: const TextStyle(fontWeight: FontWeight.w500)),
+                  ],
                   const Spacer(),
                   Text('Generated: ${DateFormat('MMM d, yyyy HH:mm').format(DateTime.now())}',
-                      style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12)),
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.outline, fontSize: 12)),
                 ],
               ),
               const Divider(height: 24),
@@ -333,38 +474,66 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Close'),
           ),
-          OutlinedButton.icon(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await _printReport(report['name'] as String);
-            },
-            icon: const Icon(Icons.print, size: 18),
-            label: const Text('Print'),
-          ),
-          OutlinedButton.icon(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await _exportReportCsv(report['name'] as String);
-            },
-            icon: const Icon(Icons.table_chart, size: 18),
-            label: const Text('Export CSV'),
-          ),
-          OutlinedButton.icon(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await _exportReportExcel(report['name'] as String);
-            },
-            icon: const Icon(Icons.grid_on, size: 18),
-            label: const Text('Export Excel'),
-          ),
-          FilledButton.icon(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await _exportReportPdf(report['name'] as String);
-            },
-            icon: const Icon(Icons.picture_as_pdf, size: 18),
-            label: const Text('Export PDF'),
-          ),
+          if (report['name'] != 'Trial Balance') ...[
+            OutlinedButton.icon(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _printReport(report['name'] as String);
+              },
+              icon: const Icon(Icons.print, size: 18),
+              label: const Text('Print'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _exportReportCsv(report['name'] as String);
+              },
+              icon: const Icon(Icons.table_chart, size: 18),
+              label: const Text('Export CSV'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _exportReportExcel(report['name'] as String);
+              },
+              icon: const Icon(Icons.grid_on, size: 18),
+              label: const Text('Export Excel'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _exportReportPdf(report['name'] as String);
+              },
+              icon: const Icon(Icons.picture_as_pdf, size: 18),
+              label: const Text('Export PDF'),
+            ),
+          ] else ...[
+            // Trial Balance — markdown export for sharing with accountant
+            OutlinedButton.icon(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _printReport('Trial Balance');
+              },
+              icon: const Icon(Icons.print, size: 18),
+              label: const Text('Print'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _copyTrialBalanceMd();
+              },
+              icon: const Icon(Icons.copy, size: 18),
+              label: const Text('Copy Markdown'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _saveTrialBalanceMd();
+              },
+              icon: const Icon(Icons.save_alt, size: 18),
+              label: const Text('Save .md File'),
+            ),
+          ],
         ],
       ),
     );
@@ -384,6 +553,509 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   static pw.Widget _pdfDivider() => pw.Divider(thickness: 0.5, color: PdfColors.grey400);
+
+  // ── Professional Trial Balance PDF ─────────────────────────────────────────
+
+  /// Generates a professional, multi-page Trial Balance PDF suitable for
+  /// sharing with an external accountant.
+  ///
+  /// Features:
+  ///  • Branded letterhead (company name, document title, "As at" date)
+  ///  • Accounts grouped by type (Assets → Liabilities → Equity → Revenue → Expenses)
+  ///  • Alternating row shading for readability
+  ///  • Bold totals row with balance-check indicator
+  ///  • Page numbers and confidentiality footer on every page
+  Future<pw.Document> _buildTrialBalancePdf(DateTime asAt) async {
+    final numFmt = NumberFormat('#,##0', 'en_US');
+    final asAtLabel = DateFormat('d MMMM yyyy').format(asAt);
+    final generatedLabel = DateFormat('d MMM yyyy HH:mm').format(DateTime.now());
+
+    final accounts = ref.read(accountsProvider).accounts;
+    final allEntries = ref.read(journalsProvider).entries;
+
+    // Exclude any JEs posted after the cutoff date.
+    final entries = allEntries
+        .where((e) =>
+            e.status == JournalEntryStatus.posted &&
+            !e.date.isAfter(DateTime(asAt.year, asAt.month, asAt.day, 23, 59, 59)))
+        .toList();
+    final raw = _computeLedgerBalances(entries);
+
+    // Build rows in display order: Assets → Liabilities → Equity → Revenue → Expenses
+    const typeOrder = [
+      AccountType.asset,
+      AccountType.liability,
+      AccountType.equity,
+      AccountType.revenue,
+      AccountType.expense,
+    ];
+    const typeLabels = {
+      AccountType.asset: 'ASSETS',
+      AccountType.liability: 'LIABILITIES',
+      AccountType.equity: 'EQUITY',
+      AccountType.revenue: 'REVENUE',
+      AccountType.expense: 'EXPENSES',
+    };
+
+    final sorted = List<Account>.from(accounts)
+      ..sort((a, b) {
+        final ai = typeOrder.indexOf(a.type);
+        final bi = typeOrder.indexOf(b.type);
+        if (ai != bi) return ai.compareTo(bi);
+        return a.code.compareTo(b.code);
+      });
+
+    double totalDr = 0;
+    double totalCr = 0;
+
+    // Group rows by type
+    final grouped = <AccountType, List<Map<String, dynamic>>>{};
+    for (final acct in sorted) {
+      final net = raw['acct-${acct.code}'] ?? 0.0;
+      if (net == 0.0) continue;
+      final dr = net > 0 ? net : 0.0;
+      final cr = net < 0 ? -net : 0.0;
+      totalDr += dr;
+      totalCr += cr;
+      grouped.putIfAbsent(acct.type, () => []).add({
+        'code': acct.code,
+        'name': acct.name,
+        'dr': dr,
+        'cr': cr,
+      });
+    }
+
+    final isBalanced = (totalDr - totalCr).abs() < 0.01;
+
+    // ── PDF colour palette ──────────────────────────────────────────────────
+    const navyBlue   = PdfColors.blueGrey800;
+    const sectionBg  = PdfColors.blueGrey50;
+    const altRow     = PdfColors.grey100;
+    const totalsBg   = PdfColors.lightBlue50;
+    const drCol      = PdfColors.blue800;
+    const crCol      = PdfColors.green800;
+
+    // ── Column widths (in points, A4 = 595pt wide, margins = 2×36 = 72) ────
+    // Available: 523 pt
+    // Code:50  Name:220  Type(hidden):0  Dr:120  Cr:120  → 510 + padding
+    const colWidths = <int>[50, 220, 0, 120, 120]; // Type col omitted in PDF
+
+    // Helper: right-aligned number cell
+    pw.Widget numCell(String text, PdfColor color, {bool bold = false}) =>
+        pw.Container(
+          alignment: pw.Alignment.centerRight,
+          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+          child: pw.Text(
+            text,
+            style: pw.TextStyle(
+              fontSize: 9,
+              fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+              color: color,
+            ),
+          ),
+        );
+
+    pw.Widget textCell(String text, {bool bold = false, double size = 9,
+        pw.Alignment align = pw.Alignment.centerLeft}) =>
+        pw.Container(
+          alignment: align,
+          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+          child: pw.Text(
+            text,
+            style: pw.TextStyle(
+              fontSize: size,
+              fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+            ),
+          ),
+        );
+
+    // ── Page header ─────────────────────────────────────────────────────────
+    pw.Widget pageHeader(pw.Context _) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Container(
+              color: navyBlue,
+              padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('MAGIC BET LTD',
+                          style: pw.TextStyle(
+                              color: PdfColors.white,
+                              fontWeight: pw.FontWeight.bold,
+                              fontSize: 14)),
+                      pw.SizedBox(height: 2),
+                      pw.Text('Kampala, Uganda  |  TIN: 1003261781',
+                          style: const pw.TextStyle(
+                              color: PdfColors.grey200, fontSize: 8)),
+                    ],
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Text('TRIAL BALANCE',
+                          style: pw.TextStyle(
+                              color: PdfColors.white,
+                              fontWeight: pw.FontWeight.bold,
+                              fontSize: 13)),
+                      pw.SizedBox(height: 2),
+                      pw.Text('As at  $asAtLabel',
+                          style: const pw.TextStyle(
+                              color: PdfColors.grey200, fontSize: 9)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 8),
+          ],
+        );
+
+    // ── Page footer ─────────────────────────────────────────────────────────
+    pw.Widget pageFooter(pw.Context ctx) => pw.Column(
+          children: [
+            pw.Divider(thickness: 0.5, color: PdfColors.grey400),
+            pw.SizedBox(height: 4),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('CONFIDENTIAL — For accounting purposes only',
+                    style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey500)),
+                pw.Text('Generated by Third Books  |  $generatedLabel',
+                    style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey500)),
+                pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+                    style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey500)),
+              ],
+            ),
+          ],
+        );
+
+    // ── Table column header row ──────────────────────────────────────────────
+    pw.Widget tableHeader() => pw.Container(
+          color: navyBlue,
+          child: pw.Row(
+            children: [
+              pw.SizedBox(
+                  width: colWidths[0].toDouble(),
+                  child: textCell('Code',
+                      bold: true, size: 8, align: pw.Alignment.centerLeft)
+                  ..color = PdfColors.white),
+              pw.Expanded(
+                  child: textCell('Account Name',
+                      bold: true, size: 8, align: pw.Alignment.centerLeft)
+                  ..color = PdfColors.white),
+              pw.SizedBox(
+                  width: colWidths[3].toDouble(),
+                  child: numCell('Debit (UGX)', PdfColors.white, bold: true)),
+              pw.SizedBox(
+                  width: colWidths[4].toDouble(),
+                  child: numCell('Credit (UGX)', PdfColors.white, bold: true)),
+            ],
+          ),
+        );
+
+    // ── Section divider row (e.g. "ASSETS") ─────────────────────────────────
+    pw.Widget sectionHeader(String label) => pw.Container(
+          color: sectionBg,
+          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: pw.Text(label,
+              style: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold,
+                  fontSize: 8,
+                  color: PdfColors.blueGrey700)),
+        );
+
+    // ── Data row ─────────────────────────────────────────────────────────────
+    pw.Widget dataRow(Map<String, dynamic> row, bool shade) {
+      final dr = row['dr'] as double;
+      final cr = row['cr'] as double;
+      return pw.Container(
+        color: shade ? altRow : PdfColors.white,
+        child: pw.Row(
+          children: [
+            pw.SizedBox(
+                width: colWidths[0].toDouble(),
+                child: textCell(row['code'] as String, size: 8.5)),
+            pw.Expanded(child: textCell(row['name'] as String, size: 8.5)),
+            pw.SizedBox(
+                width: colWidths[3].toDouble(),
+                child: numCell(
+                    dr > 0 ? numFmt.format(dr) : '—',
+                    dr > 0 ? drCol : PdfColors.grey400)),
+            pw.SizedBox(
+                width: colWidths[4].toDouble(),
+                child: numCell(
+                    cr > 0 ? numFmt.format(cr) : '—',
+                    cr > 0 ? crCol : PdfColors.grey400)),
+          ],
+        ),
+      );
+    }
+
+    // ── Totals row ────────────────────────────────────────────────────────────
+    pw.Widget totalsRow() => pw.Container(
+          color: totalsBg,
+          child: pw.Column(
+            children: [
+              pw.Divider(thickness: 0.8, color: PdfColors.blueGrey400),
+              pw.Row(
+                children: [
+                  pw.SizedBox(width: colWidths[0].toDouble(), child: pw.SizedBox.shrink()),
+                  pw.Expanded(
+                      child: textCell('TOTAL', bold: true, size: 10)),
+                  pw.SizedBox(
+                      width: colWidths[3].toDouble(),
+                      child: numCell(numFmt.format(totalDr), drCol, bold: true)),
+                  pw.SizedBox(
+                      width: colWidths[4].toDouble(),
+                      child: numCell(numFmt.format(totalCr), crCol, bold: true)),
+                ],
+              ),
+              pw.Divider(thickness: 0.8, color: PdfColors.blueGrey400),
+            ],
+          ),
+        );
+
+    // ── Balance-check badge ───────────────────────────────────────────────────
+    pw.Widget balanceBadge() => pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 10),
+          child: pw.Row(
+            children: [
+              pw.Container(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: pw.BoxDecoration(
+                  color: isBalanced ? PdfColors.green50 : PdfColors.orange50,
+                  borderRadius: pw.BorderRadius.circular(4),
+                  border: pw.Border.all(
+                      color: isBalanced ? PdfColors.green700 : PdfColors.orange700,
+                      width: 0.5),
+                ),
+                child: pw.Text(
+                  isBalanced
+                      ? '✓  Trial balance is balanced  (Dr = Cr = UGX ${numFmt.format(totalDr)})'
+                      : '⚠  Out of balance by UGX ${numFmt.format((totalDr - totalCr).abs())}',
+                  style: pw.TextStyle(
+                    fontSize: 8,
+                    fontWeight: pw.FontWeight.bold,
+                    color: isBalanced ? PdfColors.green900 : PdfColors.orange900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+
+    // ── Assemble the document ─────────────────────────────────────────────────
+    final pdf = pw.Document();
+    pdf.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.symmetric(horizontal: 36, vertical: 36),
+      header: pageHeader,
+      footer: pageFooter,
+      build: (ctx) {
+        final content = <pw.Widget>[tableHeader()];
+        int rowIndex = 0;
+
+        for (final type in typeOrder) {
+          final group = grouped[type];
+          if (group == null || group.isEmpty) continue;
+          content.add(sectionHeader(typeLabels[type]!));
+          for (final row in group) {
+            content.add(dataRow(row, rowIndex.isOdd));
+            rowIndex++;
+          }
+        }
+
+        content.add(totalsRow());
+        content.add(balanceBadge());
+
+        if (grouped.isEmpty) {
+          content.add(pw.Padding(
+            padding: const pw.EdgeInsets.all(24),
+            child: pw.Center(
+              child: pw.Text('No posted journal entries found up to $asAtLabel.',
+                  style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
+            ),
+          ));
+        }
+
+        return content;
+      },
+    ));
+    return pdf;
+  }
+
+  /// Shows a date picker then shares the Trial Balance PDF via the system
+  /// share sheet (email, WhatsApp, Save to Files, etc.).
+  Future<void> _shareTrialBalance([DateTime? asAt]) async {
+    final date = asAt ?? _trialBalanceAsAt;
+    try {
+      final pdf = await _buildTrialBalancePdf(date);
+      final bytes = await pdf.save();
+      final dateTag = DateFormat('yyyyMMdd').format(date);
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'Trial_Balance_MagicBetLtd_$dateTag.pdf',
+        subject: 'Trial Balance — Magic Bet Ltd — as at ${DateFormat('d MMM yyyy').format(date)}',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Share failed: $e'),
+          backgroundColor: AppColors.error,
+        ));
+      }
+    }
+  }
+
+  /// Opens a date-picker then shares the Trial Balance PDF.
+  Future<void> _pickDateAndShare(BuildContext context) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _trialBalanceAsAt,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      helpText: 'Trial Balance "As at" date',
+    );
+    if (!mounted) return;
+    if (picked != null) {
+      setState(() => _trialBalanceAsAt = picked);
+    }
+    await _shareTrialBalance(picked ?? _trialBalanceAsAt);
+  }
+
+  // ── Markdown Trial Balance ─────────────────────────────────────────────────
+
+  /// Builds a plain Markdown string of the Trial Balance that can be copied
+  /// and pasted into WhatsApp, email, or any notes app for the accountant.
+  String _buildTrialBalanceMarkdown(DateTime asAt) {
+    final numFmt = NumberFormat('#,##0', 'en_US');
+    final asAtLabel = DateFormat('d MMMM yyyy').format(asAt);
+    final generatedLabel = DateFormat('d MMM yyyy HH:mm').format(DateTime.now());
+
+    final accounts = ref.read(accountsProvider).accounts;
+    final allEntries = ref.read(journalsProvider).entries;
+
+    final entries = allEntries
+        .where((e) =>
+            e.status == JournalEntryStatus.posted &&
+            !e.date.isAfter(DateTime(asAt.year, asAt.month, asAt.day, 23, 59, 59)))
+        .toList();
+    final raw = _computeLedgerBalances(entries);
+
+    const typeOrder = [
+      AccountType.asset, AccountType.liability, AccountType.equity,
+      AccountType.revenue, AccountType.expense,
+    ];
+    const typeLabels = {
+      AccountType.asset: 'ASSETS',
+      AccountType.liability: 'LIABILITIES',
+      AccountType.equity: 'EQUITY',
+      AccountType.revenue: 'REVENUE',
+      AccountType.expense: 'EXPENSES',
+    };
+
+    final sorted = List<Account>.from(accounts)
+      ..sort((a, b) {
+        final ai = typeOrder.indexOf(a.type);
+        final bi = typeOrder.indexOf(b.type);
+        if (ai != bi) return ai.compareTo(bi);
+        return a.code.compareTo(b.code);
+      });
+
+    double totalDr = 0, totalCr = 0;
+    final grouped = <AccountType, List<Map<String, dynamic>>>{};
+    for (final acct in sorted) {
+      final net = raw['acct-${acct.code}'] ?? 0.0;
+      if (net == 0.0) continue;
+      final dr = net > 0 ? net : 0.0;
+      final cr = net < 0 ? -net : 0.0;
+      totalDr += dr;
+      totalCr += cr;
+      grouped.putIfAbsent(acct.type, () => []).add({
+        'code': acct.code, 'name': acct.name, 'dr': dr, 'cr': cr,
+      });
+    }
+
+    final isBalanced = (totalDr - totalCr).abs() < 0.01;
+
+    final buf = StringBuffer();
+    buf.writeln('# MAGIC BET LTD');
+    buf.writeln('## Trial Balance');
+    buf.writeln('**As at $asAtLabel**');
+    buf.writeln();
+    buf.writeln('_Generated by Third Books on $generatedLabel_');
+    buf.writeln();
+    buf.writeln('| Code | Account Name | Debit (UGX) | Credit (UGX) |');
+    buf.writeln('|------|--------------|------------:|-------------:|');
+
+    for (final type in typeOrder) {
+      final group = grouped[type];
+      if (group == null || group.isEmpty) continue;
+      buf.writeln('| | **${typeLabels[type]}** | | |');
+      for (final row in group) {
+        final dr = row['dr'] as double;
+        final cr = row['cr'] as double;
+        buf.writeln(
+          '| ${row['code']} | ${row['name']} '
+          '| ${dr > 0 ? numFmt.format(dr) : "—"} '
+          '| ${cr > 0 ? numFmt.format(cr) : "—"} |',
+        );
+      }
+    }
+
+    buf.writeln('| | | | |');
+    buf.writeln(
+        '| | **TOTAL** | **${numFmt.format(totalDr)}** | **${numFmt.format(totalCr)}** |');
+    buf.writeln();
+    buf.writeln(isBalanced
+        ? '✅ Trial balance is balanced — Dr = Cr = UGX ${numFmt.format(totalDr)}'
+        : '⚠️ Out of balance by UGX ${numFmt.format((totalDr - totalCr).abs())}');
+    buf.writeln();
+    buf.writeln('---');
+    buf.writeln('_CONFIDENTIAL — For accounting purposes only_');
+
+    return buf.toString();
+  }
+
+  /// Copies the Trial Balance markdown to clipboard and shows a snackbar.
+  void _copyTrialBalanceMd([DateTime? asAt]) {
+    final md = _buildTrialBalanceMarkdown(asAt ?? _trialBalanceAsAt);
+    Clipboard.setData(ClipboardData(text: md));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Trial Balance copied — paste into WhatsApp or email'),
+        duration: Duration(seconds: 3),
+      ));
+    }
+  }
+
+  /// Saves the Trial Balance as a .md file chosen by the user.
+  Future<void> _saveTrialBalanceMd([DateTime? asAt]) async {
+    final date = asAt ?? _trialBalanceAsAt;
+    final md = _buildTrialBalanceMarkdown(date);
+    final dateTag = DateFormat('yyyyMMdd').format(date);
+    final defaultName = 'Trial_Balance_MagicBetLtd_$dateTag.md';
+
+    final path = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save Trial Balance',
+      fileName: defaultName,
+      type: FileType.custom,
+      allowedExtensions: ['md', 'txt'],
+    );
+    if (path == null) return;
+
+    await File(path).writeAsString(md);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Saved to $path'),
+        duration: const Duration(seconds: 3),
+      ));
+    }
+  }
 
   Future<pw.Document> _buildPdfDocument(String reportName) async {
     final numFmt = NumberFormat('#,##0', 'en_US');
@@ -493,44 +1165,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ),
       ));
     } else if (reportName == 'Trial Balance') {
-      final tbAccounts = ref.read(accountsProvider).accounts;
-      final tbEntries = ref.read(journalsProvider).entries;
-      final tbRaw = _computeLedgerBalances(tbEntries);
-
-      final tbRows = <List<String>>[];
-      double tbTotalDr = 0;
-      double tbTotalCr = 0;
-      final tbSorted = List<Account>.from(tbAccounts)..sort((a, b) => a.code.compareTo(b.code));
-      for (final acct in tbSorted) {
-        final net = tbRaw['acct-${acct.code}'] ?? 0.0;
-        if (net == 0.0) continue;
-        final typeName = acct.type.name[0].toUpperCase() + acct.type.name.substring(1);
-        if (net > 0) {
-          tbRows.add([acct.code, acct.name, typeName, numFmt.format(net), '—']);
-          tbTotalDr += net;
-        } else {
-          tbRows.add([acct.code, acct.name, typeName, '—', numFmt.format(-net)]);
-          tbTotalCr += -net;
-        }
-      }
-      tbRows.add(['', 'TOTALS', '', numFmt.format(tbTotalDr), numFmt.format(tbTotalCr)]);
-
-      pdf.addPage(pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        build: (pw.Context ctx) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            buildHeader('TRIAL BALANCE'),
-            pw.TableHelper.fromTextArray(
-              headers: ['Code', 'Account Name', 'Type', 'Debit (UGX)', 'Credit (UGX)'],
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
-              cellStyle: const pw.TextStyle(fontSize: 9),
-              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
-              data: tbRows,
-            ),
-          ],
-        ),
-      ));
+      // Delegate to the professional trial balance PDF builder.
+      return _buildTrialBalancePdf(_trialBalanceAsAt);
     } else if (reportName == 'Cash Flow Statement') {
       final cashIn = dashData?.cashIn ?? 0;
       final cashOut = dashData?.cashOut ?? 0;
@@ -1525,7 +2161,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final journalsState = ref.watch(journalsProvider);
     final accountsState = ref.watch(accountsProvider);
 
-    final entries = journalsState.entries;
+    // Filter to posted entries up to and including the "As at" cutoff.
+    final cutoff = DateTime(_trialBalanceAsAt.year, _trialBalanceAsAt.month,
+        _trialBalanceAsAt.day, 23, 59, 59);
+    final entries = journalsState.entries
+        .where((e) =>
+            e.status == JournalEntryStatus.posted && !e.date.isAfter(cutoff))
+        .toList();
     final accounts = accountsState.accounts;
     final raw = _computeLedgerBalances(entries);
 
@@ -1569,7 +2211,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             children: [
               Text('MAGIC BET LTD — TRIAL BALANCE',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              Text('As at ${DateFormat('MMMM d, yyyy').format(DateTime.now())}',
+              Text('As at ${DateFormat('MMMM d, yyyy').format(_trialBalanceAsAt)}',
                   style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12)),
               const SizedBox(height: 16),
               // Header row
