@@ -16,6 +16,10 @@ use Illuminate\Support\Facades\Log;
  * endpoint. Only the authenticated user's tenant data is affected.
  *
  * Deleted entities (tenant-scoped):
+ *   - bank_statements + bank_statement_lines + reconciliation_items
+ *   - asset_registers + depreciation_entries
+ *   - credit_notes + debit_notes
+ *   - attachments + audit_logs
  *   - invoices + invoice_lines
  *   - bills + bill_lines
  *   - journal_entries + journal_lines
@@ -66,11 +70,54 @@ class AccountDataController extends Controller
 
         try {
             DB::transaction(function () use ($tenantId) {
+                // Resolve all company IDs that belong to this tenant.
+                // Many tables scope by company_id rather than tenant_id directly.
+                $companyIds = DB::table('companies')
+                    ->where('tenant_id', $tenantId)
+                    ->pluck('id');
+
                 // Sync / events tables
                 DB::table('sync_queue')->where('tenant_id', $tenantId)->delete();
                 DB::table('device_sync_state')->where('tenant_id', $tenantId)->delete();
                 DB::table('conflicts')->where('tenant_id', $tenantId)->delete();
                 DB::table('events')->where('tenant_id', $tenantId)->delete();
+
+                if ($companyIds->isNotEmpty()) {
+                    // ── Banking ─────────────────────────────────────────────────────
+                    // Deleting bank_statements cascades → bank_statement_lines
+                    //   → reconciliation_items (both have cascadeOnDelete FKs).
+                    // Must come BEFORE accounts because bank_account_id has restrictOnDelete.
+                    DB::table('bank_statements')
+                        ->whereIn('company_id', $companyIds)
+                        ->delete();
+
+                    // ── Asset Register ───────────────────────────────────────────────
+                    // Deleting asset_registers cascades → depreciation_entries.
+                    DB::table('asset_registers')
+                        ->whereIn('company_id', $companyIds)
+                        ->delete();
+
+                    // ── Credit / Debit Notes ─────────────────────────────────────────
+                    // customer_id / vendor_id use restrictOnDelete, so notes must be
+                    // removed BEFORE customers and vendors are deleted below.
+                    DB::table('credit_notes')
+                        ->whereIn('company_id', $companyIds)
+                        ->delete();
+                    DB::table('debit_notes')
+                        ->whereIn('company_id', $companyIds)
+                        ->delete();
+
+                    // ── Attachments ──────────────────────────────────────────────────
+                    // Polymorphic — no automatic cascade from parent models.
+                    DB::table('attachments')
+                        ->whereIn('company_id', $companyIds)
+                        ->delete();
+
+                    // ── Audit Logs ───────────────────────────────────────────────────
+                    DB::table('audit_logs')
+                        ->whereIn('company_id', $companyIds)
+                        ->delete();
+                }
 
                 // Financial transaction data
                 DB::table('invoice_lines')

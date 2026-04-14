@@ -504,6 +504,7 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
         _localStorage.saveDebitNotes([]),
         _localStorage.saveOutletSettlements([]),
         // Extended local stores (generic key-based)
+        _localStorage.saveBankTransactions([]),
         _localStorage.saveData<Map<String, dynamic>>(
             'local_bank_statements', [], (s) => s),
         _localStorage.saveData<Map<String, dynamic>>(
