@@ -14,11 +14,13 @@ import 'package:uuid/uuid.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/local_storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/database/app_database.dart' show Outlet;
 import '../../core/models/invoice.dart';
 import '../../core/models/bill.dart';
 import '../../core/models/models.dart';
 import '../../core/models/bank_transaction.dart';
+import '../../core/providers/local_bank_statements_provider.dart';
 import 'banking_screen.dart';
 
 // ---------------------------------------------------------------------------
@@ -95,6 +97,10 @@ class _BankReconciliationScreenState
   BankAccount? _selectedAccount;
   bool _isLoading = false;
   String? _fileName;
+  /// Local ID of the statement that was saved when the current CSV was uploaded.
+  String? _savedStatementLocalId;
+  /// Server-assigned ID once the current statement is synced to the backend.
+  int? _savedStatementServerId;
   final _fmt = NumberFormat('#,###');
   final _dateFmt = DateFormat('MMM d, yyyy');
 
@@ -205,10 +211,73 @@ class _BankReconciliationScreenState
       await _autoMatch(lines);
 
       ref.read(_reconciliationLinesProvider.notifier).state = lines;
+
+      // ── Persist statement (same flow as Banks tab) ──────────────────────
+      final stmtId = const Uuid().v4();
+      final stmtFrom = lines.isNotEmpty
+          ? lines.reduce((a, b) => a.date.isBefore(b.date) ? a : b).date
+          : DateTime.now().subtract(const Duration(days: 30));
+      final stmtTo = lines.isNotEmpty
+          ? lines.reduce((a, b) => a.date.isAfter(b.date) ? a : b).date
+          : DateTime.now();
+      final csvRows = <List<String>>[
+        ['Date', 'Description', 'Reference', 'Debit', 'Credit'],
+        ...lines.map((l) => [
+              DateFormat('yyyy-MM-dd').format(l.date),
+              l.description,
+              l.reference ?? '',
+              l.amount < 0 ? l.amount.abs().toStringAsFixed(0) : '',
+              l.amount > 0 ? l.amount.toStringAsFixed(0) : '',
+            ]),
+      ];
+      final localStmt = LocalBankStatement(
+        id: stmtId,
+        fileName: result.files.single.name,
+        bankAccountId: _selectedAccount?.id,
+        bankAccountName: _selectedAccount?.bankName,
+        bankAccountNumber: _selectedAccount?.accountNumber,
+        fromDate: stmtFrom,
+        toDate: stmtTo,
+        rows: csvRows,
+        status: 'local',
+        uploadedAt: DateTime.now(),
+      );
+      await ref.read(localBankStatementsProvider.notifier).add(localStmt);
+
       setState(() {
+        _savedStatementLocalId = stmtId;
+        _savedStatementServerId = null;
         _fileName = result.files.single.name;
         _isLoading = false;
       });
+
+      // ── Background: sync to server ──────────────────────────────────────
+      try {
+        final api = ref.read(apiClientProvider);
+        final resp = await api.uploadBankStatement(
+          bankAccountId: _selectedAccount?.id ?? 'unknown',
+          fromDate: DateFormat('yyyy-MM-dd').format(stmtFrom),
+          toDate: DateFormat('yyyy-MM-dd').format(stmtTo),
+          rows: lines
+              .map((l) => {
+                    'date': DateFormat('yyyy-MM-dd').format(l.date),
+                    'description': l.description,
+                    'reference': l.reference,
+                    'debit': l.amount < 0 ? l.amount.abs() : 0.0,
+                    'credit': l.amount > 0 ? l.amount : 0.0,
+                  })
+              .toList(),
+        );
+        final serverId = resp['id'] as int?;
+        if (serverId != null) {
+          await ref
+              .read(localBankStatementsProvider.notifier)
+              .markSynced(stmtId, serverId);
+          if (mounted) setState(() => _savedStatementServerId = serverId);
+        }
+      } catch (_) {
+        // Offline — statement already saved locally, will sync later
+      }
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
@@ -219,14 +288,331 @@ class _BankReconciliationScreenState
     }
   }
 
-  // ── Clear uploaded statement ─────────────────────────────────────────────
+  // ── Clear uploaded statement (keeps saved copy) ─────────────────────────
   void _clearStatement() {
     ref.read(_reconciliationLinesProvider.notifier).state = [];
-    setState(() => _fileName = null);
+    setState(() {
+      _fileName = null;
+      // _savedStatementLocalId stays — the statement remains in the saved list
+    });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Bank statement cleared. You can upload a new file.'),
+        content: Text('Working view cleared. Statement is still saved below.'),
         duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  // ── Delete a saved statement (local + server cascade) ───────────────────
+  Future<void> _deleteSavedStatement(LocalBankStatement stmt) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Saved Statement'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Remove "${stmt.fileName}"?'),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.warning.withOpacity(0.4)),
+              ),
+              child: const Text(
+                'Deleting a statement will also remove any reconciliation '
+                'items linked to it on the server. Journal entries already '
+                'posted remain intact — reverse them manually if needed.',
+                style: TextStyle(fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    // Delete from server if synced (cascade to reconciliation items)
+    if (stmt.serverStatementId != null) {
+      try {
+        await ref
+            .read(apiClientProvider)
+            .deleteBankStatement(stmt.serverStatementId!);
+      } catch (_) {} // Offline — remove locally regardless
+    }
+
+    await ref.read(localBankStatementsProvider.notifier).remove(stmt.id);
+
+    // Clear working state if we just deleted the active statement
+    if (_savedStatementLocalId == stmt.id) {
+      ref.read(_reconciliationLinesProvider.notifier).state = [];
+      setState(() {
+        _fileName = null;
+        _savedStatementLocalId = null;
+        _savedStatementServerId = null;
+      });
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Statement "${stmt.fileName}" deleted.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    }
+  }
+
+  // ── View a saved statement in a read-only dialog ─────────────────────────
+  void _viewSavedStatement(LocalBankStatement stmt) {
+    final fmt     = NumberFormat('#,###');
+    final dateFmt = DateFormat('dd MMM yyyy');
+    final rows    = stmt.rows;
+    final hasRows = rows.isNotEmpty;
+    final headers = hasRows ? rows.first : <String>[];
+    final dataRows = hasRows ? rows.skip(1).toList() : <List<String>>[];
+
+    int _col(String label) => headers.indexWhere(
+        (h) => h.toLowerCase().contains(label.toLowerCase()));
+
+    final colDate   = _col('date');
+    final colDesc   = _col('description') >= 0 ? _col('description') : _col('narration');
+    final colDebit  = _col('debit') >= 0 ? _col('debit') : _col('dr');
+    final colCredit = _col('credit') >= 0 ? _col('credit') : _col('cr');
+    final colRef    = _col('ref');
+
+    String cellAt(List<String> row, int idx) =>
+        (idx >= 0 && idx < row.length) ? row[idx] : '';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: SizedBox(
+          width: 860,
+          height: 600,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.receipt_long, color: Colors.white, size: 24),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(stmt.fileName,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold)),
+                          Text(
+                            '${stmt.bankAccountName ?? "Unknown account"}'
+                            '  ·  ${dateFmt.format(stmt.fromDate)} – ${dateFmt.format(stmt.toDate)}'
+                            '  ·  ${stmt.lineCount} transactions',
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: stmt.status == 'synced'
+                            ? Colors.green.withOpacity(0.3)
+                            : Colors.orange.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        stmt.status == 'synced' ? 'Synced ✓' : 'Local only',
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              // Table header
+              if (hasRows)
+                Container(
+                  color: Theme.of(context).colorScheme.surfaceVariant,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 24, vertical: 8),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                          width: 90,
+                          child: Text('Date',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .outline))),
+                      Expanded(
+                          flex: 3,
+                          child: Text('Description',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .outline))),
+                      SizedBox(
+                          width: 100,
+                          child: Text('Reference',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .outline))),
+                      SizedBox(
+                          width: 110,
+                          child: Text('Debit',
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .outline))),
+                      SizedBox(
+                          width: 110,
+                          child: Text('Credit',
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .outline))),
+                    ],
+                  ),
+                ),
+              // Rows
+              Expanded(
+                child: !hasRows || dataRows.isEmpty
+                    ? const Center(child: Text('No transaction data'))
+                    : ListView.separated(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        itemCount: dataRows.length,
+                        separatorBuilder: (_, __) =>
+                            Divider(height: 1, color: Theme.of(context).dividerColor),
+                        itemBuilder: (ctx, i) {
+                          final row = dataRows[i];
+                          final debitStr  = cellAt(row, colDebit);
+                          final creditStr = cellAt(row, colCredit);
+                          final debitVal  = double.tryParse(debitStr.replaceAll(',', '')) ?? 0;
+                          final creditVal = double.tryParse(creditStr.replaceAll(',', '')) ?? 0;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                    width: 90,
+                                    child: Text(cellAt(row, colDate),
+                                        style: const TextStyle(fontSize: 12))),
+                                Expanded(
+                                    flex: 3,
+                                    child: Text(cellAt(row, colDesc),
+                                        style: const TextStyle(fontSize: 13),
+                                        overflow: TextOverflow.ellipsis)),
+                                SizedBox(
+                                    width: 100,
+                                    child: Text(cellAt(row, colRef),
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: Theme.of(context).colorScheme.outline),
+                                        overflow: TextOverflow.ellipsis)),
+                                SizedBox(
+                                  width: 110,
+                                  child: Text(
+                                    debitVal > 0
+                                        ? fmt.format(debitVal)
+                                        : '',
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        color: AppColors.expense,
+                                        fontWeight: FontWeight.w500),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 110,
+                                  child: Text(
+                                    creditVal > 0
+                                        ? fmt.format(creditVal)
+                                        : '',
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        color: AppColors.success,
+                                        fontWeight: FontWeight.w500),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              // Footer
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text(
+                      '${stmt.lineCount} transactions  ·  Uploaded ${dateFmt.format(stmt.uploadedAt)}',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.outline),
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1640,57 +2026,334 @@ class _BankReconciliationScreenState
           ),
         ] else ...[
           Expanded(
-            child: Center(
+            child: _buildEmptyStateWithSavedStatements(),
+          ),
+        ],
+      ],
+    );
+  }
+
+  // ── Empty state: shows saved statements list + upload call-to-action ──────
+  Widget _buildEmptyStateWithSavedStatements() {
+    final allStatements = ref.watch(localBankStatementsProvider);
+    // Filter to statements for the selected account (if any)
+    final statements = _selectedAccount == null
+        ? allStatements
+        : allStatements
+            .where((s) => s.bankAccountId == _selectedAccount!.id)
+            .toList();
+    final dateFmt = DateFormat('dd MMM yyyy');
+
+    return CustomScrollView(
+      slivers: [
+        // ── Saved Statements Panel ─────────────────────────────────────────
+        if (statements.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.compare_arrows,
-                      size: 80,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .outline
-                          .withOpacity(0.3)),
-                  const SizedBox(height: 24),
-                  Text('No bank statement loaded',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge
-                          ?.copyWith(
-                              color:
-                                  Theme.of(context).colorScheme.outline)),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Upload a bank statement CSV or download the template to get started',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .outline
-                              .withOpacity(0.7),
-                        ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 32),
                   Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.download),
-                        label: const Text('Download CSV Template'),
-                        onPressed: _downloadSampleCSV,
+                      const Icon(Icons.history, size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Saved Statements',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                       ),
-                      const SizedBox(width: 12),
-                      FilledButton.icon(
-                        icon: const Icon(Icons.upload_file),
-                        label: const Text('Upload Bank Statement'),
-                        onPressed: _uploadBankStatement,
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${statements.length}',
+                          style: TextStyle(
+                              fontSize: 12, color: AppColors.primary),
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        _selectedAccount == null
+                            ? 'All accounts'
+                            : _selectedAccount!.bankName,
+                        style: TextStyle(
+                            fontSize: 13,
+                            color: Theme.of(context).colorScheme.outline),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Column headings
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceVariant,
+                      borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(8)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                            flex: 3,
+                            child: Text('File',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outline))),
+                        Expanded(
+                            flex: 2,
+                            child: Text('Date Range',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outline))),
+                        SizedBox(
+                            width: 70,
+                            child: Text('Lines',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outline))),
+                        SizedBox(
+                            width: 80,
+                            child: Text('Status',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outline))),
+                        const SizedBox(width: 160),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    decoration: BoxDecoration(
+                      border:
+                          Border.all(color: Theme.of(context).dividerColor),
+                      borderRadius: const BorderRadius.vertical(
+                          bottom: Radius.circular(8)),
+                    ),
+                    child: Column(
+                      children: statements.asMap().entries.map((entry) {
+                        final i    = entry.key;
+                        final stmt = entry.value;
+                        final isSynced = stmt.status == 'synced';
+                        final statusColor =
+                            isSynced ? AppColors.success : AppColors.warning;
+                        return Container(
+                          decoration: BoxDecoration(
+                            border: i < statements.length - 1
+                                ? Border(
+                                    bottom: BorderSide(
+                                        color: Theme.of(context)
+                                            .dividerColor))
+                                : null,
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            child: Row(
+                              children: [
+                                // File name + account
+                                Expanded(
+                                  flex: 3,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          const Icon(Icons.description,
+                                              size: 16),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              stmt.fileName,
+                                              style: const TextStyle(
+                                                  fontWeight:
+                                                      FontWeight.w500,
+                                                  fontSize: 13),
+                                              overflow:
+                                                  TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      if (stmt.bankAccountName != null)
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 2),
+                                          child: Text(
+                                            stmt.bankAccountName!,
+                                            style: TextStyle(
+                                                fontSize: 11,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .outline),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                // Date range
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    '${dateFmt.format(stmt.fromDate)} – ${dateFmt.format(stmt.toDate)}',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                                // Line count
+                                SizedBox(
+                                  width: 70,
+                                  child: Text(
+                                    '${stmt.lineCount}',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                                // Status badge
+                                SizedBox(
+                                  width: 80,
+                                  child: Center(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: statusColor.withOpacity(0.1),
+                                        borderRadius:
+                                            BorderRadius.circular(12),
+                                        border: Border.all(
+                                            color: statusColor
+                                                .withOpacity(0.4)),
+                                      ),
+                                      child: Text(
+                                        isSynced ? 'Synced' : 'Local',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: statusColor,
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                // Actions
+                                SizedBox(
+                                  width: 160,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      TextButton.icon(
+                                        icon: const Icon(Icons.visibility,
+                                            size: 14),
+                                        label: const Text('View'),
+                                        style: TextButton.styleFrom(
+                                          visualDensity:
+                                              VisualDensity.compact,
+                                          foregroundColor: AppColors.primary,
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8),
+                                        ),
+                                        onPressed: () =>
+                                            _viewSavedStatement(stmt),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      IconButton(
+                                        icon: const Icon(
+                                            Icons.delete_outline,
+                                            size: 18),
+                                        color: AppColors.error,
+                                        tooltip: 'Delete statement',
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: () =>
+                                            _deleteSavedStatement(stmt),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
                   ),
                 ],
               ),
             ),
           ),
-        ],
+
+        // ── Upload call-to-action ─────────────────────────────────────────
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.compare_arrows,
+                    size: 80,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .outline
+                        .withOpacity(0.3)),
+                const SizedBox(height: 24),
+                Text(
+                  statements.isEmpty
+                      ? 'No bank statement loaded'
+                      : 'Upload another statement to reconcile',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Upload a bank statement CSV or download the template to get started',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .outline
+                            .withOpacity(0.7),
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 32),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.download),
+                      label: const Text('Download CSV Template'),
+                      onPressed: _downloadSampleCSV,
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton.icon(
+                      icon: const Icon(Icons.upload_file),
+                      label: const Text('Upload Bank Statement'),
+                      onPressed: _isLoading ? null : _uploadBankStatement,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }

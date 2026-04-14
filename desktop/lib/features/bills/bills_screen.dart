@@ -785,14 +785,13 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
 
                   Navigator.pop(ctx);
 
+                  // ── Path 1: explicit asset category chosen in the dropdown ──
                   if (isAssetCategory(selectedCategory)) {
                     ref.read(assetDraftsProvider.notifier).addFromBill(
                       id: billId,
-                      assetName: selectedCategory == null
-                          ? 'Asset from bill'
-                          : vendor.name.isNotEmpty
-                              ? '$selectedCategory — ${vendor.name}'
-                              : selectedCategory!,
+                      assetName: vendor.name.isNotEmpty
+                          ? '$selectedCategory — ${vendor.name}'
+                          : selectedCategory!,
                       category: selectedCategory!,
                       amount: subtotal,
                       currency: selectedCurrency,
@@ -812,9 +811,68 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                       ),
                     );
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Bill saved — queued for sync')),
-                    );
+                    // ── Path 2: detect fixed-asset CoA accounts from bill lines ──
+                    // When a line uses an account with type=asset (fixedAsset /
+                    // otherAsset), auto-create an AssetDraft so the item appears
+                    // in the Assets tab and the user can set depreciation.
+                    final assetNotifier =
+                        ref.read(assetDraftsProvider.notifier);
+                    final assetLines = validLines.where((l) {
+                      if (l.accountId.isEmpty) return false;
+                      final acct = accountsState.accounts.cast<Account?>()
+                          .firstWhere((a) => a?.id == l.accountId,
+                              orElse: () => null);
+                      return acct != null &&
+                          acct.type == AccountType.asset &&
+                          (acct.subType == AccountSubType.fixedAsset ||
+                              acct.subType == AccountSubType.otherAsset ||
+                              acct.subType ==
+                                  AccountSubType.otherCurrentAsset);
+                    }).toList();
+
+                    for (final l in assetLines) {
+                      final acct = accountsState.accounts.cast<Account?>()
+                          .firstWhere((a) => a?.id == l.accountId,
+                              orElse: () => null);
+                      if (acct == null) continue;
+                      final draftId = '${billId}_${l.id}';
+                      final category = _inferAssetCategory(acct);
+                      final assetName = l.description.trim().isNotEmpty
+                          ? l.description.trim()
+                          : vendor.name.isNotEmpty
+                              ? '${acct.name} — ${vendor.name}'
+                              : acct.name;
+                      assetNotifier.addFromBill(
+                        id: draftId,
+                        assetName: assetName,
+                        category: category,
+                        amount: l.amount,
+                        currency: selectedCurrency,
+                        vendorName: vendor.name,
+                        billReference: referenceCtrl.text.trim().isEmpty
+                            ? bill.billNumber
+                            : referenceCtrl.text.trim(),
+                        date: billDate,
+                      );
+                    }
+
+                    if (assetLines.isNotEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Bill saved. ${assetLines.length} fixed-asset line(s) added to Assets — '
+                            'go to Assets to set up depreciation.',
+                          ),
+                          backgroundColor: AppColors.info,
+                          duration: const Duration(seconds: 5),
+                        ),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Bill saved — queued for sync')),
+                      );
+                    }
                   }
                 },
                 child: const Text('Save Bill'),
@@ -1222,6 +1280,36 @@ class _DetailRow extends StatelessWidget {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: map an Account's subType to an asset register category string.
+// ---------------------------------------------------------------------------
+String _inferAssetCategory(Account acct) {
+  final name = acct.name.toLowerCase();
+  if (name.contains('vehicle') || name.contains('motor') || name.contains('car')) {
+    return 'Vehicle';
+  }
+  if (name.contains('furniture') || name.contains('fittings')) {
+    return 'Furniture';
+  }
+  if (name.contains('computer') || name.contains('laptop') ||
+      name.contains('electronic') || name.contains('phone')) {
+    return 'Electronics';
+  }
+  if (name.contains('building') || name.contains('premises') ||
+      name.contains('property')) {
+    return 'Building';
+  }
+  if (name.contains('land') || name.contains('plot')) {
+    return 'Land';
+  }
+  if (name.contains('machine') || name.contains('machinery') ||
+      name.contains('plant')) {
+    return 'Machinery';
+  }
+  // Default for generic fixed-asset accounts
+  return 'Equipment';
 }
 
 // ---------------------------------------------------------------------------
