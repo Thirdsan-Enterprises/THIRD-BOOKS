@@ -523,6 +523,44 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
       data: account.toJson(),
     );
   }
+
+  /// Recompute every account's balance from the full set of posted journal
+  /// entries so the Chart of Accounts reflects local JEs immediately —
+  /// before the next server sync.
+  ///
+  /// Debit-normal accounts (assets, expenses): balance = Σdebits − Σcredits
+  /// Credit-normal accounts (liabilities, equity, income): balance = Σcredits − Σdebits
+  void recomputeBalancesFromJournals(List<JournalEntry> allEntries) {
+    // Accumulate net movement per account ID from posted entries only.
+    final totals = <String, double>{};
+    for (final entry in allEntries) {
+      if (entry.status != JournalEntryStatus.posted) continue;
+      for (final line in entry.lines) {
+        totals[line.accountId] = (totals[line.accountId] ?? 0.0);
+        final acct = state.accounts.cast<Account?>().firstWhere(
+          (a) => a?.id == line.accountId,
+          orElse: () => null,
+        );
+        if (acct == null) continue;
+        // Debit accounts: debits increase balance, credits decrease it.
+        // Credit accounts: credits increase balance, debits decrease it.
+        final isDebit = acct.type == AccountType.asset || acct.type == AccountType.expense;
+        totals[line.accountId] = totals[line.accountId]! +
+            (isDebit ? (line.debit - line.credit) : (line.credit - line.debit));
+      }
+    }
+
+    if (totals.isEmpty) return;
+
+    final updatedAccounts = state.accounts.map((a) {
+      final computed = totals[a.id];
+      if (computed == null) return a;
+      return a.copyWith(balance: computed);
+    }).toList();
+
+    state = state.copyWith(accounts: updatedAccounts);
+    _localStorage.saveAccounts(updatedAccounts);
+  }
 }
 
 final accountsProvider = StateNotifierProvider<AccountsNotifier, AccountsState>((ref) {
@@ -1207,6 +1245,12 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
       entityId: entry.id,
       data: entry.toJson(),
     );
+
+    // Immediately recompute CoA account balances so the Chart of Accounts
+    // and reports reflect this JE before the next server sync.
+    if (entry.status == JournalEntryStatus.posted) {
+      _ref.read(accountsProvider.notifier).recomputeBalancesFromJournals(updatedEntries);
+    }
 
     // Auto-generate employer NSSF JE for posted salary entries (Uganda NSSF Act)
     if (entry.status == JournalEntryStatus.posted) {
