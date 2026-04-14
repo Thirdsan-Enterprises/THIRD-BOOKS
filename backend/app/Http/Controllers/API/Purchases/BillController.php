@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\API\Purchases;
 
 use App\Http\Controllers\Controller;
+use App\Models\Accounting\Account;
+use App\Models\Assets\AssetRegister;
 use App\Models\Purchases\Bill;
 use App\Services\Accounting\DoubleEntryService;
 use Illuminate\Http\Request;
@@ -80,10 +82,56 @@ class BillController extends Controller
             $bill->calculateTotals();
             $bill->save();
 
+            // ── Auto-create Asset Register entries for fixed-asset lines ─────
+            // When a bill line uses an account with category = 'fixed_asset',
+            // we create an AssetRegister record so the item appears in the
+            // Asset tab and the user can configure depreciation.
+            $assetCount = 0;
+            foreach ($bill->lines()->with('account')->get() as $line) {
+                $account = $line->account;
+                if (!$account) continue;
+                if ($account->category !== Account::CATEGORY_FIXED_ASSET &&
+                    $account->type    !== Account::TYPE_ASSET) {
+                    continue;
+                }
+                // Skip if account is a bank, cash, or AR account (current assets,
+                // not fixed assets that need depreciation tracking).
+                if (in_array($account->category, [
+                    Account::CATEGORY_BANK,
+                    Account::CATEGORY_CASH,
+                    Account::CATEGORY_ACCOUNTS_RECEIVABLE,
+                    Account::CATEGORY_INVENTORY,
+                ])) {
+                    continue;
+                }
+
+                AssetRegister::create([
+                    'company_id'         => $bill->company_id,
+                    'bill_id'            => $bill->id,
+                    'bill_line_id'       => $line->id,
+                    'coa_account_id'     => $account->id,
+                    'name'               => $line->description ?: $account->name,
+                    'category'           => AssetRegister::inferCategoryFromAccountName($account->name),
+                    'description'        => "Acquired via {$bill->bill_number} from {$bill->vendor->name}",
+                    'cost'               => $line->amount,
+                    'salvage_value'      => 0,
+                    'current_book_value' => $line->amount,
+                    'currency_code'      => $bill->currency?->code ?? 'UGX',
+                    'acquisition_date'   => $bill->date,
+                    'status'             => AssetRegister::STATUS_ACTIVE,
+                    'created_by'         => $request->user()?->id,
+                ]);
+                $assetCount++;
+            }
+
             DB::commit();
 
+            $message = $assetCount > 0
+                ? "Bill created successfully. {$assetCount} asset(s) added to the Asset Register."
+                : 'Bill created successfully';
+
             return response()->json([
-                'message' => 'Bill created successfully',
+                'message' => $message,
                 'bill' => $bill->fresh(['lines', 'vendor']),
             ], 201);
 

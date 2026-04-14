@@ -19,6 +19,7 @@ use App\Http\Controllers\API\Banking\BankStatementController;
 use App\Http\Controllers\API\Banking\BankReconciliationController;
 use App\Http\Controllers\API\UserController;
 use App\Http\Controllers\API\Notes\CreditDebitNoteController;
+use App\Http\Controllers\API\Assets\AssetRegisterController;
 
 /*
 |--------------------------------------------------------------------------
@@ -162,6 +163,18 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/{debitNote}',    [CreditDebitNoteController::class, 'showDebit']);
             Route::put('/{debitNote}',    [CreditDebitNoteController::class, 'updateDebit']);
             Route::delete('/{debitNote}', [CreditDebitNoteController::class, 'destroyDebit']);
+        });
+
+        // ── Asset Register ────────────────────────────────────────────────────
+        Route::prefix('assets')->group(function () {
+            Route::get('/',  [AssetRegisterController::class, 'index']);
+            Route::post('/', [AssetRegisterController::class, 'store']);
+            Route::get('/{asset}',  [AssetRegisterController::class, 'show']);
+            Route::put('/{asset}',  [AssetRegisterController::class, 'update']);
+            Route::post('/{asset}/dispose',              [AssetRegisterController::class, 'dispose']);
+            Route::post('/{asset}/depreciate',           [AssetRegisterController::class, 'postDepreciation']);
+            Route::get('/{asset}/depreciation-schedule', [AssetRegisterController::class, 'depreciationSchedule']);
+            Route::post('/depreciate-all',               [AssetRegisterController::class, 'depreciateAll']);
         });
 
         // Conflict Resolution

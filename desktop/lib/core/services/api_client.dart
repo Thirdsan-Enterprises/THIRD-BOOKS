@@ -432,6 +432,81 @@ class ApiClient {
     await delete('/banking/reconciliation-items/$itemId');
   }
 
+  // ── Asset Register ────────────────────────────────────────────────────────
+
+  /// Fetch all assets (optionally filtered by status or category).
+  Future<List<Map<String, dynamic>>> getAssets({
+    String? status,
+    String? category,
+    int? coaAccountId,
+  }) async {
+    final resp = await get('/assets', queryParameters: {
+      if (status != null) 'status': status,
+      if (category != null) 'category': category,
+      if (coaAccountId != null) 'coa_account_id': coaAccountId,
+      'per_page': 100,
+    });
+    final raw = resp.data['data'] as List? ?? [];
+    return raw.cast<Map<String, dynamic>>();
+  }
+
+  /// Fetch a single asset with its depreciation history.
+  Future<Map<String, dynamic>> getAsset(int assetId) async {
+    final resp = await get('/assets/$assetId');
+    return resp.data['asset'] as Map<String, dynamic>? ?? {};
+  }
+
+  /// Create a new asset record manually.
+  Future<Map<String, dynamic>> createAsset(Map<String, dynamic> data) async {
+    final resp = await post('/assets', data: data);
+    return resp.data['asset'] as Map<String, dynamic>? ?? {};
+  }
+
+  /// Update asset details (name, depreciation settings, etc.).
+  Future<Map<String, dynamic>> updateAsset(
+      int assetId, Map<String, dynamic> data) async {
+    final resp = await put('/assets/$assetId', data: data);
+    return resp.data['asset'] as Map<String, dynamic>? ?? {};
+  }
+
+  /// Mark asset as disposed and generate disposal journal entry.
+  Future<Map<String, dynamic>> disposeAsset(
+    int assetId, {
+    required String disposalDate,
+    double? proceeds,
+    int? proceedsAccountId,
+    String? notes,
+  }) async {
+    final resp = await post('/assets/$assetId/dispose', data: {
+      'disposal_date': disposalDate,
+      if (proceeds != null) 'proceeds': proceeds,
+      if (proceedsAccountId != null) 'proceeds_account_id': proceedsAccountId,
+      if (notes != null) 'notes': notes,
+    });
+    return resp.data as Map<String, dynamic>? ?? {};
+  }
+
+  /// Post one depreciation period for an asset.
+  Future<Map<String, dynamic>> postAssetDepreciation(
+    int assetId, {
+    required String periodDate,
+    required int depreciationAccountId,
+    required int accumulatedDeprAccountId,
+  }) async {
+    final resp = await post('/assets/$assetId/depreciate', data: {
+      'period_date': periodDate,
+      'depreciation_account_id': depreciationAccountId,
+      'accumulated_depr_account_id': accumulatedDeprAccountId,
+    });
+    return resp.data as Map<String, dynamic>? ?? {};
+  }
+
+  /// Get the full depreciation schedule preview for an asset.
+  Future<Map<String, dynamic>> getAssetDepreciationSchedule(int assetId) async {
+    final resp = await get('/assets/$assetId/depreciation-schedule');
+    return resp.data as Map<String, dynamic>? ?? {};
+  }
+
   // ── User Management (tenant-scoped) ─────────────────────────────────────────
 
   /// List all users belonging to the current tenant.
