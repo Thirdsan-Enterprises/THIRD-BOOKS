@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -318,7 +319,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                                 fontWeight: FontWeight.w700, fontSize: 14)),
                         const SizedBox(height: 2),
                         Text(
-                          'Generate a professional PDF and share via email or WhatsApp instantly.',
+                          'Copy as Markdown or save a .md file — paste into WhatsApp, email, or any notes app.',
                           style: TextStyle(
                               color: Theme.of(context).colorScheme.outline,
                               fontSize: 12),
@@ -358,10 +359,21 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                             },
                           ),
                           const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            icon: const Icon(Icons.copy, size: 16),
+                            label: const Text('Copy'),
+                            onPressed: () => _copyTrialBalanceMd(),
+                          ),
+                          const SizedBox(width: 8),
                           FilledButton.icon(
-                            icon: const Icon(Icons.share, size: 16),
-                            label: const Text('Share PDF'),
-                            onPressed: () => _shareTrialBalance(),
+                            icon: const Icon(Icons.save_alt, size: 16),
+                            label: const Text('Save .md'),
+                            onPressed: () => _saveTrialBalanceMd(),
                           ),
                         ],
                       ),
@@ -496,7 +508,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               label: const Text('Export PDF'),
             ),
           ] else ...[
-            // Trial Balance has a dedicated share flow
+            // Trial Balance — markdown export for sharing with accountant
             OutlinedButton.icon(
               onPressed: () async {
                 Navigator.pop(ctx);
@@ -506,20 +518,20 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               label: const Text('Print'),
             ),
             OutlinedButton.icon(
-              onPressed: () async {
+              onPressed: () {
                 Navigator.pop(ctx);
-                await _exportReportCsv('Trial Balance');
+                _copyTrialBalanceMd();
               },
-              icon: const Icon(Icons.table_chart, size: 18),
-              label: const Text('Export CSV'),
+              icon: const Icon(Icons.copy, size: 18),
+              label: const Text('Copy Markdown'),
             ),
             FilledButton.icon(
               onPressed: () async {
                 Navigator.pop(ctx);
-                await _shareTrialBalance();
+                await _saveTrialBalanceMd();
               },
-              icon: const Icon(Icons.share, size: 18),
-              label: const Text('Share with Accountant'),
+              icon: const Icon(Icons.save_alt, size: 18),
+              label: const Text('Save .md File'),
             ),
           ],
         ],
@@ -913,6 +925,136 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       setState(() => _trialBalanceAsAt = picked);
     }
     await _shareTrialBalance(picked ?? _trialBalanceAsAt);
+  }
+
+  // ── Markdown Trial Balance ─────────────────────────────────────────────────
+
+  /// Builds a plain Markdown string of the Trial Balance that can be copied
+  /// and pasted into WhatsApp, email, or any notes app for the accountant.
+  String _buildTrialBalanceMarkdown(DateTime asAt) {
+    final numFmt = NumberFormat('#,##0', 'en_US');
+    final asAtLabel = DateFormat('d MMMM yyyy').format(asAt);
+    final generatedLabel = DateFormat('d MMM yyyy HH:mm').format(DateTime.now());
+
+    final accounts = ref.read(accountsProvider).accounts;
+    final allEntries = ref.read(journalsProvider).entries;
+
+    final entries = allEntries
+        .where((e) =>
+            e.status == JournalEntryStatus.posted &&
+            !e.date.isAfter(DateTime(asAt.year, asAt.month, asAt.day, 23, 59, 59)))
+        .toList();
+    final raw = _computeLedgerBalances(entries);
+
+    const typeOrder = [
+      AccountType.asset, AccountType.liability, AccountType.equity,
+      AccountType.revenue, AccountType.expense,
+    ];
+    const typeLabels = {
+      AccountType.asset: 'ASSETS',
+      AccountType.liability: 'LIABILITIES',
+      AccountType.equity: 'EQUITY',
+      AccountType.revenue: 'REVENUE',
+      AccountType.expense: 'EXPENSES',
+    };
+
+    final sorted = List<Account>.from(accounts)
+      ..sort((a, b) {
+        final ai = typeOrder.indexOf(a.type);
+        final bi = typeOrder.indexOf(b.type);
+        if (ai != bi) return ai.compareTo(bi);
+        return a.code.compareTo(b.code);
+      });
+
+    double totalDr = 0, totalCr = 0;
+    final grouped = <AccountType, List<Map<String, dynamic>>>{};
+    for (final acct in sorted) {
+      final net = raw['acct-${acct.code}'] ?? 0.0;
+      if (net == 0.0) continue;
+      final dr = net > 0 ? net : 0.0;
+      final cr = net < 0 ? -net : 0.0;
+      totalDr += dr;
+      totalCr += cr;
+      grouped.putIfAbsent(acct.type, () => []).add({
+        'code': acct.code, 'name': acct.name, 'dr': dr, 'cr': cr,
+      });
+    }
+
+    final isBalanced = (totalDr - totalCr).abs() < 0.01;
+
+    final buf = StringBuffer();
+    buf.writeln('# MAGIC BET LTD');
+    buf.writeln('## Trial Balance');
+    buf.writeln('**As at $asAtLabel**');
+    buf.writeln();
+    buf.writeln('_Generated by Third Books on $generatedLabel_');
+    buf.writeln();
+    buf.writeln('| Code | Account Name | Debit (UGX) | Credit (UGX) |');
+    buf.writeln('|------|--------------|------------:|-------------:|');
+
+    for (final type in typeOrder) {
+      final group = grouped[type];
+      if (group == null || group.isEmpty) continue;
+      buf.writeln('| | **${typeLabels[type]}** | | |');
+      for (final row in group) {
+        final dr = row['dr'] as double;
+        final cr = row['cr'] as double;
+        buf.writeln(
+          '| ${row['code']} | ${row['name']} '
+          '| ${dr > 0 ? numFmt.format(dr) : "—"} '
+          '| ${cr > 0 ? numFmt.format(cr) : "—"} |',
+        );
+      }
+    }
+
+    buf.writeln('| | | | |');
+    buf.writeln(
+        '| | **TOTAL** | **${numFmt.format(totalDr)}** | **${numFmt.format(totalCr)}** |');
+    buf.writeln();
+    buf.writeln(isBalanced
+        ? '✅ Trial balance is balanced — Dr = Cr = UGX ${numFmt.format(totalDr)}'
+        : '⚠️ Out of balance by UGX ${numFmt.format((totalDr - totalCr).abs())}');
+    buf.writeln();
+    buf.writeln('---');
+    buf.writeln('_CONFIDENTIAL — For accounting purposes only_');
+
+    return buf.toString();
+  }
+
+  /// Copies the Trial Balance markdown to clipboard and shows a snackbar.
+  void _copyTrialBalanceMd([DateTime? asAt]) {
+    final md = _buildTrialBalanceMarkdown(asAt ?? _trialBalanceAsAt);
+    Clipboard.setData(ClipboardData(text: md));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Trial Balance copied — paste into WhatsApp or email'),
+        duration: Duration(seconds: 3),
+      ));
+    }
+  }
+
+  /// Saves the Trial Balance as a .md file chosen by the user.
+  Future<void> _saveTrialBalanceMd([DateTime? asAt]) async {
+    final date = asAt ?? _trialBalanceAsAt;
+    final md = _buildTrialBalanceMarkdown(date);
+    final dateTag = DateFormat('yyyyMMdd').format(date);
+    final defaultName = 'Trial_Balance_MagicBetLtd_$dateTag.md';
+
+    final path = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save Trial Balance',
+      fileName: defaultName,
+      type: FileType.custom,
+      allowedExtensions: ['md', 'txt'],
+    );
+    if (path == null) return;
+
+    await File(path).writeAsString(md);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Saved to $path'),
+        duration: const Duration(seconds: 3),
+      ));
+    }
   }
 
   Future<pw.Document> _buildPdfDocument(String reportName) async {
