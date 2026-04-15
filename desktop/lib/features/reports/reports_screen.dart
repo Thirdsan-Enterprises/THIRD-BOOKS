@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -27,10 +26,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   String _selectedPeriod = 'This Month';
   String _selectedReportType = 'all';
   final _currencyFormat = NumberFormat.currency(symbol: 'UGX ', decimalDigits: 0);
-
-  /// "As at" date used for the Trial Balance — defaults to today.
-  /// All JEs dated after this cutoff are excluded from the computation.
-  DateTime _trialBalanceAsAt = DateTime.now();
 
   final List<Map<String, dynamic>> _reportCategories = [
     {
@@ -97,6 +92,95 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   double _acctBal(Account account, Map<String, double> raw) {
     final r = raw['acct-${account.code}'] ?? 0.0;
     return account.isDebitNormal ? r : -r;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cash Flow computation (indirect method — matches client's Excel sample)
+  // ---------------------------------------------------------------------------
+
+  /// Derives all cash flow line items from the ledger and dashboard.
+  ///
+  /// Uses the indirect method:
+  ///   Operating = Operating Profit + non-cash add-backs + WC movements
+  ///   Investing  = asset acquisitions / disposals
+  ///   Financing  = loan proceeds / repayments / dividends
+  Map<String, double> _computeCashFlowFigures() {
+    final accounts = ref.read(accountsProvider).accounts;
+    final raw      = ref.read(ledgerBalancesProvider);
+    final dashData = ref.read(dashboardDataProvider).valueOrNull;
+
+    double sumRaw(Iterable<Account> accts) =>
+        accts.fold(0.0, (s, a) => s + (raw['acct-${a.code}'] ?? 0.0));
+
+    // ── Cash & Bank ──────────────────────────────────────────────────────────
+    final closingCash = sumRaw(accounts.where(
+      (a) => a.subType == AccountSubType.cash || a.subType == AccountSubType.bank));
+
+    // ── Working Capital ──────────────────────────────────────────────────────
+    final arRaw = sumRaw(accounts.where(
+      (a) => a.subType == AccountSubType.accountsReceivable));
+    final apRaw = sumRaw(accounts.where(
+      (a) => a.subType == AccountSubType.accountsPayable));
+    // AR increase → cash decrease;  AP increase → cash increase
+    final receivablesImpact = -arRaw;
+    final payablesImpact    = -apRaw;
+
+    // ── Depreciation add-back (non-cash expense) ─────────────────────────────
+    final depreciationAddBack = sumRaw(accounts.where(
+      (a) => a.type == AccountType.expense &&
+             a.name.toLowerCase().contains('depreciation')));
+
+    // ── Investing ────────────────────────────────────────────────────────────
+    final assetAcquisitions = sumRaw(accounts.where(
+      (a) => a.subType == AccountSubType.fixedAsset &&
+             !a.name.toLowerCase().contains('depreciation')));
+
+    // ── Financing ────────────────────────────────────────────────────────────
+    final loanRaw = sumRaw(accounts.where(
+      (a) => a.subType == AccountSubType.longTermLiability));
+    // Liability accounts are credit-normal → negative raw = outstanding balance
+    final loanProceeds   = loanRaw < 0 ? -loanRaw : 0.0;
+    final loanRepayment  = loanRaw > 0 ? loanRaw  : 0.0;
+
+    // Dividends paid → debit to retained earnings or dividend payable
+    final dividendsPaid = sumRaw(accounts.where(
+      (a) => a.name.toLowerCase().contains('dividend') &&
+             a.type == AccountType.equity));
+
+    // ── Core operating figures from dashboard ────────────────────────────────
+    final cashIn         = dashData?.cashIn      ?? 0;
+    final cashOut        = dashData?.cashOut     ?? 0;
+    final commission     = dashData?.totalExpenses ?? 0;
+    final operatingProfit = dashData?.netIncome  ?? 0;
+
+    // ── Net totals ───────────────────────────────────────────────────────────
+    final netOperating = operatingProfit + depreciationAddBack +
+                         receivablesImpact + payablesImpact;
+    final netInvesting = -assetAcquisitions;
+    final netFinancing = loanProceeds - loanRepayment - dividendsPaid;
+    final netIncrease  = netOperating + netInvesting + netFinancing;
+    final openingCash  = closingCash - netIncrease;
+
+    return {
+      'cashIn'              : cashIn,
+      'cashOut'             : cashOut,
+      'netBettingCash'      : cashIn - cashOut,
+      'commission'          : commission,
+      'operatingProfit'     : operatingProfit,
+      'depreciationAddBack' : depreciationAddBack,
+      'receivablesImpact'   : receivablesImpact,
+      'payablesImpact'      : payablesImpact,
+      'netOperating'        : netOperating,
+      'assetAcquisitions'   : assetAcquisitions,
+      'netInvesting'        : netInvesting,
+      'loanProceeds'        : loanProceeds,
+      'loanRepayment'       : loanRepayment,
+      'dividendsPaid'       : dividendsPaid,
+      'netFinancing'        : netFinancing,
+      'openingCash'         : openingCash,
+      'netIncrease'         : netIncrease,
+      'closingCash'         : closingCash,
+    };
   }
 
   @override
@@ -283,118 +367,15 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Quick-share banner for the accountant ──────────────────────────
-          Container(
-            margin: const EdgeInsets.only(bottom: 20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [AppColors.primary.withOpacity(0.12), AppColors.primary.withOpacity(0.04)],
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-              ),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.primary.withOpacity(0.25)),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.description_outlined,
-                        color: AppColors.primary, size: 22),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Trial Balance — Share with Accountant',
-                            style: TextStyle(
-                                fontWeight: FontWeight.w700, fontSize: 14)),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Copy as Markdown or save a .md file — paste into WhatsApp, email, or any notes app.',
-                          style: TextStyle(
-                              color: Theme.of(context).colorScheme.outline,
-                              fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 6),
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            icon: const Icon(Icons.calendar_today, size: 14),
-                            label: Text(
-                              DateFormat('d MMM yyyy').format(_trialBalanceAsAt),
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            onPressed: () async {
-                              final picked = await showDatePicker(
-                                context: context,
-                                initialDate: _trialBalanceAsAt,
-                                firstDate: DateTime(2020),
-                                lastDate: DateTime.now(),
-                                helpText: 'Trial Balance "As at" date',
-                              );
-                              if (picked != null) {
-                                setState(() => _trialBalanceAsAt = picked);
-                              }
-                            },
-                          ),
-                          const SizedBox(width: 8),
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 6),
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            icon: const Icon(Icons.copy, size: 16),
-                            label: const Text('Copy'),
-                            onPressed: () => _copyTrialBalanceMd(),
-                          ),
-                          const SizedBox(width: 8),
-                          FilledButton.icon(
-                            icon: const Icon(Icons.save_alt, size: 16),
-                            label: const Text('Save .md'),
-                            onPressed: () => _saveTrialBalanceMd(),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // ── Report category sections ──────────────────────────────────────
-          ..._reportCategories.map((category) {
-            return _ReportCategorySection(
-              category: category['category'],
-              icon: category['icon'],
-              color: category['color'],
-              reports: List<Map<String, dynamic>>.from(category['reports']),
-              onReportTap: (report) =>
-                  _showReportPreview(context, report, category['category']),
-            );
-          }),
-        ],
+        children: _reportCategories.map((category) {
+          return _ReportCategorySection(
+            category: category['category'],
+            icon: category['icon'],
+            color: category['color'],
+            reports: List<Map<String, dynamic>>.from(category['reports']),
+            onReportTap: (report) => _showReportPreview(context, report, category['category']),
+          );
+        }).toList(),
       ),
     );
   }
@@ -423,43 +404,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  if (report['name'] == 'Trial Balance') ...[
-                    const Text('As at:', style: TextStyle(fontWeight: FontWeight.w500)),
-                    const SizedBox(width: 8),
-                    StatefulBuilder(
-                      builder: (_, setInner) => OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        icon: const Icon(Icons.calendar_today, size: 14),
-                        label: Text(
-                          DateFormat('d MMM yyyy').format(_trialBalanceAsAt),
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                        onPressed: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: _trialBalanceAsAt,
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime.now(),
-                            helpText: 'Trial Balance "As at" date',
-                          );
-                          if (picked != null) {
-                            setState(() => _trialBalanceAsAt = picked);
-                            setInner(() {});
-                          }
-                        },
-                      ),
-                    ),
-                  ] else ...[
-                    Text('Period: $_selectedPeriod',
-                        style: const TextStyle(fontWeight: FontWeight.w500)),
-                  ],
+                  Text('Period: $_selectedPeriod', style: const TextStyle(fontWeight: FontWeight.w500)),
                   const Spacer(),
                   Text('Generated: ${DateFormat('MMM d, yyyy HH:mm').format(DateTime.now())}',
-                      style: TextStyle(
-                          color: Theme.of(context).colorScheme.outline, fontSize: 12)),
+                      style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12)),
                 ],
               ),
               const Divider(height: 24),
@@ -474,66 +422,38 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Close'),
           ),
-          if (report['name'] != 'Trial Balance') ...[
-            OutlinedButton.icon(
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await _printReport(report['name'] as String);
-              },
-              icon: const Icon(Icons.print, size: 18),
-              label: const Text('Print'),
-            ),
-            OutlinedButton.icon(
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await _exportReportCsv(report['name'] as String);
-              },
-              icon: const Icon(Icons.table_chart, size: 18),
-              label: const Text('Export CSV'),
-            ),
-            OutlinedButton.icon(
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await _exportReportExcel(report['name'] as String);
-              },
-              icon: const Icon(Icons.grid_on, size: 18),
-              label: const Text('Export Excel'),
-            ),
-            FilledButton.icon(
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await _exportReportPdf(report['name'] as String);
-              },
-              icon: const Icon(Icons.picture_as_pdf, size: 18),
-              label: const Text('Export PDF'),
-            ),
-          ] else ...[
-            // Trial Balance — markdown export for sharing with accountant
-            OutlinedButton.icon(
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await _printReport('Trial Balance');
-              },
-              icon: const Icon(Icons.print, size: 18),
-              label: const Text('Print'),
-            ),
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.pop(ctx);
-                _copyTrialBalanceMd();
-              },
-              icon: const Icon(Icons.copy, size: 18),
-              label: const Text('Copy Markdown'),
-            ),
-            FilledButton.icon(
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await _saveTrialBalanceMd();
-              },
-              icon: const Icon(Icons.save_alt, size: 18),
-              label: const Text('Save .md File'),
-            ),
-          ],
+          OutlinedButton.icon(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _printReport(report['name'] as String);
+            },
+            icon: const Icon(Icons.print, size: 18),
+            label: const Text('Print'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _exportReportCsv(report['name'] as String);
+            },
+            icon: const Icon(Icons.table_chart, size: 18),
+            label: const Text('Export CSV'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _exportReportExcel(report['name'] as String);
+            },
+            icon: const Icon(Icons.grid_on, size: 18),
+            label: const Text('Export Excel'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _exportReportPdf(report['name'] as String);
+            },
+            icon: const Icon(Icons.picture_as_pdf, size: 18),
+            label: const Text('Export PDF'),
+          ),
         ],
       ),
     );
@@ -553,509 +473,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   static pw.Widget _pdfDivider() => pw.Divider(thickness: 0.5, color: PdfColors.grey400);
-
-  // ── Professional Trial Balance PDF ─────────────────────────────────────────
-
-  /// Generates a professional, multi-page Trial Balance PDF suitable for
-  /// sharing with an external accountant.
-  ///
-  /// Features:
-  ///  • Branded letterhead (company name, document title, "As at" date)
-  ///  • Accounts grouped by type (Assets → Liabilities → Equity → Revenue → Expenses)
-  ///  • Alternating row shading for readability
-  ///  • Bold totals row with balance-check indicator
-  ///  • Page numbers and confidentiality footer on every page
-  Future<pw.Document> _buildTrialBalancePdf(DateTime asAt) async {
-    final numFmt = NumberFormat('#,##0', 'en_US');
-    final asAtLabel = DateFormat('d MMMM yyyy').format(asAt);
-    final generatedLabel = DateFormat('d MMM yyyy HH:mm').format(DateTime.now());
-
-    final accounts = ref.read(accountsProvider).accounts;
-    final allEntries = ref.read(journalsProvider).entries;
-
-    // Exclude any JEs posted after the cutoff date.
-    final entries = allEntries
-        .where((e) =>
-            e.status == JournalEntryStatus.posted &&
-            !e.date.isAfter(DateTime(asAt.year, asAt.month, asAt.day, 23, 59, 59)))
-        .toList();
-    final raw = _computeLedgerBalances(entries);
-
-    // Build rows in display order: Assets → Liabilities → Equity → Revenue → Expenses
-    const typeOrder = [
-      AccountType.asset,
-      AccountType.liability,
-      AccountType.equity,
-      AccountType.revenue,
-      AccountType.expense,
-    ];
-    const typeLabels = {
-      AccountType.asset: 'ASSETS',
-      AccountType.liability: 'LIABILITIES',
-      AccountType.equity: 'EQUITY',
-      AccountType.revenue: 'REVENUE',
-      AccountType.expense: 'EXPENSES',
-    };
-
-    final sorted = List<Account>.from(accounts)
-      ..sort((a, b) {
-        final ai = typeOrder.indexOf(a.type);
-        final bi = typeOrder.indexOf(b.type);
-        if (ai != bi) return ai.compareTo(bi);
-        return a.code.compareTo(b.code);
-      });
-
-    double totalDr = 0;
-    double totalCr = 0;
-
-    // Group rows by type
-    final grouped = <AccountType, List<Map<String, dynamic>>>{};
-    for (final acct in sorted) {
-      final net = raw['acct-${acct.code}'] ?? 0.0;
-      if (net == 0.0) continue;
-      final dr = net > 0 ? net : 0.0;
-      final cr = net < 0 ? -net : 0.0;
-      totalDr += dr;
-      totalCr += cr;
-      grouped.putIfAbsent(acct.type, () => []).add({
-        'code': acct.code,
-        'name': acct.name,
-        'dr': dr,
-        'cr': cr,
-      });
-    }
-
-    final isBalanced = (totalDr - totalCr).abs() < 0.01;
-
-    // ── PDF colour palette ──────────────────────────────────────────────────
-    const navyBlue   = PdfColors.blueGrey800;
-    const sectionBg  = PdfColors.blueGrey50;
-    const altRow     = PdfColors.grey100;
-    const totalsBg   = PdfColors.lightBlue50;
-    const drCol      = PdfColors.blue800;
-    const crCol      = PdfColors.green800;
-
-    // ── Column widths (in points, A4 = 595pt wide, margins = 2×36 = 72) ────
-    // Available: 523 pt
-    // Code:50  Name:220  Type(hidden):0  Dr:120  Cr:120  → 510 + padding
-    const colWidths = <int>[50, 220, 0, 120, 120]; // Type col omitted in PDF
-
-    // Helper: right-aligned number cell
-    pw.Widget numCell(String text, PdfColor color, {bool bold = false}) =>
-        pw.Container(
-          alignment: pw.Alignment.centerRight,
-          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-          child: pw.Text(
-            text,
-            style: pw.TextStyle(
-              fontSize: 9,
-              fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
-              color: color,
-            ),
-          ),
-        );
-
-    pw.Widget textCell(String text, {bool bold = false, double size = 9,
-        pw.Alignment align = pw.Alignment.centerLeft}) =>
-        pw.Container(
-          alignment: align,
-          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-          child: pw.Text(
-            text,
-            style: pw.TextStyle(
-              fontSize: size,
-              fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
-            ),
-          ),
-        );
-
-    // ── Page header ─────────────────────────────────────────────────────────
-    pw.Widget pageHeader(pw.Context _) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Container(
-              color: navyBlue,
-              padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text('MAGIC BET LTD',
-                          style: pw.TextStyle(
-                              color: PdfColors.white,
-                              fontWeight: pw.FontWeight.bold,
-                              fontSize: 14)),
-                      pw.SizedBox(height: 2),
-                      pw.Text('Kampala, Uganda  |  TIN: 1003261781',
-                          style: const pw.TextStyle(
-                              color: PdfColors.grey200, fontSize: 8)),
-                    ],
-                  ),
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.end,
-                    children: [
-                      pw.Text('TRIAL BALANCE',
-                          style: pw.TextStyle(
-                              color: PdfColors.white,
-                              fontWeight: pw.FontWeight.bold,
-                              fontSize: 13)),
-                      pw.SizedBox(height: 2),
-                      pw.Text('As at  $asAtLabel',
-                          style: const pw.TextStyle(
-                              color: PdfColors.grey200, fontSize: 9)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 8),
-          ],
-        );
-
-    // ── Page footer ─────────────────────────────────────────────────────────
-    pw.Widget pageFooter(pw.Context ctx) => pw.Column(
-          children: [
-            pw.Divider(thickness: 0.5, color: PdfColors.grey400),
-            pw.SizedBox(height: 4),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('CONFIDENTIAL — For accounting purposes only',
-                    style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey500)),
-                pw.Text('Generated by Third Books  |  $generatedLabel',
-                    style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey500)),
-                pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
-                    style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey500)),
-              ],
-            ),
-          ],
-        );
-
-    // ── Table column header row ──────────────────────────────────────────────
-    pw.Widget tableHeader() => pw.Container(
-          color: navyBlue,
-          child: pw.Row(
-            children: [
-              pw.SizedBox(
-                  width: colWidths[0].toDouble(),
-                  child: textCell('Code',
-                      bold: true, size: 8, align: pw.Alignment.centerLeft)
-                  ..color = PdfColors.white),
-              pw.Expanded(
-                  child: textCell('Account Name',
-                      bold: true, size: 8, align: pw.Alignment.centerLeft)
-                  ..color = PdfColors.white),
-              pw.SizedBox(
-                  width: colWidths[3].toDouble(),
-                  child: numCell('Debit (UGX)', PdfColors.white, bold: true)),
-              pw.SizedBox(
-                  width: colWidths[4].toDouble(),
-                  child: numCell('Credit (UGX)', PdfColors.white, bold: true)),
-            ],
-          ),
-        );
-
-    // ── Section divider row (e.g. "ASSETS") ─────────────────────────────────
-    pw.Widget sectionHeader(String label) => pw.Container(
-          color: sectionBg,
-          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-          child: pw.Text(label,
-              style: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 8,
-                  color: PdfColors.blueGrey700)),
-        );
-
-    // ── Data row ─────────────────────────────────────────────────────────────
-    pw.Widget dataRow(Map<String, dynamic> row, bool shade) {
-      final dr = row['dr'] as double;
-      final cr = row['cr'] as double;
-      return pw.Container(
-        color: shade ? altRow : PdfColors.white,
-        child: pw.Row(
-          children: [
-            pw.SizedBox(
-                width: colWidths[0].toDouble(),
-                child: textCell(row['code'] as String, size: 8.5)),
-            pw.Expanded(child: textCell(row['name'] as String, size: 8.5)),
-            pw.SizedBox(
-                width: colWidths[3].toDouble(),
-                child: numCell(
-                    dr > 0 ? numFmt.format(dr) : '—',
-                    dr > 0 ? drCol : PdfColors.grey400)),
-            pw.SizedBox(
-                width: colWidths[4].toDouble(),
-                child: numCell(
-                    cr > 0 ? numFmt.format(cr) : '—',
-                    cr > 0 ? crCol : PdfColors.grey400)),
-          ],
-        ),
-      );
-    }
-
-    // ── Totals row ────────────────────────────────────────────────────────────
-    pw.Widget totalsRow() => pw.Container(
-          color: totalsBg,
-          child: pw.Column(
-            children: [
-              pw.Divider(thickness: 0.8, color: PdfColors.blueGrey400),
-              pw.Row(
-                children: [
-                  pw.SizedBox(width: colWidths[0].toDouble(), child: pw.SizedBox.shrink()),
-                  pw.Expanded(
-                      child: textCell('TOTAL', bold: true, size: 10)),
-                  pw.SizedBox(
-                      width: colWidths[3].toDouble(),
-                      child: numCell(numFmt.format(totalDr), drCol, bold: true)),
-                  pw.SizedBox(
-                      width: colWidths[4].toDouble(),
-                      child: numCell(numFmt.format(totalCr), crCol, bold: true)),
-                ],
-              ),
-              pw.Divider(thickness: 0.8, color: PdfColors.blueGrey400),
-            ],
-          ),
-        );
-
-    // ── Balance-check badge ───────────────────────────────────────────────────
-    pw.Widget balanceBadge() => pw.Padding(
-          padding: const pw.EdgeInsets.only(top: 10),
-          child: pw.Row(
-            children: [
-              pw.Container(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: pw.BoxDecoration(
-                  color: isBalanced ? PdfColors.green50 : PdfColors.orange50,
-                  borderRadius: pw.BorderRadius.circular(4),
-                  border: pw.Border.all(
-                      color: isBalanced ? PdfColors.green700 : PdfColors.orange700,
-                      width: 0.5),
-                ),
-                child: pw.Text(
-                  isBalanced
-                      ? '✓  Trial balance is balanced  (Dr = Cr = UGX ${numFmt.format(totalDr)})'
-                      : '⚠  Out of balance by UGX ${numFmt.format((totalDr - totalCr).abs())}',
-                  style: pw.TextStyle(
-                    fontSize: 8,
-                    fontWeight: pw.FontWeight.bold,
-                    color: isBalanced ? PdfColors.green900 : PdfColors.orange900,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-
-    // ── Assemble the document ─────────────────────────────────────────────────
-    final pdf = pw.Document();
-    pdf.addPage(pw.MultiPage(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.symmetric(horizontal: 36, vertical: 36),
-      header: pageHeader,
-      footer: pageFooter,
-      build: (ctx) {
-        final content = <pw.Widget>[tableHeader()];
-        int rowIndex = 0;
-
-        for (final type in typeOrder) {
-          final group = grouped[type];
-          if (group == null || group.isEmpty) continue;
-          content.add(sectionHeader(typeLabels[type]!));
-          for (final row in group) {
-            content.add(dataRow(row, rowIndex.isOdd));
-            rowIndex++;
-          }
-        }
-
-        content.add(totalsRow());
-        content.add(balanceBadge());
-
-        if (grouped.isEmpty) {
-          content.add(pw.Padding(
-            padding: const pw.EdgeInsets.all(24),
-            child: pw.Center(
-              child: pw.Text('No posted journal entries found up to $asAtLabel.',
-                  style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
-            ),
-          ));
-        }
-
-        return content;
-      },
-    ));
-    return pdf;
-  }
-
-  /// Shows a date picker then shares the Trial Balance PDF via the system
-  /// share sheet (email, WhatsApp, Save to Files, etc.).
-  Future<void> _shareTrialBalance([DateTime? asAt]) async {
-    final date = asAt ?? _trialBalanceAsAt;
-    try {
-      final pdf = await _buildTrialBalancePdf(date);
-      final bytes = await pdf.save();
-      final dateTag = DateFormat('yyyyMMdd').format(date);
-      await Printing.sharePdf(
-        bytes: bytes,
-        filename: 'Trial_Balance_MagicBetLtd_$dateTag.pdf',
-        subject: 'Trial Balance — Magic Bet Ltd — as at ${DateFormat('d MMM yyyy').format(date)}',
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Share failed: $e'),
-          backgroundColor: AppColors.error,
-        ));
-      }
-    }
-  }
-
-  /// Opens a date-picker then shares the Trial Balance PDF.
-  Future<void> _pickDateAndShare(BuildContext context) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _trialBalanceAsAt,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      helpText: 'Trial Balance "As at" date',
-    );
-    if (!mounted) return;
-    if (picked != null) {
-      setState(() => _trialBalanceAsAt = picked);
-    }
-    await _shareTrialBalance(picked ?? _trialBalanceAsAt);
-  }
-
-  // ── Markdown Trial Balance ─────────────────────────────────────────────────
-
-  /// Builds a plain Markdown string of the Trial Balance that can be copied
-  /// and pasted into WhatsApp, email, or any notes app for the accountant.
-  String _buildTrialBalanceMarkdown(DateTime asAt) {
-    final numFmt = NumberFormat('#,##0', 'en_US');
-    final asAtLabel = DateFormat('d MMMM yyyy').format(asAt);
-    final generatedLabel = DateFormat('d MMM yyyy HH:mm').format(DateTime.now());
-
-    final accounts = ref.read(accountsProvider).accounts;
-    final allEntries = ref.read(journalsProvider).entries;
-
-    final entries = allEntries
-        .where((e) =>
-            e.status == JournalEntryStatus.posted &&
-            !e.date.isAfter(DateTime(asAt.year, asAt.month, asAt.day, 23, 59, 59)))
-        .toList();
-    final raw = _computeLedgerBalances(entries);
-
-    const typeOrder = [
-      AccountType.asset, AccountType.liability, AccountType.equity,
-      AccountType.revenue, AccountType.expense,
-    ];
-    const typeLabels = {
-      AccountType.asset: 'ASSETS',
-      AccountType.liability: 'LIABILITIES',
-      AccountType.equity: 'EQUITY',
-      AccountType.revenue: 'REVENUE',
-      AccountType.expense: 'EXPENSES',
-    };
-
-    final sorted = List<Account>.from(accounts)
-      ..sort((a, b) {
-        final ai = typeOrder.indexOf(a.type);
-        final bi = typeOrder.indexOf(b.type);
-        if (ai != bi) return ai.compareTo(bi);
-        return a.code.compareTo(b.code);
-      });
-
-    double totalDr = 0, totalCr = 0;
-    final grouped = <AccountType, List<Map<String, dynamic>>>{};
-    for (final acct in sorted) {
-      final net = raw['acct-${acct.code}'] ?? 0.0;
-      if (net == 0.0) continue;
-      final dr = net > 0 ? net : 0.0;
-      final cr = net < 0 ? -net : 0.0;
-      totalDr += dr;
-      totalCr += cr;
-      grouped.putIfAbsent(acct.type, () => []).add({
-        'code': acct.code, 'name': acct.name, 'dr': dr, 'cr': cr,
-      });
-    }
-
-    final isBalanced = (totalDr - totalCr).abs() < 0.01;
-
-    final buf = StringBuffer();
-    buf.writeln('# MAGIC BET LTD');
-    buf.writeln('## Trial Balance');
-    buf.writeln('**As at $asAtLabel**');
-    buf.writeln();
-    buf.writeln('_Generated by Third Books on $generatedLabel_');
-    buf.writeln();
-    buf.writeln('| Code | Account Name | Debit (UGX) | Credit (UGX) |');
-    buf.writeln('|------|--------------|------------:|-------------:|');
-
-    for (final type in typeOrder) {
-      final group = grouped[type];
-      if (group == null || group.isEmpty) continue;
-      buf.writeln('| | **${typeLabels[type]}** | | |');
-      for (final row in group) {
-        final dr = row['dr'] as double;
-        final cr = row['cr'] as double;
-        buf.writeln(
-          '| ${row['code']} | ${row['name']} '
-          '| ${dr > 0 ? numFmt.format(dr) : "—"} '
-          '| ${cr > 0 ? numFmt.format(cr) : "—"} |',
-        );
-      }
-    }
-
-    buf.writeln('| | | | |');
-    buf.writeln(
-        '| | **TOTAL** | **${numFmt.format(totalDr)}** | **${numFmt.format(totalCr)}** |');
-    buf.writeln();
-    buf.writeln(isBalanced
-        ? '✅ Trial balance is balanced — Dr = Cr = UGX ${numFmt.format(totalDr)}'
-        : '⚠️ Out of balance by UGX ${numFmt.format((totalDr - totalCr).abs())}');
-    buf.writeln();
-    buf.writeln('---');
-    buf.writeln('_CONFIDENTIAL — For accounting purposes only_');
-
-    return buf.toString();
-  }
-
-  /// Copies the Trial Balance markdown to clipboard and shows a snackbar.
-  void _copyTrialBalanceMd([DateTime? asAt]) {
-    final md = _buildTrialBalanceMarkdown(asAt ?? _trialBalanceAsAt);
-    Clipboard.setData(ClipboardData(text: md));
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Trial Balance copied — paste into WhatsApp or email'),
-        duration: Duration(seconds: 3),
-      ));
-    }
-  }
-
-  /// Saves the Trial Balance as a .md file chosen by the user.
-  Future<void> _saveTrialBalanceMd([DateTime? asAt]) async {
-    final date = asAt ?? _trialBalanceAsAt;
-    final md = _buildTrialBalanceMarkdown(date);
-    final dateTag = DateFormat('yyyyMMdd').format(date);
-    final defaultName = 'Trial_Balance_MagicBetLtd_$dateTag.md';
-
-    final path = await FilePicker.platform.saveFile(
-      dialogTitle: 'Save Trial Balance',
-      fileName: defaultName,
-      type: FileType.custom,
-      allowedExtensions: ['md', 'txt'],
-    );
-    if (path == null) return;
-
-    await File(path).writeAsString(md);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Saved to $path'),
-        duration: const Duration(seconds: 3),
-      ));
-    }
-  }
 
   Future<pw.Document> _buildPdfDocument(String reportName) async {
     final numFmt = NumberFormat('#,##0', 'en_US');
@@ -1165,13 +582,49 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ),
       ));
     } else if (reportName == 'Trial Balance') {
-      // Delegate to the professional trial balance PDF builder.
-      return _buildTrialBalancePdf(_trialBalanceAsAt);
+      final tbAccounts = ref.read(accountsProvider).accounts;
+      final tbEntries = ref.read(journalsProvider).entries;
+      final tbRaw = _computeLedgerBalances(tbEntries);
+
+      final tbRows = <List<String>>[];
+      double tbTotalDr = 0;
+      double tbTotalCr = 0;
+      final tbSorted = List<Account>.from(tbAccounts)..sort((a, b) => a.code.compareTo(b.code));
+      for (final acct in tbSorted) {
+        final net = tbRaw['acct-${acct.code}'] ?? 0.0;
+        if (net == 0.0) continue;
+        final typeName = acct.type.name[0].toUpperCase() + acct.type.name.substring(1);
+        if (net > 0) {
+          tbRows.add([acct.code, acct.name, typeName, numFmt.format(net), '—']);
+          tbTotalDr += net;
+        } else {
+          tbRows.add([acct.code, acct.name, typeName, '—', numFmt.format(-net)]);
+          tbTotalCr += -net;
+        }
+      }
+      tbRows.add(['', 'TOTALS', '', numFmt.format(tbTotalDr), numFmt.format(tbTotalCr)]);
+
+      pdf.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            buildHeader('TRIAL BALANCE'),
+            pw.TableHelper.fromTextArray(
+              headers: ['Code', 'Account Name', 'Type', 'Debit (UGX)', 'Credit (UGX)'],
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
+              data: tbRows,
+            ),
+          ],
+        ),
+      ));
     } else if (reportName == 'Cash Flow Statement') {
-      final cashIn = dashData?.cashIn ?? 0;
-      final cashOut = dashData?.cashOut ?? 0;
-      final commission = dashData?.totalExpenses ?? 0;
-      final netCash = dashData?.netIncome ?? 0;
+      final cf = _computeCashFlowFigures();
+      String fmt(double v) => v == 0 ? '—'
+          : v < 0 ? '(UGX ${numFmt.format(v.abs())})'
+          : 'UGX ${numFmt.format(v)}';
 
       pdf.addPage(pw.Page(
         pageFormat: PdfPageFormat.a4,
@@ -1179,34 +632,67 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             buildHeader('STATEMENT OF CASH FLOWS'),
-            pw.Text('OPERATING ACTIVITIES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+
+            // ── OPERATING ACTIVITIES ──────────────────────────────────────
+            pw.Text('OPERATING ACTIVITIES',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
             pw.SizedBox(height: 4),
-            _pdfRow('  Cash received from betting customers', 'UGX ${numFmt.format(cashIn)}'),
-            _pdfRow('  Cash paid to winning customers (Payouts)', '(UGX ${numFmt.format(cashOut)})'),
+            _pdfRow('  Cash received from betting customers',     fmt(cf['cashIn']!)),
+            _pdfRow('  Cash paid to winning customers (Payouts)', fmt(-cf['cashOut']!)),
             _pdfDivider(),
-            _pdfRow('  Net cash from betting operations', 'UGX ${numFmt.format(cashIn - cashOut)}', bold: true),
-            _pdfRow('  Commission paid to outlet owners', '(UGX ${numFmt.format(commission)})'),
+            _pdfRow('  Net cash from betting operations',         fmt(cf['netBettingCash']!), bold: true),
+            _pdfRow('  Commission paid to outlet owners (40% GGR)', fmt(-cf['commission']!)),
             _pdfDivider(),
-            _pdfRow('NET CASH FROM OPERATING ACTIVITIES', 'UGX ${numFmt.format(netCash)}', bold: true, size: 12),
+            _pdfRow('  Operating Profit',                         fmt(cf['operatingProfit']!), bold: true),
+            pw.SizedBox(height: 6),
+            pw.Text('  Changes in Net Working Capital',
+                style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+            _pdfRow('  (Increase)/Decrease in Accounts Receivables & Prepayments',
+                fmt(cf['receivablesImpact']!)),
+            _pdfRow('  Increase/(Decrease) in Accounts Payables',
+                fmt(cf['payablesImpact']!)),
+            if (cf['depreciationAddBack']! > 0)
+              _pdfRow('  Add: Depreciation of Assets (non-cash)', fmt(cf['depreciationAddBack']!)),
+            _pdfDivider(),
+            _pdfRow('NET CASH FROM OPERATING ACTIVITIES', fmt(cf['netOperating']!), bold: true, size: 12),
             pw.SizedBox(height: 12),
-            pw.Text('INVESTING ACTIVITIES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
-            _pdfRow('  No capital expenditure transactions', '—'),
+
+            // ── INVESTING ACTIVITIES ──────────────────────────────────────
+            pw.Text('INVESTING ACTIVITIES',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+            pw.SizedBox(height: 4),
+            _pdfRow('  Acquisition of Assets',          fmt(-cf['assetAcquisitions']!)),
+            _pdfRow('  Depreciation of Assets',         fmt(cf['depreciationAddBack']!)),
+            _pdfRow('  Sale of Assets',                 '—'),
+            _pdfRow('  Acquisition of Securities (Bonds)', '—'),
+            _pdfRow('  Receipt of Interest on Bonds',   '—'),
             _pdfDivider(),
-            _pdfRow('NET CASH FROM INVESTING ACTIVITIES', 'UGX 0', bold: true),
+            _pdfRow('NET CASH FROM INVESTING ACTIVITIES', fmt(cf['netInvesting']!), bold: true),
             pw.SizedBox(height: 12),
-            pw.Text('FINANCING ACTIVITIES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
-            _pdfRow('  No financing transactions', '—'),
+
+            // ── FINANCING ACTIVITIES ──────────────────────────────────────
+            pw.Text('FINANCING ACTIVITIES',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+            pw.SizedBox(height: 4),
+            _pdfRow('  Acquisition of Loans', fmt(cf['loanProceeds']!)),
+            _pdfRow('  Loan Repayment',       fmt(-cf['loanRepayment']!)),
+            _pdfRow('  Dividends Paid',       fmt(-cf['dividendsPaid']!)),
             _pdfDivider(),
-            _pdfRow('NET CASH FROM FINANCING ACTIVITIES', 'UGX 0', bold: true),
+            _pdfRow('NET CASH FROM FINANCING ACTIVITIES', fmt(cf['netFinancing']!), bold: true),
             pw.SizedBox(height: 16),
+
+            // ── SUMMARY ───────────────────────────────────────────────────
             pw.Container(
               padding: const pw.EdgeInsets.all(10),
               decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey400)),
               child: pw.Column(children: [
-                _pdfRow('Opening Cash Balance', 'UGX 0'),
-                _pdfRow('Net Increase in Cash', 'UGX ${numFmt.format(netCash)}'),
+                _pdfRow('Opening Cash Balance  (Opening Cash + Bank Balances)',
+                    fmt(cf['openingCash']!)),
+                _pdfRow('Net Increase/(Decrease) in Cash',
+                    fmt(cf['netIncrease']!), bold: true),
                 _pdfDivider(),
-                _pdfRow('CLOSING CASH BALANCE', 'UGX ${numFmt.format(netCash)}', bold: true, size: 13),
+                _pdfRow('CLOSING CASH BALANCE  (Closing Bank & Cash accounts)',
+                    fmt(cf['closingCash']!), bold: true, size: 13),
               ]),
             ),
           ],
@@ -2161,13 +1647,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final journalsState = ref.watch(journalsProvider);
     final accountsState = ref.watch(accountsProvider);
 
-    // Filter to posted entries up to and including the "As at" cutoff.
-    final cutoff = DateTime(_trialBalanceAsAt.year, _trialBalanceAsAt.month,
-        _trialBalanceAsAt.day, 23, 59, 59);
-    final entries = journalsState.entries
-        .where((e) =>
-            e.status == JournalEntryStatus.posted && !e.date.isAfter(cutoff))
-        .toList();
+    final entries = journalsState.entries;
     final accounts = accountsState.accounts;
     final raw = _computeLedgerBalances(entries);
 
@@ -2211,7 +1691,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             children: [
               Text('MAGIC BET LTD — TRIAL BALANCE',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              Text('As at ${DateFormat('MMMM d, yyyy').format(_trialBalanceAsAt)}',
+              Text('As at ${DateFormat('MMMM d, yyyy').format(DateTime.now())}',
                   style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12)),
               const SizedBox(height: 16),
               // Header row
@@ -2301,114 +1781,148 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   // ── Cash Flow Statement ────────────────────────────────────────────────────
   Widget _buildCashFlowPreview(BuildContext context) {
     final dashboardAsync = ref.watch(dashboardDataProvider);
-    final analyticsAsync = ref.watch(outletAnalyticsProvider);
     return dashboardAsync.when(
-      data: (data) {
-        final cashIn = data.cashIn;
-        final cashOut = data.cashOut;
-        final ggr = data.totalRevenue;
-        final commission = data.totalExpenses;
-        final netCash = data.netIncome;
+      data: (_) {
+        final cf = _computeCashFlowFigures();
+        final numFmt = NumberFormat('#,##0', 'en_US');
 
-        // Per-outlet breakdown from analytics provider (carry-forward engine)
-        final outletTotals = analyticsAsync.valueOrNull?.lifetimeTotals ?? [];
-        final sortedOutlets = List<OutletLifetime>.from(outletTotals)
-          ..sort((a, b) => b.totalGGR.compareTo(a.totalGGR));
-
-        if (cashIn == 0) {
-          return Center(child: Text('No data yet. Import CSV data to see the cash flow statement.',
-              style: TextStyle(color: Theme.of(context).colorScheme.outline, fontStyle: FontStyle.italic)));
+        if (cf['cashIn'] == 0) {
+          return Center(
+            child: Text(
+              'No data yet. Import CSV data to see the cash flow statement.',
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.outline,
+                  fontStyle: FontStyle.italic),
+            ),
+          );
         }
 
-        Widget cfRow(String label, double amount, {bool bold = false, bool isFinal = false, bool isSubtotal = false, String? indent}) {
-          final isNegative = amount < 0;
-          final display = amount == 0 ? '—' : '${isNegative ? '(' : ''}UGX ${NumberFormat('#,##0').format(amount.abs())}${isNegative ? ')' : ''}';
+        Widget cfRow(String label, double amount,
+            {bool bold = false, bool isFinal = false, bool isSection = false, bool indent = false}) {
+          final isNeg = amount < 0;
+          final display = amount == 0
+              ? '—'
+              : isNeg
+                  ? '(UGX ${numFmt.format(amount.abs())})'
+                  : 'UGX ${numFmt.format(amount)}';
+          if (isSection) {
+            return Padding(
+              padding: const EdgeInsets.only(top: 14, bottom: 2),
+              child: Text(label,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.bold, letterSpacing: 0.8)),
+            );
+          }
           return Padding(
-            padding: EdgeInsets.symmetric(vertical: isFinal ? 6 : 3, horizontal: 0),
+            padding: EdgeInsets.symmetric(vertical: isFinal ? 5 : 2),
             child: Row(
               children: [
-                Expanded(child: Text(
-                  indent != null ? '$indent$label' : label,
-                  style: TextStyle(
-                    fontWeight: bold || isFinal ? FontWeight.bold : FontWeight.normal,
-                    fontSize: isFinal ? 14 : 13,
+                Expanded(
+                  child: Text(
+                    indent ? '    $label' : label,
+                    style: TextStyle(
+                      fontWeight: bold || isFinal ? FontWeight.bold : FontWeight.normal,
+                      fontSize: isFinal ? 13.5 : 13,
+                    ),
                   ),
-                )),
+                ),
                 Text(
                   display,
                   style: TextStyle(
                     fontFamily: 'monospace',
                     fontWeight: bold || isFinal ? FontWeight.bold : FontWeight.normal,
-                    fontSize: isFinal ? 14 : 13,
-                    color: isNegative ? AppColors.expense : (isFinal || bold ? AppColors.primary : null),
+                    fontSize: isFinal ? 13.5 : 13,
+                    color: isNeg
+                        ? AppColors.expense
+                        : (isFinal || bold ? AppColors.primary : null),
                   ),
-                  textAlign: TextAlign.right,
                 ),
               ],
             ),
           );
         }
 
+        Widget sectionDivider() => const Divider(height: 10, thickness: 0.5);
+
         return SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('MAGIC BET LTD — STATEMENT OF CASH FLOWS',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              Text('Period: $_selectedPeriod  |  Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}',
-                  style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12)),
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Period: $_selectedPeriod  |  Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}',
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.outline, fontSize: 12),
+              ),
               const SizedBox(height: 16),
 
-              // Operating Activities
-              Text('OPERATING ACTIVITIES', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 0.8)),
-              const Divider(height: 8),
-              cfRow('Cash received from betting customers (Total Stakes)', cashIn, indent: '  '),
-              cfRow('Cash paid to winning customers (Payouts)', -cashOut, indent: '  '),
-              const Divider(height: 8),
-              cfRow('Net cash from betting operations', ggr, bold: true),
-              const SizedBox(height: 4),
-              cfRow('Commission paid to outlet owners (40% of GGR)', -commission, indent: '  '),
-              const Divider(height: 8),
-              cfRow('NET CASH FROM OPERATING ACTIVITIES', netCash, isFinal: true),
+              // ── OPERATING ACTIVITIES ─────────────────────────────────────
+              cfRow('OPERATING ACTIVITIES', 0, isSection: true),
+              sectionDivider(),
+              cfRow('Cash received from betting customers', cf['cashIn']!, indent: true),
+              cfRow('Cash paid to winning customers (Payouts)', -cf['cashOut']!, indent: true),
+              sectionDivider(),
+              cfRow('Net cash from betting operations', cf['netBettingCash']!, bold: true),
+              cfRow('Commission paid to outlet owners (40% GGR)', -cf['commission']!, indent: true),
+              sectionDivider(),
+              cfRow('Operating Profit', cf['operatingProfit']!, bold: true),
+              const SizedBox(height: 6),
+              Text('  Changes in Net Working Capital',
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.outline,
+                      fontStyle: FontStyle.italic)),
+              cfRow('(Increase)/Decrease in Accounts Receivables & Prepayments',
+                  cf['receivablesImpact']!, indent: true),
+              cfRow('Increase/(Decrease) in Accounts Payables',
+                  cf['payablesImpact']!, indent: true),
+              if (cf['depreciationAddBack']! > 0)
+                cfRow('Add: Depreciation of Assets (non-cash)',
+                    cf['depreciationAddBack']!, indent: true),
+              sectionDivider(),
+              cfRow('NET CASH FROM OPERATING ACTIVITIES', cf['netOperating']!, isFinal: true),
 
-              // Outlet aggregate — single summary line (detail in Outlet Performance report)
-              if (sortedOutlets.isNotEmpty)
-                cfRow(
-                  '  Net revenue across ${sortedOutlets.length} outlets (see Outlet Performance for details)',
-                  netCash,
-                  indent: '    ',
-                ),
+              // ── INVESTING ACTIVITIES ─────────────────────────────────────
+              cfRow('INVESTING ACTIVITIES', 0, isSection: true),
+              sectionDivider(),
+              cfRow('Acquisition of Assets', -cf['assetAcquisitions']!, indent: true),
+              cfRow('Depreciation of Assets', cf['depreciationAddBack']!, indent: true),
+              cfRow('Sale of Assets', 0, indent: true),
+              cfRow('Acquisition of Securities (Bonds)', 0, indent: true),
+              cfRow('Receipt of Interest on Bonds', 0, indent: true),
+              sectionDivider(),
+              cfRow('NET CASH FROM INVESTING ACTIVITIES', cf['netInvesting']!, isFinal: true),
 
-              const SizedBox(height: 16),
-              // Investing
-              Text('INVESTING ACTIVITIES', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 0.8)),
-              const Divider(height: 8),
-              cfRow('No capital expenditure transactions recorded', 0.0, indent: '  '),
-              const Divider(height: 8),
-              cfRow('NET CASH FROM INVESTING ACTIVITIES', 0.0, isFinal: true),
+              // ── FINANCING ACTIVITIES ─────────────────────────────────────
+              cfRow('FINANCING ACTIVITIES', 0, isSection: true),
+              sectionDivider(),
+              cfRow('Acquisition of Loans', cf['loanProceeds']!, indent: true),
+              cfRow('Loan Repayment', -cf['loanRepayment']!, indent: true),
+              cfRow('Dividends Paid', -cf['dividendsPaid']!, indent: true),
+              sectionDivider(),
+              cfRow('NET CASH FROM FINANCING ACTIVITIES', cf['netFinancing']!, isFinal: true),
 
-              const SizedBox(height: 16),
-              // Financing
-              Text('FINANCING ACTIVITIES', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 0.8)),
-              const Divider(height: 8),
-              cfRow('No financing transactions recorded', 0.0, indent: '  '),
-              const Divider(height: 8),
-              cfRow('NET CASH FROM FINANCING ACTIVITIES', 0.0, isFinal: true),
-
+              // ── SUMMARY ──────────────────────────────────────────────────
               const SizedBox(height: 16),
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.08),
+                  color: AppColors.primary.withOpacity(0.07),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: AppColors.primary.withOpacity(0.2)),
                 ),
                 child: Column(
                   children: [
-                    cfRow('Opening Cash Balance', 0.0),
-                    cfRow('Net Increase in Cash', netCash, bold: true),
-                    const Divider(height: 8),
-                    cfRow('CLOSING CASH BALANCE', netCash, isFinal: true),
+                    cfRow('Opening Cash Balance  (Cash + Bank accounts)',
+                        cf['openingCash']!),
+                    cfRow('Net Increase/(Decrease) in Cash', cf['netIncrease']!, bold: true),
+                    sectionDivider(),
+                    cfRow('CLOSING CASH BALANCE  (Closing Bank & Cash total)',
+                        cf['closingCash']!, isFinal: true),
                   ],
                 ),
               ),
@@ -2626,26 +2140,40 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ['', 'TOTALS', '', numFmt.format(tbDr2), numFmt.format(tbCr2)],
         ];
       } else if (reportName == 'Cash Flow Statement') {
-        final cashIn = dashData?.cashIn ?? 0;
-        final cashOut = dashData?.cashOut ?? 0;
-        final commission = dashData?.totalExpenses ?? 0;
-        final netCash = dashData?.netIncome ?? 0;
+        final cf = _computeCashFlowFigures();
+        String fmtCsv(double v) => v == 0 ? '—'
+            : v < 0 ? '(${numFmt.format(v.abs())})'
+            : numFmt.format(v);
         csvRows = [
           ['MAGIC BET LTD — STATEMENT OF CASH FLOWS'],
           ['Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}'],
           [],
           ['Section', 'Description', 'Amount (UGX)'],
-          ['Operating', 'Cash received from betting customers', numFmt.format(cashIn)],
-          ['Operating', 'Cash paid to winning customers', '(${numFmt.format(cashOut)})'],
-          ['Operating', 'Net cash from betting operations', numFmt.format(cashIn - cashOut)],
-          ['Operating', 'Commission paid to outlet owners', '(${numFmt.format(commission)})'],
-          ['Operating', 'NET CASH FROM OPERATING ACTIVITIES', numFmt.format(netCash)],
-          ['Investing', 'No investing activities', '—'],
-          ['Financing', 'No financing activities', '—'],
+          ['Operating', 'Cash received from betting customers',                         fmtCsv(cf['cashIn']!)],
+          ['Operating', 'Cash paid to winning customers (Payouts)',                     fmtCsv(-cf['cashOut']!)],
+          ['Operating', 'Net cash from betting operations',                             fmtCsv(cf['netBettingCash']!)],
+          ['Operating', 'Commission paid to outlet owners (40% GGR)',                  fmtCsv(-cf['commission']!)],
+          ['Operating', 'Operating Profit',                                             fmtCsv(cf['operatingProfit']!)],
+          ['Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments',   fmtCsv(cf['receivablesImpact']!)],
+          ['Operating', 'Increase/(Decrease) in Accounts Payables',                    fmtCsv(cf['payablesImpact']!)],
+          ['Operating', 'Add: Depreciation of Assets (non-cash)',                      fmtCsv(cf['depreciationAddBack']!)],
+          ['Operating', 'NET CASH FROM OPERATING ACTIVITIES',                          fmtCsv(cf['netOperating']!)],
           [],
-          ['Summary', 'Opening Cash Balance', '0'],
-          ['Summary', 'Net Increase in Cash', numFmt.format(netCash)],
-          ['Summary', 'CLOSING CASH BALANCE', numFmt.format(netCash)],
+          ['Investing', 'Acquisition of Assets',                                       fmtCsv(-cf['assetAcquisitions']!)],
+          ['Investing', 'Depreciation of Assets',                                      fmtCsv(cf['depreciationAddBack']!)],
+          ['Investing', 'Sale of Assets',                                               '—'],
+          ['Investing', 'Acquisition of Securities (Bonds)',                           '—'],
+          ['Investing', 'Receipt of Interest on Bonds',                                '—'],
+          ['Investing', 'NET CASH FROM INVESTING ACTIVITIES',                          fmtCsv(cf['netInvesting']!)],
+          [],
+          ['Financing', 'Acquisition of Loans',                                        fmtCsv(cf['loanProceeds']!)],
+          ['Financing', 'Loan Repayment',                                              fmtCsv(-cf['loanRepayment']!)],
+          ['Financing', 'Dividends Paid',                                              fmtCsv(-cf['dividendsPaid']!)],
+          ['Financing', 'NET CASH FROM FINANCING ACTIVITIES',                          fmtCsv(cf['netFinancing']!)],
+          [],
+          ['Summary', 'Opening Cash Balance (Cash + Bank accounts)',                   fmtCsv(cf['openingCash']!)],
+          ['Summary', 'Net Increase/(Decrease) in Cash',                              fmtCsv(cf['netIncrease']!)],
+          ['Summary', 'CLOSING CASH BALANCE (Closing Bank & Cash total)',              fmtCsv(cf['closingCash']!)],
         ];
       } else if (reportName == 'GGR Tax Report' || reportName == 'Tax Summary') {
         final ggr = dashData?.totalRevenue ?? 0;
@@ -2784,18 +2312,30 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         sheet.appendRow([xl.TextCellValue(''), xl.TextCellValue('TOTALS'), xl.TextCellValue(''),
           xl.DoubleCellValue(tbDr3), xl.DoubleCellValue(tbCr3)]);
       } else if (reportName == 'Cash Flow Statement') {
-        final cashIn = dashData?.cashIn ?? 0;
-        final cashOut = dashData?.cashOut ?? 0;
-        final commission = dashData?.totalExpenses ?? 0;
-        final netCash = dashData?.netIncome ?? 0;
+        final cf = _computeCashFlowFigures();
         addTitle('MAGIC BET LTD — STATEMENT OF CASH FLOWS');
         addHeader(['Section', 'Description', 'Amount (UGX)']);
-        sheet.appendRow([xl.TextCellValue('Operating'), xl.TextCellValue('Cash received from betting customers'), xl.DoubleCellValue(cashIn)]);
-        sheet.appendRow([xl.TextCellValue('Operating'), xl.TextCellValue('Cash paid to winning customers'), xl.DoubleCellValue(-cashOut)]);
-        sheet.appendRow([xl.TextCellValue('Operating'), xl.TextCellValue('Net cash from betting operations'), xl.DoubleCellValue(cashIn - cashOut)]);
-        sheet.appendRow([xl.TextCellValue('Operating'), xl.TextCellValue('Commission paid to outlet owners'), xl.DoubleCellValue(-commission)]);
-        sheet.appendRow([xl.TextCellValue('Operating'), xl.TextCellValue('NET CASH FROM OPERATING ACTIVITIES'), xl.DoubleCellValue(netCash)]);
-        sheet.appendRow([xl.TextCellValue('Summary'), xl.TextCellValue('CLOSING CASH BALANCE'), xl.DoubleCellValue(netCash)]);
+        void xRow(String section, String desc, double val) =>
+            sheet.appendRow([xl.TextCellValue(section), xl.TextCellValue(desc), xl.DoubleCellValue(val)]);
+        xRow('Operating', 'Cash received from betting customers',                       cf['cashIn']!);
+        xRow('Operating', 'Cash paid to winning customers (Payouts)',                   -cf['cashOut']!);
+        xRow('Operating', 'Net cash from betting operations',                           cf['netBettingCash']!);
+        xRow('Operating', 'Commission paid to outlet owners (40% GGR)',                -cf['commission']!);
+        xRow('Operating', 'Operating Profit',                                           cf['operatingProfit']!);
+        xRow('Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments', cf['receivablesImpact']!);
+        xRow('Operating', 'Increase/(Decrease) in Accounts Payables',                  cf['payablesImpact']!);
+        xRow('Operating', 'Add: Depreciation of Assets (non-cash)',                    cf['depreciationAddBack']!);
+        xRow('Operating', 'NET CASH FROM OPERATING ACTIVITIES',                        cf['netOperating']!);
+        xRow('Investing', 'Acquisition of Assets',                                     -cf['assetAcquisitions']!);
+        xRow('Investing', 'Depreciation of Assets',                                    cf['depreciationAddBack']!);
+        xRow('Investing', 'NET CASH FROM INVESTING ACTIVITIES',                        cf['netInvesting']!);
+        xRow('Financing', 'Acquisition of Loans',                                      cf['loanProceeds']!);
+        xRow('Financing', 'Loan Repayment',                                            -cf['loanRepayment']!);
+        xRow('Financing', 'Dividends Paid',                                            -cf['dividendsPaid']!);
+        xRow('Financing', 'NET CASH FROM FINANCING ACTIVITIES',                        cf['netFinancing']!);
+        xRow('Summary',  'Opening Cash Balance (Cash + Bank accounts)',                cf['openingCash']!);
+        xRow('Summary',  'Net Increase/(Decrease) in Cash',                           cf['netIncrease']!);
+        xRow('Summary',  'CLOSING CASH BALANCE (Closing Bank & Cash total)',           cf['closingCash']!);
       } else if (reportName == 'GGR Tax Report' || reportName == 'Tax Summary') {
         final ggr = dashData?.totalRevenue ?? 0;
         addTitle('MAGIC BET LTD — GGR REVENUE REPORT');
