@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
@@ -455,20 +456,94 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               FilledButton(
                 onPressed: () async {
                   if (!formKey.currentState!.validate()) return;
+                  final newName  = nameCtrl.text.trim();
+                  final newEmail = emailCtrl.text.trim();
+                  final newPass  = passCtrl.text;
+                  final newRole  = role;
                   Navigator.pop(ctx);
                   try {
                     await api.createUser(
-                      name: nameCtrl.text.trim(),
-                      email: emailCtrl.text.trim(),
-                      password: passCtrl.text,
-                      role: role,
+                      name: newName,
+                      email: newEmail,
+                      password: newPass,
+                      role: newRole,
                     );
+                    loadUsers();
                     if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('User created successfully'),
-                        backgroundColor: AppColors.success,
-                      ));
-                      loadUsers();
+                      // Show shareable credentials dialog
+                      final roleLabel = {
+                        'admin': 'Admin', 'accountant': 'Accountant',
+                        'manager': 'Manager', 'user': 'Staff', 'viewer': 'Viewer',
+                      }[newRole] ?? newRole;
+                      final appUrl = ApiConfig.baseUrl;
+                      final shareText =
+                          'Hi $newName,\n\n'
+                          'Your ThirdBooks account has been created.\n\n'
+                          'Login: $newEmail\n'
+                          'Password: $newPass\n'
+                          'Role: $roleLabel\n\n'
+                          'Download & install ThirdBooks desktop app, then '
+                          'sign in with the credentials above.\n\n'
+                          'Server: $appUrl';
+                      await showDialog(
+                        context: context,
+                        builder: (ctx2) => AlertDialog(
+                          title: Row(children: [
+                            Icon(Icons.check_circle, color: AppColors.success, size: 22),
+                            const SizedBox(width: 8),
+                            const Text('User Created'),
+                          ]),
+                          content: SizedBox(
+                            width: 420,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Share these login credentials with the user '
+                                  '(e.g. via WhatsApp):',
+                                  style: TextStyle(fontSize: 13),
+                                ),
+                                const SizedBox(height: 16),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade100,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.grey.shade300),
+                                  ),
+                                  child: SelectableText(
+                                    shareText,
+                                    style: const TextStyle(
+                                        fontFamily: 'monospace', fontSize: 13, height: 1.6),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx2),
+                              child: const Text('Close'),
+                            ),
+                            FilledButton.icon(
+                              icon: const Icon(Icons.copy, size: 16),
+                              label: const Text('Copy to Clipboard'),
+                              onPressed: () {
+                                Clipboard.setData(ClipboardData(text: shareText));
+                                Navigator.pop(ctx2);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Credentials copied — paste into WhatsApp'),
+                                    backgroundColor: AppColors.success,
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      );
                     }
                   } catch (e) {
                     if (mounted) {
