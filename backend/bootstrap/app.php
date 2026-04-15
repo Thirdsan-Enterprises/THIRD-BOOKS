@@ -5,6 +5,9 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Support\Facades\Route;
 
+// basePath: dirname(__DIR__) resolves correctly in both local development
+// (backend/bootstrap/ → backend/) and flattened DirectAdmin deployment
+// (public_html/bootstrap/ → public_html/).
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',

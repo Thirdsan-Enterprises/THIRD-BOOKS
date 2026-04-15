@@ -72,6 +72,7 @@ jobs:
           SESSION_LIFETIME=120
           SANCTUM_STATEFUL_DOMAINS=${{ secrets.SANCTUM_DOMAINS }}
           SANCTUM_TOKEN_EXPIRATION=1440
+          DEPLOY_HOOK_SECRET=${{ secrets.DEPLOY_HOOK_SECRET }}
           EOF
           echo ".env created"
 
@@ -148,6 +149,23 @@ jobs:
             **/node_modules/**
             **/tests/**
 
+      - name: Wait for FTP propagation
+        run: sleep 15
+
+      - name: Run migrations via deploy hook
+        run: |
+          echo "Triggering post-deploy migrations..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            "${{ secrets.APP_URL }}/deploy-hook.php?secret=${{ secrets.DEPLOY_HOOK_SECRET }}" \
+            --max-time 120 2>/dev/null || echo "CURL_FAILED\n000")
+          HTTP=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+          echo "Migration hook HTTP: $HTTP"
+          echo "Response: $BODY"
+          if [ "$HTTP" != "200" ]; then
+            echo "WARNING: Migration hook returned $HTTP — check server logs"
+          fi
+
       - name: Verify deployment
         if: always()
         run: |
@@ -155,6 +173,8 @@ jobs:
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
           echo "Time: $(date -u)"
-          sleep 10
+          sleep 5
           HTTP=$(curl -s -o /dev/null -w "%{http_code}" "${{ secrets.APP_URL }}/api/health" --max-time 20 2>/dev/null || echo "000")
           echo "Health check: HTTP $HTTP"
+          DIAG=$(curl -s "${{ secrets.APP_URL }}/diagnostic.php?token=${{ secrets.DEPLOY_HOOK_SECRET }}" --max-time 20 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('HEALTHY:', d.get('healthy')); [print('ISSUE:', i) for i in d.get('critical_issues', [])]" 2>/dev/null || echo "Diagnostic not available")
+          echo "$DIAG"

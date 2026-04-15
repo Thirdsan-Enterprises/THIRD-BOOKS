@@ -18,7 +18,10 @@ return [
     'central_domains' => explode(',', env('CENTRAL_DOMAINS', 'localhost')),
 
     'bootstrappers' => [
-        Stancl\Tenancy\Bootstrappers\DatabaseTenancyBootstrapper::class,
+        // DatabaseTenancyBootstrapper is for multi-database tenancy only.
+        // In single-database mode (TENANCY_MODE=single) it tries to switch
+        // the DB connection to a per-tenant database that doesn't exist → 500.
+        // Stancl\Tenancy\Bootstrappers\DatabaseTenancyBootstrapper::class,
         Stancl\Tenancy\Bootstrappers\CacheTenancyBootstrapper::class,
         Stancl\Tenancy\Bootstrappers\FilesystemTenancyBootstrapper::class,
         Stancl\Tenancy\Bootstrappers\QueueTenancyBootstrapper::class,
