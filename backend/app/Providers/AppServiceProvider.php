@@ -29,6 +29,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Register migration paths for all subdirectories.
+        // artisan migrate only globs the top-level migrations/ directory, so
+        // subdirectories must be registered explicitly.
+        // In single-database mode (TENANCY_MODE=single) all tables live in one
+        // database — both central (tenants/users/domains) and tenant-scoped
+        // (companies/accounts/invoices etc.) tables are created by artisan migrate.
+        // The tenant/ migrations do NOT specify a connection override, so they
+        // use the default mysql connection — correct for single-db mode.
+        $this->loadMigrationsFrom(database_path('migrations/central'));
+        $this->loadMigrationsFrom(database_path('migrations/tenant'));
+
         // Register model observers for event sourcing
         Invoice::observe(InvoiceObserver::class);
         Customer::observe(CustomerObserver::class);
