@@ -94,6 +94,95 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     return account.isDebitNormal ? r : -r;
   }
 
+  // ---------------------------------------------------------------------------
+  // Cash Flow computation (indirect method — matches client's Excel sample)
+  // ---------------------------------------------------------------------------
+
+  /// Derives all cash flow line items from the ledger and dashboard.
+  ///
+  /// Uses the indirect method:
+  ///   Operating = Operating Profit + non-cash add-backs + WC movements
+  ///   Investing  = asset acquisitions / disposals
+  ///   Financing  = loan proceeds / repayments / dividends
+  Map<String, double> _computeCashFlowFigures() {
+    final accounts = ref.read(accountsProvider).accounts;
+    final raw      = ref.read(ledgerBalancesProvider);
+    final dashData = ref.read(dashboardDataProvider).valueOrNull;
+
+    double sumRaw(Iterable<Account> accts) =>
+        accts.fold(0.0, (s, a) => s + (raw['acct-${a.code}'] ?? 0.0));
+
+    // ── Cash & Bank ──────────────────────────────────────────────────────────
+    final closingCash = sumRaw(accounts.where(
+      (a) => a.subType == AccountSubType.cash || a.subType == AccountSubType.bank));
+
+    // ── Working Capital ──────────────────────────────────────────────────────
+    final arRaw = sumRaw(accounts.where(
+      (a) => a.subType == AccountSubType.accountsReceivable));
+    final apRaw = sumRaw(accounts.where(
+      (a) => a.subType == AccountSubType.accountsPayable));
+    // AR increase → cash decrease;  AP increase → cash increase
+    final receivablesImpact = -arRaw;
+    final payablesImpact    = -apRaw;
+
+    // ── Depreciation add-back (non-cash expense) ─────────────────────────────
+    final depreciationAddBack = sumRaw(accounts.where(
+      (a) => a.type == AccountType.expense &&
+             a.name.toLowerCase().contains('depreciation')));
+
+    // ── Investing ────────────────────────────────────────────────────────────
+    final assetAcquisitions = sumRaw(accounts.where(
+      (a) => a.subType == AccountSubType.fixedAsset &&
+             !a.name.toLowerCase().contains('depreciation')));
+
+    // ── Financing ────────────────────────────────────────────────────────────
+    final loanRaw = sumRaw(accounts.where(
+      (a) => a.subType == AccountSubType.longTermLiability));
+    // Liability accounts are credit-normal → negative raw = outstanding balance
+    final loanProceeds   = loanRaw < 0 ? -loanRaw : 0.0;
+    final loanRepayment  = loanRaw > 0 ? loanRaw  : 0.0;
+
+    // Dividends paid → debit to retained earnings or dividend payable
+    final dividendsPaid = sumRaw(accounts.where(
+      (a) => a.name.toLowerCase().contains('dividend') &&
+             a.type == AccountType.equity));
+
+    // ── Core operating figures from dashboard ────────────────────────────────
+    final cashIn         = dashData?.cashIn      ?? 0;
+    final cashOut        = dashData?.cashOut     ?? 0;
+    final commission     = dashData?.totalExpenses ?? 0;
+    final operatingProfit = dashData?.netIncome  ?? 0;
+
+    // ── Net totals ───────────────────────────────────────────────────────────
+    final netOperating = operatingProfit + depreciationAddBack +
+                         receivablesImpact + payablesImpact;
+    final netInvesting = -assetAcquisitions;
+    final netFinancing = loanProceeds - loanRepayment - dividendsPaid;
+    final netIncrease  = netOperating + netInvesting + netFinancing;
+    final openingCash  = closingCash - netIncrease;
+
+    return {
+      'cashIn'              : cashIn,
+      'cashOut'             : cashOut,
+      'netBettingCash'      : cashIn - cashOut,
+      'commission'          : commission,
+      'operatingProfit'     : operatingProfit,
+      'depreciationAddBack' : depreciationAddBack,
+      'receivablesImpact'   : receivablesImpact,
+      'payablesImpact'      : payablesImpact,
+      'netOperating'        : netOperating,
+      'assetAcquisitions'   : assetAcquisitions,
+      'netInvesting'        : netInvesting,
+      'loanProceeds'        : loanProceeds,
+      'loanRepayment'       : loanRepayment,
+      'dividendsPaid'       : dividendsPaid,
+      'netFinancing'        : netFinancing,
+      'openingCash'         : openingCash,
+      'netIncrease'         : netIncrease,
+      'closingCash'         : closingCash,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -532,10 +621,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ),
       ));
     } else if (reportName == 'Cash Flow Statement') {
-      final cashIn = dashData?.cashIn ?? 0;
-      final cashOut = dashData?.cashOut ?? 0;
-      final commission = dashData?.totalExpenses ?? 0;
-      final netCash = dashData?.netIncome ?? 0;
+      final cf = _computeCashFlowFigures();
+      String fmt(double v) => v == 0 ? '—'
+          : v < 0 ? '(UGX ${numFmt.format(v.abs())})'
+          : 'UGX ${numFmt.format(v)}';
 
       pdf.addPage(pw.Page(
         pageFormat: PdfPageFormat.a4,
@@ -543,34 +632,67 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             buildHeader('STATEMENT OF CASH FLOWS'),
-            pw.Text('OPERATING ACTIVITIES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+
+            // ── OPERATING ACTIVITIES ──────────────────────────────────────
+            pw.Text('OPERATING ACTIVITIES',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
             pw.SizedBox(height: 4),
-            _pdfRow('  Cash received from betting customers', 'UGX ${numFmt.format(cashIn)}'),
-            _pdfRow('  Cash paid to winning customers (Payouts)', '(UGX ${numFmt.format(cashOut)})'),
+            _pdfRow('  Cash received from betting customers',     fmt(cf['cashIn']!)),
+            _pdfRow('  Cash paid to winning customers (Payouts)', fmt(-cf['cashOut']!)),
             _pdfDivider(),
-            _pdfRow('  Net cash from betting operations', 'UGX ${numFmt.format(cashIn - cashOut)}', bold: true),
-            _pdfRow('  Commission paid to outlet owners', '(UGX ${numFmt.format(commission)})'),
+            _pdfRow('  Net cash from betting operations',         fmt(cf['netBettingCash']!), bold: true),
+            _pdfRow('  Commission paid to outlet owners (40% GGR)', fmt(-cf['commission']!)),
             _pdfDivider(),
-            _pdfRow('NET CASH FROM OPERATING ACTIVITIES', 'UGX ${numFmt.format(netCash)}', bold: true, size: 12),
+            _pdfRow('  Operating Profit',                         fmt(cf['operatingProfit']!), bold: true),
+            pw.SizedBox(height: 6),
+            pw.Text('  Changes in Net Working Capital',
+                style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+            _pdfRow('  (Increase)/Decrease in Accounts Receivables & Prepayments',
+                fmt(cf['receivablesImpact']!)),
+            _pdfRow('  Increase/(Decrease) in Accounts Payables',
+                fmt(cf['payablesImpact']!)),
+            if (cf['depreciationAddBack']! > 0)
+              _pdfRow('  Add: Depreciation of Assets (non-cash)', fmt(cf['depreciationAddBack']!)),
+            _pdfDivider(),
+            _pdfRow('NET CASH FROM OPERATING ACTIVITIES', fmt(cf['netOperating']!), bold: true, size: 12),
             pw.SizedBox(height: 12),
-            pw.Text('INVESTING ACTIVITIES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
-            _pdfRow('  No capital expenditure transactions', '—'),
+
+            // ── INVESTING ACTIVITIES ──────────────────────────────────────
+            pw.Text('INVESTING ACTIVITIES',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+            pw.SizedBox(height: 4),
+            _pdfRow('  Acquisition of Assets',          fmt(-cf['assetAcquisitions']!)),
+            _pdfRow('  Depreciation of Assets',         fmt(cf['depreciationAddBack']!)),
+            _pdfRow('  Sale of Assets',                 '—'),
+            _pdfRow('  Acquisition of Securities (Bonds)', '—'),
+            _pdfRow('  Receipt of Interest on Bonds',   '—'),
             _pdfDivider(),
-            _pdfRow('NET CASH FROM INVESTING ACTIVITIES', 'UGX 0', bold: true),
+            _pdfRow('NET CASH FROM INVESTING ACTIVITIES', fmt(cf['netInvesting']!), bold: true),
             pw.SizedBox(height: 12),
-            pw.Text('FINANCING ACTIVITIES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
-            _pdfRow('  No financing transactions', '—'),
+
+            // ── FINANCING ACTIVITIES ──────────────────────────────────────
+            pw.Text('FINANCING ACTIVITIES',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+            pw.SizedBox(height: 4),
+            _pdfRow('  Acquisition of Loans', fmt(cf['loanProceeds']!)),
+            _pdfRow('  Loan Repayment',       fmt(-cf['loanRepayment']!)),
+            _pdfRow('  Dividends Paid',       fmt(-cf['dividendsPaid']!)),
             _pdfDivider(),
-            _pdfRow('NET CASH FROM FINANCING ACTIVITIES', 'UGX 0', bold: true),
+            _pdfRow('NET CASH FROM FINANCING ACTIVITIES', fmt(cf['netFinancing']!), bold: true),
             pw.SizedBox(height: 16),
+
+            // ── SUMMARY ───────────────────────────────────────────────────
             pw.Container(
               padding: const pw.EdgeInsets.all(10),
               decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey400)),
               child: pw.Column(children: [
-                _pdfRow('Opening Cash Balance', 'UGX 0'),
-                _pdfRow('Net Increase in Cash', 'UGX ${numFmt.format(netCash)}'),
+                _pdfRow('Opening Cash Balance  (Opening Cash + Bank Balances)',
+                    fmt(cf['openingCash']!)),
+                _pdfRow('Net Increase/(Decrease) in Cash',
+                    fmt(cf['netIncrease']!), bold: true),
                 _pdfDivider(),
-                _pdfRow('CLOSING CASH BALANCE', 'UGX ${numFmt.format(netCash)}', bold: true, size: 13),
+                _pdfRow('CLOSING CASH BALANCE  (Closing Bank & Cash accounts)',
+                    fmt(cf['closingCash']!), bold: true, size: 13),
               ]),
             ),
           ],
@@ -1659,114 +1781,148 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   // ── Cash Flow Statement ────────────────────────────────────────────────────
   Widget _buildCashFlowPreview(BuildContext context) {
     final dashboardAsync = ref.watch(dashboardDataProvider);
-    final analyticsAsync = ref.watch(outletAnalyticsProvider);
     return dashboardAsync.when(
-      data: (data) {
-        final cashIn = data.cashIn;
-        final cashOut = data.cashOut;
-        final ggr = data.totalRevenue;
-        final commission = data.totalExpenses;
-        final netCash = data.netIncome;
+      data: (_) {
+        final cf = _computeCashFlowFigures();
+        final numFmt = NumberFormat('#,##0', 'en_US');
 
-        // Per-outlet breakdown from analytics provider (carry-forward engine)
-        final outletTotals = analyticsAsync.valueOrNull?.lifetimeTotals ?? [];
-        final sortedOutlets = List<OutletLifetime>.from(outletTotals)
-          ..sort((a, b) => b.totalGGR.compareTo(a.totalGGR));
-
-        if (cashIn == 0) {
-          return Center(child: Text('No data yet. Import CSV data to see the cash flow statement.',
-              style: TextStyle(color: Theme.of(context).colorScheme.outline, fontStyle: FontStyle.italic)));
+        if (cf['cashIn'] == 0) {
+          return Center(
+            child: Text(
+              'No data yet. Import CSV data to see the cash flow statement.',
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.outline,
+                  fontStyle: FontStyle.italic),
+            ),
+          );
         }
 
-        Widget cfRow(String label, double amount, {bool bold = false, bool isFinal = false, bool isSubtotal = false, String? indent}) {
-          final isNegative = amount < 0;
-          final display = amount == 0 ? '—' : '${isNegative ? '(' : ''}UGX ${NumberFormat('#,##0').format(amount.abs())}${isNegative ? ')' : ''}';
+        Widget cfRow(String label, double amount,
+            {bool bold = false, bool isFinal = false, bool isSection = false, bool indent = false}) {
+          final isNeg = amount < 0;
+          final display = amount == 0
+              ? '—'
+              : isNeg
+                  ? '(UGX ${numFmt.format(amount.abs())})'
+                  : 'UGX ${numFmt.format(amount)}';
+          if (isSection) {
+            return Padding(
+              padding: const EdgeInsets.only(top: 14, bottom: 2),
+              child: Text(label,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.bold, letterSpacing: 0.8)),
+            );
+          }
           return Padding(
-            padding: EdgeInsets.symmetric(vertical: isFinal ? 6 : 3, horizontal: 0),
+            padding: EdgeInsets.symmetric(vertical: isFinal ? 5 : 2),
             child: Row(
               children: [
-                Expanded(child: Text(
-                  indent != null ? '$indent$label' : label,
-                  style: TextStyle(
-                    fontWeight: bold || isFinal ? FontWeight.bold : FontWeight.normal,
-                    fontSize: isFinal ? 14 : 13,
+                Expanded(
+                  child: Text(
+                    indent ? '    $label' : label,
+                    style: TextStyle(
+                      fontWeight: bold || isFinal ? FontWeight.bold : FontWeight.normal,
+                      fontSize: isFinal ? 13.5 : 13,
+                    ),
                   ),
-                )),
+                ),
                 Text(
                   display,
                   style: TextStyle(
                     fontFamily: 'monospace',
                     fontWeight: bold || isFinal ? FontWeight.bold : FontWeight.normal,
-                    fontSize: isFinal ? 14 : 13,
-                    color: isNegative ? AppColors.expense : (isFinal || bold ? AppColors.primary : null),
+                    fontSize: isFinal ? 13.5 : 13,
+                    color: isNeg
+                        ? AppColors.expense
+                        : (isFinal || bold ? AppColors.primary : null),
                   ),
-                  textAlign: TextAlign.right,
                 ),
               ],
             ),
           );
         }
 
+        Widget sectionDivider() => const Divider(height: 10, thickness: 0.5);
+
         return SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('MAGIC BET LTD — STATEMENT OF CASH FLOWS',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              Text('Period: $_selectedPeriod  |  Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}',
-                  style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12)),
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Period: $_selectedPeriod  |  Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}',
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.outline, fontSize: 12),
+              ),
               const SizedBox(height: 16),
 
-              // Operating Activities
-              Text('OPERATING ACTIVITIES', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 0.8)),
-              const Divider(height: 8),
-              cfRow('Cash received from betting customers (Total Stakes)', cashIn, indent: '  '),
-              cfRow('Cash paid to winning customers (Payouts)', -cashOut, indent: '  '),
-              const Divider(height: 8),
-              cfRow('Net cash from betting operations', ggr, bold: true),
-              const SizedBox(height: 4),
-              cfRow('Commission paid to outlet owners (40% of GGR)', -commission, indent: '  '),
-              const Divider(height: 8),
-              cfRow('NET CASH FROM OPERATING ACTIVITIES', netCash, isFinal: true),
+              // ── OPERATING ACTIVITIES ─────────────────────────────────────
+              cfRow('OPERATING ACTIVITIES', 0, isSection: true),
+              sectionDivider(),
+              cfRow('Cash received from betting customers', cf['cashIn']!, indent: true),
+              cfRow('Cash paid to winning customers (Payouts)', -cf['cashOut']!, indent: true),
+              sectionDivider(),
+              cfRow('Net cash from betting operations', cf['netBettingCash']!, bold: true),
+              cfRow('Commission paid to outlet owners (40% GGR)', -cf['commission']!, indent: true),
+              sectionDivider(),
+              cfRow('Operating Profit', cf['operatingProfit']!, bold: true),
+              const SizedBox(height: 6),
+              Text('  Changes in Net Working Capital',
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.outline,
+                      fontStyle: FontStyle.italic)),
+              cfRow('(Increase)/Decrease in Accounts Receivables & Prepayments',
+                  cf['receivablesImpact']!, indent: true),
+              cfRow('Increase/(Decrease) in Accounts Payables',
+                  cf['payablesImpact']!, indent: true),
+              if (cf['depreciationAddBack']! > 0)
+                cfRow('Add: Depreciation of Assets (non-cash)',
+                    cf['depreciationAddBack']!, indent: true),
+              sectionDivider(),
+              cfRow('NET CASH FROM OPERATING ACTIVITIES', cf['netOperating']!, isFinal: true),
 
-              // Outlet aggregate — single summary line (detail in Outlet Performance report)
-              if (sortedOutlets.isNotEmpty)
-                cfRow(
-                  '  Net revenue across ${sortedOutlets.length} outlets (see Outlet Performance for details)',
-                  netCash,
-                  indent: '    ',
-                ),
+              // ── INVESTING ACTIVITIES ─────────────────────────────────────
+              cfRow('INVESTING ACTIVITIES', 0, isSection: true),
+              sectionDivider(),
+              cfRow('Acquisition of Assets', -cf['assetAcquisitions']!, indent: true),
+              cfRow('Depreciation of Assets', cf['depreciationAddBack']!, indent: true),
+              cfRow('Sale of Assets', 0, indent: true),
+              cfRow('Acquisition of Securities (Bonds)', 0, indent: true),
+              cfRow('Receipt of Interest on Bonds', 0, indent: true),
+              sectionDivider(),
+              cfRow('NET CASH FROM INVESTING ACTIVITIES', cf['netInvesting']!, isFinal: true),
 
-              const SizedBox(height: 16),
-              // Investing
-              Text('INVESTING ACTIVITIES', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 0.8)),
-              const Divider(height: 8),
-              cfRow('No capital expenditure transactions recorded', 0.0, indent: '  '),
-              const Divider(height: 8),
-              cfRow('NET CASH FROM INVESTING ACTIVITIES', 0.0, isFinal: true),
+              // ── FINANCING ACTIVITIES ─────────────────────────────────────
+              cfRow('FINANCING ACTIVITIES', 0, isSection: true),
+              sectionDivider(),
+              cfRow('Acquisition of Loans', cf['loanProceeds']!, indent: true),
+              cfRow('Loan Repayment', -cf['loanRepayment']!, indent: true),
+              cfRow('Dividends Paid', -cf['dividendsPaid']!, indent: true),
+              sectionDivider(),
+              cfRow('NET CASH FROM FINANCING ACTIVITIES', cf['netFinancing']!, isFinal: true),
 
-              const SizedBox(height: 16),
-              // Financing
-              Text('FINANCING ACTIVITIES', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 0.8)),
-              const Divider(height: 8),
-              cfRow('No financing transactions recorded', 0.0, indent: '  '),
-              const Divider(height: 8),
-              cfRow('NET CASH FROM FINANCING ACTIVITIES', 0.0, isFinal: true),
-
+              // ── SUMMARY ──────────────────────────────────────────────────
               const SizedBox(height: 16),
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.08),
+                  color: AppColors.primary.withOpacity(0.07),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: AppColors.primary.withOpacity(0.2)),
                 ),
                 child: Column(
                   children: [
-                    cfRow('Opening Cash Balance', 0.0),
-                    cfRow('Net Increase in Cash', netCash, bold: true),
-                    const Divider(height: 8),
-                    cfRow('CLOSING CASH BALANCE', netCash, isFinal: true),
+                    cfRow('Opening Cash Balance  (Cash + Bank accounts)',
+                        cf['openingCash']!),
+                    cfRow('Net Increase/(Decrease) in Cash', cf['netIncrease']!, bold: true),
+                    sectionDivider(),
+                    cfRow('CLOSING CASH BALANCE  (Closing Bank & Cash total)',
+                        cf['closingCash']!, isFinal: true),
                   ],
                 ),
               ),
@@ -1984,26 +2140,40 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ['', 'TOTALS', '', numFmt.format(tbDr2), numFmt.format(tbCr2)],
         ];
       } else if (reportName == 'Cash Flow Statement') {
-        final cashIn = dashData?.cashIn ?? 0;
-        final cashOut = dashData?.cashOut ?? 0;
-        final commission = dashData?.totalExpenses ?? 0;
-        final netCash = dashData?.netIncome ?? 0;
+        final cf = _computeCashFlowFigures();
+        String fmtCsv(double v) => v == 0 ? '—'
+            : v < 0 ? '(${numFmt.format(v.abs())})'
+            : numFmt.format(v);
         csvRows = [
           ['MAGIC BET LTD — STATEMENT OF CASH FLOWS'],
           ['Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}'],
           [],
           ['Section', 'Description', 'Amount (UGX)'],
-          ['Operating', 'Cash received from betting customers', numFmt.format(cashIn)],
-          ['Operating', 'Cash paid to winning customers', '(${numFmt.format(cashOut)})'],
-          ['Operating', 'Net cash from betting operations', numFmt.format(cashIn - cashOut)],
-          ['Operating', 'Commission paid to outlet owners', '(${numFmt.format(commission)})'],
-          ['Operating', 'NET CASH FROM OPERATING ACTIVITIES', numFmt.format(netCash)],
-          ['Investing', 'No investing activities', '—'],
-          ['Financing', 'No financing activities', '—'],
+          ['Operating', 'Cash received from betting customers',                         fmtCsv(cf['cashIn']!)],
+          ['Operating', 'Cash paid to winning customers (Payouts)',                     fmtCsv(-cf['cashOut']!)],
+          ['Operating', 'Net cash from betting operations',                             fmtCsv(cf['netBettingCash']!)],
+          ['Operating', 'Commission paid to outlet owners (40% GGR)',                  fmtCsv(-cf['commission']!)],
+          ['Operating', 'Operating Profit',                                             fmtCsv(cf['operatingProfit']!)],
+          ['Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments',   fmtCsv(cf['receivablesImpact']!)],
+          ['Operating', 'Increase/(Decrease) in Accounts Payables',                    fmtCsv(cf['payablesImpact']!)],
+          ['Operating', 'Add: Depreciation of Assets (non-cash)',                      fmtCsv(cf['depreciationAddBack']!)],
+          ['Operating', 'NET CASH FROM OPERATING ACTIVITIES',                          fmtCsv(cf['netOperating']!)],
           [],
-          ['Summary', 'Opening Cash Balance', '0'],
-          ['Summary', 'Net Increase in Cash', numFmt.format(netCash)],
-          ['Summary', 'CLOSING CASH BALANCE', numFmt.format(netCash)],
+          ['Investing', 'Acquisition of Assets',                                       fmtCsv(-cf['assetAcquisitions']!)],
+          ['Investing', 'Depreciation of Assets',                                      fmtCsv(cf['depreciationAddBack']!)],
+          ['Investing', 'Sale of Assets',                                               '—'],
+          ['Investing', 'Acquisition of Securities (Bonds)',                           '—'],
+          ['Investing', 'Receipt of Interest on Bonds',                                '—'],
+          ['Investing', 'NET CASH FROM INVESTING ACTIVITIES',                          fmtCsv(cf['netInvesting']!)],
+          [],
+          ['Financing', 'Acquisition of Loans',                                        fmtCsv(cf['loanProceeds']!)],
+          ['Financing', 'Loan Repayment',                                              fmtCsv(-cf['loanRepayment']!)],
+          ['Financing', 'Dividends Paid',                                              fmtCsv(-cf['dividendsPaid']!)],
+          ['Financing', 'NET CASH FROM FINANCING ACTIVITIES',                          fmtCsv(cf['netFinancing']!)],
+          [],
+          ['Summary', 'Opening Cash Balance (Cash + Bank accounts)',                   fmtCsv(cf['openingCash']!)],
+          ['Summary', 'Net Increase/(Decrease) in Cash',                              fmtCsv(cf['netIncrease']!)],
+          ['Summary', 'CLOSING CASH BALANCE (Closing Bank & Cash total)',              fmtCsv(cf['closingCash']!)],
         ];
       } else if (reportName == 'GGR Tax Report' || reportName == 'Tax Summary') {
         final ggr = dashData?.totalRevenue ?? 0;
@@ -2142,18 +2312,30 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         sheet.appendRow([xl.TextCellValue(''), xl.TextCellValue('TOTALS'), xl.TextCellValue(''),
           xl.DoubleCellValue(tbDr3), xl.DoubleCellValue(tbCr3)]);
       } else if (reportName == 'Cash Flow Statement') {
-        final cashIn = dashData?.cashIn ?? 0;
-        final cashOut = dashData?.cashOut ?? 0;
-        final commission = dashData?.totalExpenses ?? 0;
-        final netCash = dashData?.netIncome ?? 0;
+        final cf = _computeCashFlowFigures();
         addTitle('MAGIC BET LTD — STATEMENT OF CASH FLOWS');
         addHeader(['Section', 'Description', 'Amount (UGX)']);
-        sheet.appendRow([xl.TextCellValue('Operating'), xl.TextCellValue('Cash received from betting customers'), xl.DoubleCellValue(cashIn)]);
-        sheet.appendRow([xl.TextCellValue('Operating'), xl.TextCellValue('Cash paid to winning customers'), xl.DoubleCellValue(-cashOut)]);
-        sheet.appendRow([xl.TextCellValue('Operating'), xl.TextCellValue('Net cash from betting operations'), xl.DoubleCellValue(cashIn - cashOut)]);
-        sheet.appendRow([xl.TextCellValue('Operating'), xl.TextCellValue('Commission paid to outlet owners'), xl.DoubleCellValue(-commission)]);
-        sheet.appendRow([xl.TextCellValue('Operating'), xl.TextCellValue('NET CASH FROM OPERATING ACTIVITIES'), xl.DoubleCellValue(netCash)]);
-        sheet.appendRow([xl.TextCellValue('Summary'), xl.TextCellValue('CLOSING CASH BALANCE'), xl.DoubleCellValue(netCash)]);
+        void xRow(String section, String desc, double val) =>
+            sheet.appendRow([xl.TextCellValue(section), xl.TextCellValue(desc), xl.DoubleCellValue(val)]);
+        xRow('Operating', 'Cash received from betting customers',                       cf['cashIn']!);
+        xRow('Operating', 'Cash paid to winning customers (Payouts)',                   -cf['cashOut']!);
+        xRow('Operating', 'Net cash from betting operations',                           cf['netBettingCash']!);
+        xRow('Operating', 'Commission paid to outlet owners (40% GGR)',                -cf['commission']!);
+        xRow('Operating', 'Operating Profit',                                           cf['operatingProfit']!);
+        xRow('Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments', cf['receivablesImpact']!);
+        xRow('Operating', 'Increase/(Decrease) in Accounts Payables',                  cf['payablesImpact']!);
+        xRow('Operating', 'Add: Depreciation of Assets (non-cash)',                    cf['depreciationAddBack']!);
+        xRow('Operating', 'NET CASH FROM OPERATING ACTIVITIES',                        cf['netOperating']!);
+        xRow('Investing', 'Acquisition of Assets',                                     -cf['assetAcquisitions']!);
+        xRow('Investing', 'Depreciation of Assets',                                    cf['depreciationAddBack']!);
+        xRow('Investing', 'NET CASH FROM INVESTING ACTIVITIES',                        cf['netInvesting']!);
+        xRow('Financing', 'Acquisition of Loans',                                      cf['loanProceeds']!);
+        xRow('Financing', 'Loan Repayment',                                            -cf['loanRepayment']!);
+        xRow('Financing', 'Dividends Paid',                                            -cf['dividendsPaid']!);
+        xRow('Financing', 'NET CASH FROM FINANCING ACTIVITIES',                        cf['netFinancing']!);
+        xRow('Summary',  'Opening Cash Balance (Cash + Bank accounts)',                cf['openingCash']!);
+        xRow('Summary',  'Net Increase/(Decrease) in Cash',                           cf['netIncrease']!);
+        xRow('Summary',  'CLOSING CASH BALANCE (Closing Bank & Cash total)',           cf['closingCash']!);
       } else if (reportName == 'GGR Tax Report' || reportName == 'Tax Summary') {
         final ggr = dashData?.totalRevenue ?? 0;
         addTitle('MAGIC BET LTD — GGR REVENUE REPORT');
