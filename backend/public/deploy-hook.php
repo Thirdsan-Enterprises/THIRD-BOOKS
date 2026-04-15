@@ -16,16 +16,26 @@ ini_set('log_errors', 1);
 
 header('Content-Type: application/json');
 
-// Only allow POST
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['error' => 'Method not allowed']);
-    exit;
-}
+// Accept GET or POST (GitHub Actions uses GET with ?secret=)
+$token = $_GET['secret']
+    ?? $_SERVER['HTTP_X_DEPLOY_TOKEN']
+    ?? '';
 
-// Validate deploy token
-$token = $_SERVER['HTTP_X_DEPLOY_TOKEN'] ?? '';
-$expectedToken = trim(file_get_contents(__DIR__ . '/../.deploy-token'));
+// Read expected token from .deploy-token or .env
+$tokenFile = __DIR__ . '/.deploy-token';
+$expectedToken = '';
+if (file_exists($tokenFile)) {
+    $expectedToken = trim(file_get_contents($tokenFile));
+}
+// Fallback: read DEPLOY_HOOK_SECRET from .env
+if (empty($expectedToken) && file_exists(__DIR__ . '/.env')) {
+    foreach (file(__DIR__ . '/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+        if (str_starts_with($line, 'DEPLOY_HOOK_SECRET=')) {
+            $expectedToken = trim(substr($line, strlen('DEPLOY_HOOK_SECRET=')));
+            break;
+        }
+    }
+}
 
 if (empty($token) || empty($expectedToken) || !hash_equals($expectedToken, $token)) {
     http_response_code(403);
@@ -42,8 +52,14 @@ if (file_exists($lockFile) && (time() - filemtime($lockFile)) < 60) {
 }
 touch($lockFile);
 
-// Determine project root (one level up from public/)
-$projectRoot = dirname(__DIR__);
+// After flattened DirectAdmin deployment, public_html/ IS the project root.
+// Both development (backend/) and production (public_html/) resolve correctly:
+//   dev:  __DIR__ = backend/public/  → dirname = backend/  ✓
+//   prod: __DIR__ = public_html/     → dirname would go UP, wrong!
+// So use __DIR__ directly and check if artisan is here or one level up.
+$projectRoot = file_exists(__DIR__ . '/artisan')
+    ? __DIR__           // production (flattened)
+    : dirname(__DIR__); // development (standard Laravel structure)
 $php = PHP_BINARY ?: 'php';
 $artisan = $projectRoot . '/artisan';
 
