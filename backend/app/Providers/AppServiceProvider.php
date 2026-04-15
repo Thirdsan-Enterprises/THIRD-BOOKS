@@ -29,6 +29,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Register central (non-tenant) migration paths.
+        // artisan migrate only globs the top-level migrations/ directory, so
+        // subdirectories must be registered explicitly. The tenant/ subdirectory
+        // is intentionally excluded — those run via tenants:migrate.
+        $this->loadMigrationsFrom(database_path('migrations/central'));
+
         // Register model observers for event sourcing
         Invoice::observe(InvoiceObserver::class);
         Customer::observe(CustomerObserver::class);
