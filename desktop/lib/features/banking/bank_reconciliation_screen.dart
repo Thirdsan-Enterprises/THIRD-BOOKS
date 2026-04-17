@@ -890,7 +890,9 @@ class _BankReconciliationScreenState
     // rebuilds triggered by search queries — keeping checked items intact.
     final outletSelected = <String, TextEditingController>{};
     final outletSelectedObjects = <String, Outlet>{};
+    final outletFocusNodes = <String, FocusNode>{};
     final billSelected = <String, TextEditingController>{};
+    final billFocusNodes = <String, FocusNode>{};
 
     // Show ALL account types — includes loans, liabilities, assets, etc.
     final acctTypes = AccountType.values.toList();
@@ -1065,11 +1067,12 @@ class _BankReconciliationScreenState
                               ? _buildBillsTab(
                                   line, billsState, tab2Query, ctx,
                                   (q) => setS(() => tab2Query = q),
-                                  billSelected)
+                                  billSelected, billFocusNodes)
                               : _buildOutletsTab(
                                   line, db, tab2Query, ctx,
                                   (q) => setS(() => tab2Query = q),
-                                  outletSelected, outletSelectedObjects),
+                                  outletSelected, outletSelectedObjects,
+                                  outletFocusNodes),
                         ],
                       ),
                     ),
@@ -1112,7 +1115,8 @@ class _BankReconciliationScreenState
   Widget _buildOutletsTab(BankStatementLine line, dynamic db, String query,
       BuildContext ctx, void Function(String) onSearch,
       Map<String, TextEditingController> selected,
-      Map<String, Outlet> selectedOutlets) {
+      Map<String, Outlet> selectedOutlets,
+      Map<String, FocusNode> focusNodes) {
     // selected and selectedOutlets are passed in from the outer closure so
     // they survive StatefulBuilder rebuilds caused by search query changes.
 
@@ -1197,20 +1201,28 @@ class _BankReconciliationScreenState
                         TextEditingController(
                             text: line.amount.abs().toStringAsFixed(0));
 
+                    final node = focusNodes[out.id] ?? FocusNode();
                     return CheckboxListTile(
                       dense: true,
                       value: isSelected,
                       onChanged: (checked) {
-                        setS2(() {
-                          if (checked == true) {
+                        if (checked == true) {
+                          focusNodes[out.id] = node;
+                          setS2(() {
                             selected[out.id] = ctrl;
                             selectedOutlets[out.id] = out;
-                          } else {
+                          });
+                          // Auto-focus the amount field after the row is built.
+                          WidgetsBinding.instance.addPostFrameCallback(
+                              (_) => node.requestFocus());
+                        } else {
+                          setS2(() {
                             selected.remove(out.id);
                             selectedOutlets.remove(out.id);
+                            focusNodes.remove(out.id)?.dispose();
                             ctrl.dispose();
-                          }
-                        });
+                          });
+                        }
                       },
                       secondary: CircleAvatar(
                         radius: 14,
@@ -1233,6 +1245,7 @@ class _BankReconciliationScreenState
                               height: 32,
                               child: TextField(
                                 controller: ctrl,
+                                focusNode: node,
                                 decoration: const InputDecoration(
                                   labelText: 'Amount received',
                                   isDense: true,
@@ -1308,7 +1321,8 @@ class _BankReconciliationScreenState
 
   Widget _buildBillsTab(BankStatementLine line, dynamic billsState,
       String query, BuildContext ctx, void Function(String) onSearch,
-      Map<String, TextEditingController> selected) {
+      Map<String, TextEditingController> selected,
+      Map<String, FocusNode> focusNodes) {
     // selected is passed in from the outer closure so it survives
     // StatefulBuilder rebuilds caused by search query changes.
     final allBills = (billsState.bills as List<Bill>)
@@ -1382,18 +1396,23 @@ class _BankReconciliationScreenState
                       final ctrl = selected[bill.id] ??
                           TextEditingController(text: bill.total.toStringAsFixed(0));
 
+                      final node = focusNodes[bill.id] ?? FocusNode();
                       return CheckboxListTile(
                         dense: true,
                         value: isSelected,
                         onChanged: (checked) {
-                          setS2(() {
-                            if (checked == true) {
-                              selected[bill.id] = ctrl;
-                            } else {
+                          if (checked == true) {
+                            focusNodes[bill.id] = node;
+                            setS2(() => selected[bill.id] = ctrl);
+                            WidgetsBinding.instance.addPostFrameCallback(
+                                (_) => node.requestFocus());
+                          } else {
+                            setS2(() {
                               selected.remove(bill.id);
+                              focusNodes.remove(bill.id)?.dispose();
                               ctrl.dispose();
-                            }
-                          });
+                            });
+                          }
                         },
                         secondary: CircleAvatar(
                           radius: 14,
@@ -1403,7 +1422,6 @@ class _BankReconciliationScreenState
                         title: Text(
                             '${bill.billNumber} — ${bill.vendorName ?? "Vendor"}',
                             style: const TextStyle(fontSize: 13)),
-                        // Amount field shown when selected
                         isThreeLine: isSelected,
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1417,6 +1435,7 @@ class _BankReconciliationScreenState
                                 height: 32,
                                 child: TextField(
                                   controller: ctrl,
+                                  focusNode: node,
                                   decoration: const InputDecoration(
                                     labelText: 'Amount to pay',
                                     isDense: true,
@@ -1459,9 +1478,17 @@ class _BankReconciliationScreenState
                                   return b.billNumber;
                                 })
                                 .join(', ');
+                            // Encode all bill IDs and their allocated amounts.
+                            // Format: "id1|amt1,id2|amt2" — parsed in _commitReconciliation.
+                            final encodedIds = selected.entries.map((e) {
+                              final amt = double.tryParse(
+                                      e.value.text.replaceAll(',', '')) ??
+                                  0.0;
+                              return '${e.key}|$amt';
+                            }).join(',');
                             setState(() {
                               line.status = MatchStatus.matched;
-                              line.matchedRecordId = selected.keys.first;
+                              line.matchedRecordId = encodedIds;
                               line.matchedRecordType = 'bill';
                               line.matchedLabel = 'Bills: $labels';
                             });
@@ -1544,14 +1571,29 @@ class _BankReconciliationScreenState
 
     for (final line in matched) {
       if (line.matchedRecordType == 'bill' && line.matchedRecordId != null) {
-        final bill = billsState.bills.cast<Bill?>().firstWhere(
-          (b) => b?.id == line.matchedRecordId,
-          orElse: () => null,
-        );
-        if (bill != null && bill.status != BillStatus.paid) {
+        // matchedRecordId format: "id1|amt1,id2|amt2" (multi-bill encoding).
+        // Legacy single-bill format (no pipe) is handled by treating amount as 0
+        // which falls back to bill.total below.
+        final entries = line.matchedRecordId!.split(',').map((token) {
+          final parts = token.split('|');
+          return (
+            id: parts[0],
+            amount: parts.length > 1 ? (double.tryParse(parts[1]) ?? 0.0) : 0.0,
+          );
+        }).toList();
+
+        for (final entry in entries) {
+          final bill = billsState.bills.cast<Bill?>().firstWhere(
+            (b) => b?.id == entry.id,
+            orElse: () => null,
+          );
+          if (bill == null || bill.status == BillStatus.paid) continue;
+          final payAmt = entry.amount > 0 ? entry.amount : bill.total;
+          final newPaid = bill.amountPaid + payAmt;
+          final isFullyPaid = newPaid >= bill.total - 0.01;
           billsNotifier.updateBill(bill.copyWith(
-            status: BillStatus.paid,
-            amountPaid: bill.total,
+            status: isFullyPaid ? BillStatus.paid : BillStatus.partial,
+            amountPaid: newPaid,
             updatedAt: DateTime.now(),
           ));
         }

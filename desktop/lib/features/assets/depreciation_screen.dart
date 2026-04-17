@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/providers/asset_drafts_provider.dart';
 import '../../core/providers/depreciation_schedules_provider.dart';
+import '../../core/services/data_service.dart';
+import '../../core/models/journal_entry.dart';
 
 /// Asset Depreciation Screen
 ///
@@ -754,21 +756,33 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
   }
 
   void _generateDepreciationEntries() {
+    final schedules = ref.read(depreciationSchedulesProvider);
+    final due = schedules.where((s) => s.isActive && s.isDue).toList();
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Generate Depreciation Entries'),
-        content: const Column(
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('This will generate depreciation journal entries for:'),
-            SizedBox(height: 16),
-            Text('• All active depreciation schedules'),
-            Text('• Current period (month/year)'),
-            Text('• Not already posted'),
-            SizedBox(height: 16),
-            Text('Continue?', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('This will post journal entries for ${ due.isEmpty ? "0 (none due)" : "${due.length} asset(s) due" }:'),
+            const SizedBox(height: 12),
+            if (due.isEmpty)
+              const Text('No schedules are currently due. Check back later or set up a new schedule.',
+                  style: TextStyle(color: Colors.grey))
+            else
+              ...due.map((s) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '• ${s.assetName}  →  ${_currencyFormat.format(s.nextDepreciation)}',
+                  style: const TextStyle(fontSize: 13),
+                ),
+              )),
+            const SizedBox(height: 12),
+            const Text('Each entry: DR Depreciation Expense / CR Accumulated Depreciation',
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
           ],
         ),
         actions: [
@@ -777,19 +791,105 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
-              // TODO: Generate entries
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Depreciation entries generated'),
-                  backgroundColor: AppColors.success,
-                ),
-              );
-            },
+            onPressed: due.isEmpty
+                ? null
+                : () {
+                    Navigator.pop(context);
+                    _postDepreciationJournalEntries(due);
+                  },
             child: const Text('Generate'),
           ),
         ],
+      ),
+    );
+  }
+
+  // Maps asset category keywords to accumulated depreciation contra-accounts.
+  // DR always goes to acct-143 (Depreciation Expense).
+  // CR goes to the matching contra-asset account.
+  String _accumDeprecAccountId(String category) {
+    final c = category.toLowerCase();
+    if (c.contains('computer') || c.contains('hardware') || c.contains('it')) {
+      return 'acct-157'; // Less Accum. Depreciation — Computer Equipment
+    }
+    if (c.contains('furniture') || c.contains('fitting')) {
+      return 'acct-159'; // Less Accum. Depreciation — Office Furniture
+    }
+    return 'acct-155'; // Less Accum. Depreciation — Office Equipment (default)
+  }
+
+  String _accumDeprecAccountCode(String category) {
+    final c = category.toLowerCase();
+    if (c.contains('computer') || c.contains('hardware') || c.contains('it')) return '157';
+    if (c.contains('furniture') || c.contains('fitting')) return '159';
+    return '155';
+  }
+
+  String _accumDeprecAccountName(String category) {
+    final c = category.toLowerCase();
+    if (c.contains('computer') || c.contains('hardware') || c.contains('it')) {
+      return 'Less Accum. Depreciation — Computer Equipment';
+    }
+    if (c.contains('furniture') || c.contains('fitting')) {
+      return 'Less Accum. Depreciation — Office Furniture';
+    }
+    return 'Less Accum. Depreciation — Office Equipment';
+  }
+
+  void _postDepreciationJournalEntries(List<DepreciationSchedule> due) {
+    final journalsNotifier = ref.read(journalsProvider.notifier);
+    final schedNotifier   = ref.read(depreciationSchedulesProvider.notifier);
+    final now = DateTime.now();
+    int posted = 0;
+
+    for (final schedule in due) {
+      final amount = schedule.nextDepreciation;
+      if (amount <= 0) continue;
+
+      final jeId = const Uuid().v4();
+      final periodLabel = DateFormat('MMM yyyy').format(now);
+
+      journalsNotifier.addEntry(JournalEntry(
+        id: jeId,
+        entryNumber: 'DEP-${schedule.assetName.replaceAll(' ', '-').toUpperCase()}-$periodLabel',
+        date: now,
+        description: 'Depreciation: ${schedule.assetName} — $periodLabel',
+        reference: 'DEPR-${schedule.id.substring(0, 6).toUpperCase()}',
+        status: JournalEntryStatus.posted,
+        lines: [
+          // DR Depreciation Expense
+          JournalLine(
+            id: '$jeId-1',
+            journalEntryId: jeId,
+            accountId: 'acct-143',
+            accountCode: '143',
+            accountName: 'Depreciation',
+            debit: amount,
+            credit: 0,
+          ),
+          // CR Accumulated Depreciation (contra-asset)
+          JournalLine(
+            id: '$jeId-2',
+            journalEntryId: jeId,
+            accountId: _accumDeprecAccountId(schedule.assetCategory),
+            accountCode: _accumDeprecAccountCode(schedule.assetCategory),
+            accountName: _accumDeprecAccountName(schedule.assetCategory),
+            debit: 0,
+            credit: amount,
+          ),
+        ],
+        createdAt: now,
+        updatedAt: now,
+      ));
+
+      schedNotifier.runDepreciation(schedule.id);
+      posted++;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$posted depreciation ${posted == 1 ? "entry" : "entries"} posted to Chart of Accounts'),
+        backgroundColor: AppColors.success,
       ),
     );
   }
