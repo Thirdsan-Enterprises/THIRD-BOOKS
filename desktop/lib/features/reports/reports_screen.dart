@@ -662,7 +662,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
             pw.SizedBox(height: 4),
             _pdfRow('  Acquisition of Assets',          fmt(-cf['assetAcquisitions']!)),
-            _pdfRow('  Depreciation of Assets',         fmt(cf['depreciationAddBack']!)),
             _pdfRow('  Sale of Assets',                 '—'),
             _pdfRow('  Acquisition of Securities (Bonds)', '—'),
             _pdfRow('  Receipt of Interest on Bonds',   '—'),
@@ -1781,6 +1780,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   // ── Cash Flow Statement ────────────────────────────────────────────────────
   Widget _buildCashFlowPreview(BuildContext context) {
     final dashboardAsync = ref.watch(dashboardDataProvider);
+    // Also watch ledger balances so the report rebuilds when depreciation
+    // (or any journal entry) is posted, even without a dashboard refresh.
+    ref.watch(ledgerBalancesProvider);
     return dashboardAsync.when(
       data: (_) {
         final cf = _computeCashFlowFigures();
@@ -1890,7 +1892,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               cfRow('INVESTING ACTIVITIES', 0, isSection: true),
               sectionDivider(),
               cfRow('Acquisition of Assets', -cf['assetAcquisitions']!, indent: true),
-              cfRow('Depreciation of Assets', cf['depreciationAddBack']!, indent: true),
               cfRow('Sale of Assets', 0, indent: true),
               cfRow('Acquisition of Securities (Bonds)', 0, indent: true),
               cfRow('Receipt of Interest on Bonds', 0, indent: true),
@@ -2160,7 +2161,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ['Operating', 'NET CASH FROM OPERATING ACTIVITIES',                          fmtCsv(cf['netOperating']!)],
           [],
           ['Investing', 'Acquisition of Assets',                                       fmtCsv(-cf['assetAcquisitions']!)],
-          ['Investing', 'Depreciation of Assets',                                      fmtCsv(cf['depreciationAddBack']!)],
           ['Investing', 'Sale of Assets',                                               '—'],
           ['Investing', 'Acquisition of Securities (Bonds)',                           '—'],
           ['Investing', 'Receipt of Interest on Bonds',                                '—'],
@@ -2327,7 +2327,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         xRow('Operating', 'Add: Depreciation of Assets (non-cash)',                    cf['depreciationAddBack']!);
         xRow('Operating', 'NET CASH FROM OPERATING ACTIVITIES',                        cf['netOperating']!);
         xRow('Investing', 'Acquisition of Assets',                                     -cf['assetAcquisitions']!);
-        xRow('Investing', 'Depreciation of Assets',                                    cf['depreciationAddBack']!);
         xRow('Investing', 'NET CASH FROM INVESTING ACTIVITIES',                        cf['netInvesting']!);
         xRow('Financing', 'Acquisition of Loans',                                      cf['loanProceeds']!);
         xRow('Financing', 'Loan Repayment',                                            -cf['loanRepayment']!);

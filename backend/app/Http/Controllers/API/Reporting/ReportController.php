@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API\Reporting;
 
 use App\Http\Controllers\Controller;
 use App\Models\Accounting\Account;
+use App\Models\Assets\DepreciationEntry;
 use App\Models\Sales\Invoice;
 use App\Models\Sales\Customer;
 use App\Models\Purchases\Bill;
@@ -254,6 +255,103 @@ class ReportController extends Controller
             'gross_profit' => $totalIncome,
             'net_profit' => $netProfit,
             'profit_margin' => $totalIncome > 0 ? ($netProfit / $totalIncome) * 100 : 0,
+        ]);
+    }
+
+    /**
+     * Cash Flow Statement (indirect method)
+     * Depreciation is an add-back under Operating Activities only.
+     */
+    public function cashFlow(Request $request)
+    {
+        $startDate = $request->input('start_date', now()->startOfMonth()->format('Y-m-d'));
+        $endDate   = $request->input('end_date',   now()->format('Y-m-d'));
+        $companyId = $request->header('X-Company-ID');
+
+        // ── Cash & bank closing balance ──────────────────────────────────────
+        $cashAccounts = Account::where('company_id', $companyId)
+            ->whereIn('category', ['cash', 'bank'])
+            ->get();
+        $closingCash = $cashAccounts->sum('current_balance');
+
+        // ── Depreciation posted in the period (non-cash add-back) ────────────
+        $depreciationExpenseAcct = Account::where('company_id', $companyId)
+            ->where('type', 'expense')
+            ->where(function ($q) {
+                $q->where('name', 'like', '%Depreciation%')
+                  ->orWhere('name', 'like', '%depreciation%');
+            })
+            ->first();
+
+        $depreciationAddBack = DepreciationEntry::where('company_id', $companyId)
+            ->where('status', 'posted')
+            ->whereBetween('period_date', [$startDate, $endDate])
+            ->sum('depreciation_amount');
+
+        // ── Working capital movements ────────────────────────────────────────
+        $arBalance = Account::where('company_id', $companyId)
+            ->where('category', 'accounts_receivable')
+            ->sum('current_balance');
+        $apBalance = Account::where('company_id', $companyId)
+            ->where('category', 'accounts_payable')
+            ->sum('current_balance');
+
+        // AR increase = cash decrease; AP increase = cash increase
+        $receivablesImpact = -$arBalance;
+        $payablesImpact    = -$apBalance;
+
+        // ── Income & expenses from P&L ────────────────────────────────────────
+        $income = Account::where('company_id', $companyId)
+            ->where('type', 'income')
+            ->sum('current_balance');
+        $expenses = Account::where('company_id', $companyId)
+            ->where('type', 'expense')
+            ->sum('current_balance');
+        $operatingProfit = $income - $expenses;
+
+        $netOperating = $operatingProfit + $depreciationAddBack + $receivablesImpact + $payablesImpact;
+
+        // ── Investing: asset acquisitions only (no depreciation here) ────────
+        $fixedAssetBalance = Account::where('company_id', $companyId)
+            ->where('category', 'fixed_asset')
+            ->where('name', 'not like', '%Depreciation%')
+            ->sum('current_balance');
+        $netInvesting = -$fixedAssetBalance;
+
+        // ── Financing ────────────────────────────────────────────────────────
+        $loanBalance = Account::where('company_id', $companyId)
+            ->where('category', 'long_term_liability')
+            ->sum('current_balance');
+        $loanProceeds  = $loanBalance < 0 ? abs($loanBalance) : 0;
+        $loanRepayment = $loanBalance > 0 ? $loanBalance : 0;
+        $netFinancing  = $loanProceeds - $loanRepayment;
+
+        $netIncrease = $netOperating + $netInvesting + $netFinancing;
+        $openingCash = $closingCash - $netIncrease;
+
+        return response()->json([
+            'period' => ['start_date' => $startDate, 'end_date' => $endDate],
+            'operating' => [
+                'operating_profit'      => round($operatingProfit, 2),
+                'depreciation_add_back' => round($depreciationAddBack, 2),
+                'receivables_impact'    => round($receivablesImpact, 2),
+                'payables_impact'       => round($payablesImpact, 2),
+                'net_operating'         => round($netOperating, 2),
+            ],
+            'investing' => [
+                'asset_acquisitions' => round($fixedAssetBalance, 2),
+                'net_investing'      => round($netInvesting, 2),
+            ],
+            'financing' => [
+                'loan_proceeds'  => round($loanProceeds, 2),
+                'loan_repayment' => round($loanRepayment, 2),
+                'net_financing'  => round($netFinancing, 2),
+            ],
+            'summary' => [
+                'opening_cash' => round($openingCash, 2),
+                'net_increase' => round($netIncrease, 2),
+                'closing_cash' => round($closingCash, 2),
+            ],
         ]);
     }
 
