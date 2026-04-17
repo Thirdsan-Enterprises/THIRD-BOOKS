@@ -5,6 +5,8 @@ namespace App\Http\Controllers\API\Banking;
 use App\Http\Controllers\Controller;
 use App\Models\Banking\BankStatement;
 use App\Models\Banking\BankStatementLine;
+use App\Models\Purchases\Bill;
+use App\Models\Sales\Invoice;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -184,9 +186,44 @@ class BankStatementController extends Controller
         try {
             DB::beginTransaction();
 
-            // Delete reconciliation items that belong to this statement's lines
+            // Load lines with their reconciliation items, journal entries, and reconcilables
+            $statement->load([
+                'lines.reconciliationItems.journalEntry',
+                'lines.reconciliationItems.reconcilable',
+            ]);
+
             foreach ($statement->lines as $line) {
-                $line->reconciliationItems()->delete();
+                foreach ($line->reconciliationItems as $item) {
+                    // Reverse payment on the linked bill or invoice
+                    $record = $item->reconcilable;
+                    if ($record) {
+                        $amount = (float) $item->amount;
+                        $record->paid_amount = max(0, (float) $record->paid_amount - $amount);
+                        $record->balance     = (float) $record->total - $record->paid_amount;
+
+                        if ($record->paid_amount <= 0.001) {
+                            $record->status  = $record instanceof Bill
+                                ? Bill::STATUS_APPROVED
+                                : Invoice::STATUS_SENT;
+                            $record->paid_at = null;
+                        } elseif ($record->paid_amount > 0) {
+                            $record->status = $record instanceof Bill
+                                ? Bill::STATUS_PARTIAL
+                                : Invoice::STATUS_PARTIAL;
+                        }
+                        $record->save();
+                    }
+
+                    // Unpost and delete the journal entry
+                    if ($item->journalEntry) {
+                        if ($item->journalEntry->isPosted()) {
+                            $item->journalEntry->unpost();
+                        }
+                        $item->journalEntry->delete();
+                    }
+
+                    $item->delete();
+                }
             }
 
             // Delete lines
@@ -201,7 +238,7 @@ class BankStatementController extends Controller
 
             DB::commit();
 
-            return response()->json(['message' => 'Bank statement deleted successfully']);
+            return response()->json(['message' => 'Bank statement and all linked transactions deleted successfully']);
 
         } catch (\Exception $e) {
             DB::rollBack();

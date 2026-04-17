@@ -1212,9 +1212,13 @@ class _BankReconciliationScreenState
                             selected[out.id] = ctrl;
                             selectedOutlets[out.id] = out;
                           });
-                          // Auto-focus the amount field after the row is built.
-                          WidgetsBinding.instance.addPostFrameCallback(
-                              (_) => node.requestFocus());
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            node.requestFocus();
+                            ctrl.selection = TextSelection(
+                              baseOffset: 0,
+                              extentOffset: ctrl.text.length,
+                            );
+                          });
                         } else {
                           setS2(() {
                             selected.remove(out.id);
@@ -1393,8 +1397,9 @@ class _BankReconciliationScreenState
                     itemBuilder: (_, i) {
                       final bill = bills[i];
                       final isSelected = selected.containsKey(bill.id);
+                      final remaining = bill.total - bill.amountPaid;
                       final ctrl = selected[bill.id] ??
-                          TextEditingController(text: bill.total.toStringAsFixed(0));
+                          TextEditingController(text: remaining.toStringAsFixed(0));
 
                       final node = focusNodes[bill.id] ?? FocusNode();
                       return CheckboxListTile(
@@ -1404,8 +1409,13 @@ class _BankReconciliationScreenState
                           if (checked == true) {
                             focusNodes[bill.id] = node;
                             setS2(() => selected[bill.id] = ctrl);
-                            WidgetsBinding.instance.addPostFrameCallback(
-                                (_) => node.requestFocus());
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              node.requestFocus();
+                              ctrl.selection = TextSelection(
+                                baseOffset: 0,
+                                extentOffset: ctrl.text.length,
+                              );
+                            });
                           } else {
                             setS2(() {
                               selected.remove(bill.id);
@@ -1588,14 +1598,13 @@ class _BankReconciliationScreenState
             orElse: () => null,
           );
           if (bill == null || bill.status == BillStatus.paid) continue;
-          final payAmt = entry.amount > 0 ? entry.amount : bill.total;
-          final newPaid = bill.amountPaid + payAmt;
-          final isFullyPaid = newPaid >= bill.total - 0.01;
-          billsNotifier.updateBill(bill.copyWith(
-            status: isFullyPaid ? BillStatus.paid : BillStatus.partial,
-            amountPaid: newPaid,
-            updatedAt: DateTime.now(),
-          ));
+          // Use remaining balance as fallback so we never "over-pay"
+          final remainingBalance = bill.total - bill.amountPaid;
+          final payAmt = entry.amount > 0
+              ? entry.amount.clamp(0.0, remainingBalance)
+              : remainingBalance;
+          // recordPayment persists to local storage and queues a server sync
+          billsNotifier.recordPayment(entry.id, payAmt);
         }
       }
     }
