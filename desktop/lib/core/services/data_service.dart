@@ -1119,6 +1119,40 @@ class BillsNotifier extends StateNotifier<BillsState> {
     );
   }
 
+  /// Reverse a previously recorded payment (e.g., when a reconciled bank
+  /// statement is deleted). Reduces amountPaid and resets status accordingly.
+  void reversePayment(String billId, double amount) {
+    final updatedBills = state.bills.map((bill) {
+      if (bill.id == billId) {
+        final newAmountPaid = (bill.amountPaid - amount).clamp(0.0, bill.total);
+        final BillStatus newStatus;
+        if (newAmountPaid <= 0) {
+          newStatus = BillStatus.pending;
+        } else if (newAmountPaid >= bill.total) {
+          newStatus = BillStatus.paid;
+        } else {
+          newStatus = BillStatus.partial;
+        }
+        return bill.copyWith(
+          amountPaid: newAmountPaid,
+          status: newStatus,
+          updatedAt: DateTime.now(),
+        );
+      }
+      return bill;
+    }).toList();
+    state = state.copyWith(bills: updatedBills);
+    _localStorage.saveBills(updatedBills);
+
+    final bill = updatedBills.firstWhere((b) => b.id == billId);
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.update,
+      entityType: SyncEntityType.bill,
+      entityId: billId,
+      data: bill.toJson(),
+    );
+  }
+
   /// Auto-apply a made payment to the vendor's earliest-due open bills.
   /// Called by PaymentsNotifier.addPayment() when paymentType == made.
   void applyPaymentToVendor(String vendorId, double totalAmount) {
