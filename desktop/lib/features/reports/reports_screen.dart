@@ -837,24 +837,114 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       final commission = dashData?.totalExpenses ?? 0;
       final netRevenue = dashData?.netIncome ?? 0;
 
-      // Page 1: Income Statement
-      pdf.addPage(pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        build: (pw.Context ctx) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            buildHeader('INCOME STATEMENT'),
-            _pdfRow('Total Stakes (Cash In)', 'UGX ${numFmt.format(totalIn)}'),
-            _pdfRow('Customer Winnings (Payouts)', '(UGX ${numFmt.format(totalOut)})'),
-            _pdfDivider(),
-            _pdfRow('Gross Gaming Revenue (GGR)', 'UGX ${numFmt.format(ggr)}', bold: true),
-            pw.SizedBox(height: 12),
-            _pdfRow('Outlet Commission (40% of GGR)', '(UGX ${numFmt.format(commission)})'),
-            _pdfDivider(),
-            _pdfRow('Net Revenue', 'UGX ${numFmt.format(netRevenue)}', bold: true, size: 13),
-          ],
-        ),
-      ));
+      // Page 1: Income Statement — monthly pivot table (rows=accounts, cols=months+YTD)
+      {
+        final isAccts  = ref.read(accountsProvider).accounts;
+        final isEntries2 = ref.read(journalsProvider).entries;
+        final now2 = DateTime.now();
+        final isYear = _selectedPeriod == 'Last Year' ? now2.year - 1 : now2.year;
+        final isLastM = isYear == now2.year ? now2.month : 12;
+        final isMonths = List.generate(isLastM, (i) => i + 1);
+        final isMonthly = _computeMonthlyLedger(isEntries2, isYear);
+
+        const corCodes = {'107', '178'};
+        const dirTaxCodes = {'108'};
+        final allExp = isAccts.where((a) => a.type == AccountType.expense).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final revAccts2 = isAccts.where((a) => a.type == AccountType.revenue).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final corAccts2  = allExp.where((a) => corCodes.contains(a.code)).toList();
+        final taxAccts2  = allExp.where((a) => dirTaxCodes.contains(a.code)).toList();
+        final opexAccts2 = allExp.where((a) => !corCodes.contains(a.code) && !dirTaxCodes.contains(a.code)).toList();
+
+        String fc(double val, {bool br = false}) {
+          if (val == 0) return '-';
+          return br ? '(${numFmt.format(val)})' : numFmt.format(val);
+        }
+
+        List<String> acctRow(String label, List<Account> accts, {bool br = false}) {
+          final row = <String>[label];
+          double ytd = 0;
+          for (final m in isMonths) {
+            final v = _monthSum(accts, isMonthly, m);
+            ytd += v;
+            row.add(fc(v, br: br));
+          }
+          row.add(fc(ytd, br: br));
+          return row;
+        }
+
+        List<String> derivedRow(String label, double Function(int) fn) {
+          final row = <String>[label];
+          double ytd = 0;
+          for (final m in isMonths) {
+            final v = fn(m);
+            ytd += v;
+            row.add(fc(v));
+          }
+          row.add(fc(ytd));
+          return row;
+        }
+
+        final revM  = {for (final m in isMonths) m: _monthSum(revAccts2, isMonthly, m)};
+        final corM  = {for (final m in isMonths) m: _monthSum(corAccts2, isMonthly, m)};
+        final taxM  = {for (final m in isMonths) m: _monthSum(taxAccts2, isMonthly, m)};
+        final opexM = {for (final m in isMonths) m: _monthSum(opexAccts2, isMonthly, m)};
+
+        final tableData = <List<String>>[];
+        for (final a in revAccts2) tableData.add(acctRow(a.name, [a]));
+        tableData.add(acctRow('Total Revenue', revAccts2));
+        for (final a in corAccts2) tableData.add(acctRow(a.name, [a], br: true));
+        tableData.add(acctRow('Total Cost of Revenue', corAccts2, br: true));
+        tableData.add(derivedRow('Gross Gaming Revenue (GGR)',
+            (m) => (revM[m] ?? 0) - (corM[m] ?? 0)));
+        if (taxAccts2.isNotEmpty) {
+          for (final a in taxAccts2) tableData.add(acctRow(a.name, [a], br: true));
+          tableData.add(derivedRow('Net Gaming Revenue (NGR)',
+              (m) => (revM[m] ?? 0) - (corM[m] ?? 0) - (taxM[m] ?? 0)));
+        }
+        for (final a in opexAccts2) tableData.add(acctRow(a.name, [a], br: true));
+        tableData.add(acctRow('Total Operating Expenses', opexAccts2, br: true));
+        tableData.add(derivedRow('Net Income', (m) {
+          final ggr = (revM[m] ?? 0) - (corM[m] ?? 0);
+          final ngr = ggr - (taxM[m] ?? 0);
+          return ngr - (opexM[m] ?? 0);
+        }));
+
+        final isHeaders = <String>[
+          'Line Item',
+          ...isMonths.map((m) => DateFormat('MMM').format(DateTime(isYear, m))),
+          'YTD',
+        ];
+
+        pdf.addPage(pw.Page(
+          pageFormat: PdfPageFormat.a4.landscape,
+          build: (pw.Context ctx) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              buildHeader('INCOME STATEMENT — $isYear'),
+              pw.Expanded(
+                child: pw.TableHelper.fromTextArray(
+                  headers: isHeaders,
+                  data: tableData,
+                  headerStyle:
+                      pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
+                  cellStyle: const pw.TextStyle(fontSize: 8),
+                  headerDecoration:
+                      const pw.BoxDecoration(color: PdfColors.blueGrey100),
+                  border:
+                      pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+                  cellAlignments: {
+                    0: pw.Alignment.centerLeft,
+                    for (int i = 1; i <= isMonths.length + 1; i++)
+                      i: pw.Alignment.centerRight,
+                  },
+                ),
+              ),
+            ],
+          ),
+        ));
+      }
 
       // Page 2: Balance Sheet (ledger-driven)
       {

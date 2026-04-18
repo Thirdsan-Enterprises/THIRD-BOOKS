@@ -795,7 +795,7 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
   // CR goes to the matching contra-asset account.
   String _accumDeprecAccountId(String category) {
     final c = category.toLowerCase();
-    if (c.contains('computer') || c.contains('hardware') || c.contains('it') ||
+    if (c.contains('computer') || c.contains('hardware') ||
         c.contains('electronic')) {
       return 'acct-157'; // Less Accum. Depreciation — Computer Equipment
     }
@@ -807,7 +807,7 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
 
   String _accumDeprecAccountCode(String category) {
     final c = category.toLowerCase();
-    if (c.contains('computer') || c.contains('hardware') || c.contains('it') ||
+    if (c.contains('computer') || c.contains('hardware') ||
         c.contains('electronic')) return '157';
     if (c.contains('furniture') || c.contains('fitting')) return '159';
     return '155';
@@ -815,7 +815,7 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
 
   String _accumDeprecAccountName(String category) {
     final c = category.toLowerCase();
-    if (c.contains('computer') || c.contains('hardware') || c.contains('it') ||
+    if (c.contains('computer') || c.contains('hardware') ||
         c.contains('electronic')) {
       return 'Less Accum. Depreciation — Computer Equipment';
     }

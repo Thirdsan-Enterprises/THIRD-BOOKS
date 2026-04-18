@@ -1553,6 +1553,20 @@ class _BankReconciliationScreenState
 
   // ── Finalise reconciliation ──────────────────────────────────────────────
   void _finaliseReconciliation() {
+    // Guard: a bank account must be selected or JEs and bank transactions
+    // won't be posted, leaving bills paid with no corresponding ledger entries.
+    if (_selectedAccount == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Please select a bank account before finalising reconciliation.'),
+          backgroundColor: AppColors.error,
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
     final lines = ref.read(_reconciliationLinesProvider);
     final matched = lines.where((l) => l.status == MatchStatus.matched).toList();
     final unmatched = lines.where((l) => l.status == MatchStatus.unmatched).length;
@@ -1876,12 +1890,15 @@ class _BankReconciliationScreenState
             .read(localBankStatementsProvider.notifier)
             .updateJeIds(_savedStatementLocalId!, createdJeIds);
       }
-      // Persist bill payments so deletion can unpay the bills.
-      if (_savedStatementLocalId != null && createdBillPayments.isNotEmpty) {
-        await ref
-            .read(localBankStatementsProvider.notifier)
-            .updateBillPayments(_savedStatementLocalId!, createdBillPayments);
-      }
+    }
+
+    // Persist bill payments OUTSIDE the account gate so they are always
+    // tracked even if section 2 was skipped (shouldn't happen with guard
+    // above, but kept as safety net for reversal on deletion).
+    if (_savedStatementLocalId != null && createdBillPayments.isNotEmpty) {
+      await ref
+          .read(localBankStatementsProvider.notifier)
+          .updateBillPayments(_savedStatementLocalId!, createdBillPayments);
     }
 
     if (!mounted) return;
