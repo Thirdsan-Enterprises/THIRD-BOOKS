@@ -322,11 +322,11 @@ class _BankReconciliationScreenState
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: AppColors.warning.withOpacity(0.4)),
               ),
-              child: const Text(
-                'Deleting a statement will also remove any reconciliation '
-                'items linked to it on the server. Journal entries already '
-                'posted remain intact — reverse them manually if needed.',
-                style: TextStyle(fontSize: 13),
+              child: Text(
+                'Deleting this statement will remove it from the server and '
+                'reverse all ${stmt.jeIds.isNotEmpty ? "${stmt.jeIds.length} " : ""}journal '
+                'entries created during reconciliation, updating the reports.',
+                style: const TextStyle(fontSize: 13),
               ),
             ),
           ],
@@ -353,6 +353,11 @@ class _BankReconciliationScreenState
             .read(apiClientProvider)
             .deleteBankStatement(stmt.serverStatementId!);
       } catch (_) {} // Offline — remove locally regardless
+    }
+
+    // Reverse all local journal entries created during reconciliation.
+    if (stmt.jeIds.isNotEmpty) {
+      ref.read(journalsProvider.notifier).removeEntries(stmt.jeIds);
     }
 
     await ref.read(localBankStatementsProvider.notifier).remove(stmt.id);
@@ -1246,7 +1251,7 @@ class _BankReconciliationScreenState
                           if (isSelected) ...[
                             const SizedBox(height: 4),
                             SizedBox(
-                              height: 32,
+                              height: 44,
                               child: TextField(
                                 controller: ctrl,
                                 focusNode: node,
@@ -1258,6 +1263,7 @@ class _BankReconciliationScreenState
                                   prefixText: 'UGX ',
                                 ),
                                 keyboardType: TextInputType.number,
+                                onTap: () => ctrl.selectAll(),
                                 onChanged: (_) => setS2(() {}),
                               ),
                             ),
@@ -1442,7 +1448,7 @@ class _BankReconciliationScreenState
                             if (isSelected) ...[
                               const SizedBox(height: 4),
                               SizedBox(
-                                height: 32,
+                                height: 44,
                                 child: TextField(
                                   controller: ctrl,
                                   focusNode: node,
@@ -1454,6 +1460,7 @@ class _BankReconciliationScreenState
                                     prefixText: 'UGX ',
                                   ),
                                   keyboardType: TextInputType.number,
+                                  onTap: () => ctrl.selectAll(),
                                   onChanged: (_) => setS2(() {}),
                                 ),
                               ),
@@ -1618,6 +1625,7 @@ class _BankReconciliationScreenState
       final existingSettlements = await ls.loadOutletSettlements();
       final newSettlements = <OutletSettlement>[];
       final now = DateTime.now();
+      final createdJeIds = <String>[];
 
       for (final line in matched) {
         final txType =
@@ -1676,6 +1684,7 @@ class _BankReconciliationScreenState
               ],
               createdAt: now, updatedAt: now,
             ));
+            createdJeIds.add(jeId);
           }
         } else if (line.matchedRecordType == 'bill' &&
             line.matchedRecordId != null) {
@@ -1704,6 +1713,7 @@ class _BankReconciliationScreenState
             ],
             createdAt: now, updatedAt: now,
           ));
+          createdJeIds.add(jeId);
         } else if (line.matchedRecordType == 'invoice' &&
             line.matchedRecordId != null) {
           // Invoice receipt: DR Bank, CR Accounts Receivable (150)
@@ -1731,6 +1741,7 @@ class _BankReconciliationScreenState
             ],
             createdAt: now, updatedAt: now,
           ));
+          createdJeIds.add(jeId);
         }
 
         // Save outlet settlement record
@@ -1786,6 +1797,7 @@ class _BankReconciliationScreenState
             ],
             createdAt: now, updatedAt: now,
           ));
+          createdJeIds.add(outJeId);
         }
       }
 
@@ -1828,6 +1840,14 @@ class _BankReconciliationScreenState
           ],
           createdAt: now, updatedAt: now,
         ));
+        createdJeIds.add(ujeId);
+      }
+
+      // Persist JE IDs against the saved statement so deletion can reverse them.
+      if (_savedStatementLocalId != null && createdJeIds.isNotEmpty) {
+        await ref
+            .read(localBankStatementsProvider.notifier)
+            .updateJeIds(_savedStatementLocalId!, createdJeIds);
       }
     }
 

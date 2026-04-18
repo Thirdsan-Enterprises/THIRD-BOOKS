@@ -28,6 +28,9 @@ class LocalBankStatement {
   /// Server-assigned ID once the statement is synced.
   final int? serverStatementId;
   final DateTime uploadedAt;
+  /// IDs of journal entries created during reconciliation of this statement.
+  /// Used to reverse them when the statement is deleted.
+  final List<String> jeIds;
 
   const LocalBankStatement({
     required this.id,
@@ -43,6 +46,7 @@ class LocalBankStatement {
     this.status = 'local',
     this.serverStatementId,
     required this.uploadedAt,
+    this.jeIds = const [],
   });
 
   int get lineCount => rows.isEmpty ? 0 : rows.length - 1; // exclude header
@@ -52,6 +56,7 @@ class LocalBankStatement {
     int? serverStatementId,
     double? openingBalance,
     double? closingBalance,
+    List<String>? jeIds,
   }) =>
       LocalBankStatement(
         id: id,
@@ -67,6 +72,7 @@ class LocalBankStatement {
         status: status ?? this.status,
         serverStatementId: serverStatementId ?? this.serverStatementId,
         uploadedAt: uploadedAt,
+        jeIds: jeIds ?? this.jeIds,
       );
 
   Map<String, dynamic> toJson() => {
@@ -83,6 +89,7 @@ class LocalBankStatement {
         'status': status,
         'serverStatementId': serverStatementId,
         'uploadedAt': uploadedAt.toIso8601String(),
+        'jeIds': jeIds,
       };
 
   factory LocalBankStatement.fromJson(Map<String, dynamic> j) {
@@ -90,6 +97,7 @@ class LocalBankStatement {
     final rows = rawRows
         .map((r) => (r as List<dynamic>).map((c) => c.toString()).toList())
         .toList();
+    final rawJeIds = j['jeIds'] as List<dynamic>? ?? [];
     return LocalBankStatement(
       id: j['id'] as String,
       fileName: j['fileName'] as String,
@@ -104,6 +112,7 @@ class LocalBankStatement {
       status: j['status'] as String? ?? 'local',
       serverStatementId: j['serverStatementId'] as int?,
       uploadedAt: DateTime.parse(j['uploadedAt'] as String),
+      jeIds: rawJeIds.map((e) => e.toString()).toList(),
     );
   }
 }
@@ -148,6 +157,13 @@ class LocalBankStatementsNotifier
 
   Future<void> remove(String id) async {
     state = state.where((s) => s.id != id).toList();
+    await _save();
+  }
+
+  Future<void> updateJeIds(String id, List<String> jeIds) async {
+    state = state
+        .map((s) => s.id == id ? s.copyWith(jeIds: jeIds) : s)
+        .toList();
     await _save();
   }
 

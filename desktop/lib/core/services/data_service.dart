@@ -1342,6 +1342,17 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
       data: entry.toJson(),
     );
   }
+
+  /// Removes journal entries by ID — called when a bank statement is deleted
+  /// so reports immediately reflect the reversal.
+  void removeEntries(List<String> ids) {
+    if (ids.isEmpty) return;
+    final idSet = ids.toSet();
+    final updated = state.entries.where((e) => !idSet.contains(e.id)).toList();
+    state = state.copyWith(entries: updated);
+    _localStorage.saveJournalEntries(updated);
+    _ref.read(accountsProvider.notifier).recomputeBalancesFromJournals(updated);
+  }
 }
 
 final journalsProvider = StateNotifierProvider<JournalsNotifier, JournalsState>((ref) {
