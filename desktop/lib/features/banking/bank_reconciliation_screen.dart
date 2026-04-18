@@ -1122,8 +1122,12 @@ class _BankReconciliationScreenState
       Map<String, TextEditingController> selected,
       Map<String, Outlet> selectedOutlets,
       Map<String, FocusNode> focusNodes) {
-    // selected and selectedOutlets are passed in from the outer closure so
-    // they survive StatefulBuilder rebuilds caused by search query changes.
+    // Cache the future HERE — outside the StatefulBuilder — so the same Future
+    // object is passed to FutureBuilder on every setS2 rebuild.  If a new
+    // Future were created on each rebuild (inside the builder closure),
+    // FutureBuilder would reset to waiting state and unmount the TextField,
+    // dropping focus after every keystroke.
+    final outletsFuture = db.getAllOutlets() as Future<List<Outlet>>;
 
     return StatefulBuilder(builder: (ctx2, setS2) {
       double allocatedTotal = 0;
@@ -1182,7 +1186,7 @@ class _BankReconciliationScreenState
           ],
           Expanded(
             child: FutureBuilder<List<Outlet>>(
-              future: db.getAllOutlets(),
+              future: outletsFuture,
               builder: (ctx3, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -1253,6 +1257,7 @@ class _BankReconciliationScreenState
                             SizedBox(
                               height: 44,
                               child: TextField(
+                                key: ValueKey('outlet-amt-${out.id}'),
                                 controller: ctrl,
                                 focusNode: node,
                                 decoration: const InputDecoration(
@@ -1452,6 +1457,7 @@ class _BankReconciliationScreenState
                               SizedBox(
                                 height: 44,
                                 child: TextField(
+                                  key: ValueKey('bill-amt-${bill.id}'),
                                   controller: ctrl,
                                   focusNode: node,
                                   decoration: const InputDecoration(
