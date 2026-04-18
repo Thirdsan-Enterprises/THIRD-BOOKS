@@ -1144,12 +1144,14 @@ class BillsNotifier extends StateNotifier<BillsState> {
     state = state.copyWith(bills: updatedBills);
     _localStorage.saveBills(updatedBills);
 
-    final bill = updatedBills.firstWhere((b) => b.id == billId);
+    // Sync only if the bill is still present (it may have been deleted).
+    final billIdx = updatedBills.indexWhere((b) => b.id == billId);
+    if (billIdx < 0) return;
     _ref.read(syncServiceProvider.notifier).queueChange(
       action: SyncAction.update,
       entityType: SyncEntityType.bill,
       entityId: billId,
-      data: bill.toJson(),
+      data: updatedBills[billIdx].toJson(),
     );
   }
 
