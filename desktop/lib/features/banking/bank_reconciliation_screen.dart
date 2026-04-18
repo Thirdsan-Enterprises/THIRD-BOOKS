@@ -1263,7 +1263,9 @@ class _BankReconciliationScreenState
                                   prefixText: 'UGX ',
                                 ),
                                 keyboardType: TextInputType.number,
-                                onTap: () => ctrl.selectAll(),
+                                onTap: () => ctrl.selection = TextSelection(
+                                    baseOffset: 0,
+                                    extentOffset: ctrl.text.length),
                                 onChanged: (_) => setS2(() {}),
                               ),
                             ),
@@ -1460,7 +1462,9 @@ class _BankReconciliationScreenState
                                     prefixText: 'UGX ',
                                   ),
                                   keyboardType: TextInputType.number,
-                                  onTap: () => ctrl.selectAll(),
+                                  onTap: () => ctrl.selection = TextSelection(
+                                      baseOffset: 0,
+                                      extentOffset: ctrl.text.length),
                                   onChanged: (_) => setS2(() {}),
                                 ),
                               ),
