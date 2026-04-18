@@ -1,11 +1,15 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'package:excel/excel.dart' as xl;
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/database/app_database.dart' hide Bill;
 import '../../core/theme/app_theme.dart';
 import '../../core/providers/asset_drafts_provider.dart';
+import '../../core/providers/depreciation_schedules_provider.dart';
 import '../../core/services/data_service.dart';
 import '../../core/models/bill.dart';
 
@@ -41,12 +45,17 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Asset Management'),
+        title: const Text('Asset Register'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () => setState(() {}),
             tooltip: 'Refresh',
+          ),
+          IconButton(
+            icon: const Icon(Icons.download),
+            onPressed: _exportAssetsToExcel,
+            tooltip: 'Export to Excel',
           ),
           IconButton(
             icon: const Icon(Icons.trending_down),
@@ -223,35 +232,27 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
   }
 
   Widget _buildAssetsList() {
-    final fmt = _currencyFormat;
+    final schedules = ref.watch(depreciationSchedulesProvider);
+    final depByAsset = {for (final s in schedules) s.assetDraftId: s};
+    final fmt = NumberFormat('#,###');
+    final dateFmt = DateFormat('dd MMM yyyy');
 
     final all = _buildAssetEntries();
     final filtered = all
         .where((e) => _selectedCategory == 'All' || e.category == _selectedCategory)
         .toList();
 
-    // Update summary stats reactively.
-    final totalCount       = all.length;
-    final totalPurchase    = all.fold<double>(0, (s, e) => s + e.amount);
-    final totalActive      = all.where((e) => e.isActive).length;
-
     if (filtered.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.inventory_2_outlined,
-              size: 64,
-              color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-            ),
+            Icon(Icons.inventory_2_outlined, size: 64,
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
             const SizedBox(height: 16),
-            Text(
-              'No assets found',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-            ),
+            Text('No assets found',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.outline)),
             const SizedBox(height: 8),
             Text(
               'Asset-type bills (Equipment, Vehicle, Furniture, Electronics,\n'
@@ -259,8 +260,7 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
               'created in Bills, or add one manually below.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+                  color: Theme.of(context).colorScheme.outline),
             ),
             const SizedBox(height: 16),
             TextButton.icon(
@@ -273,115 +273,225 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-      itemCount: filtered.length,
-      itemBuilder: (context, index) {
-        final entry = filtered[index];
-        final statusColor = entry.isActive ? AppColors.success : AppColors.warning;
-        final statusLabel = entry.isActive ? 'Active' : 'Pending';
+    // Compute register totals
+    double totalPurchase = 0, totalAccumDep = 0, totalNBV = 0;
+    for (final e in filtered) {
+      final accDep = depByAsset[e.id]?.accumulatedDepreciation ?? 0.0;
+      totalPurchase += e.amount;
+      totalAccumDep += accDep;
+      totalNBV += (e.amount - accDep);
+    }
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: statusColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                _categoryIcon(entry.category),
-                color: statusColor,
-                size: 24,
-              ),
-            ),
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    entry.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    statusLabel,
-                    style: TextStyle(
-                      color: statusColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor: MaterialStateProperty.all(
+                  Theme.of(context).colorScheme.surfaceVariant),
+              columnSpacing: 24,
+              dataRowMinHeight: 44,
+              dataRowMaxHeight: 56,
+              columns: const [
+                DataColumn(label: Text('Asset Name',
+                    style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(label: Text('Category',
+                    style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(
+                    label: Text('Purchase Price',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    numeric: true),
+                DataColumn(label: Text('Purchase Date',
+                    style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(
+                    label: Text('Accum. Depreciation',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    numeric: true),
+                DataColumn(
+                    label: Text('Net Book Value',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    numeric: true),
+                DataColumn(label: Text('Status',
+                    style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(label: Text('Actions',
+                    style: TextStyle(fontWeight: FontWeight.bold))),
+              ],
+              rows: filtered.map((entry) {
+                final sched = depByAsset[entry.id];
+                final accDep = sched?.accumulatedDepreciation ?? 0.0;
+                final nbv = entry.amount - accDep;
+                final statusColor = entry.isActive ? AppColors.success : AppColors.warning;
+                return DataRow(cells: [
+                  DataCell(Row(children: [
+                    Icon(_categoryIcon(entry.category), size: 16,
+                        color: statusColor),
+                    const SizedBox(width: 6),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 200),
+                      child: Text(entry.name, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w500)),
                     ),
-                  ),
-                ),
-              ],
+                  ])),
+                  DataCell(Text(entry.category)),
+                  DataCell(Text('${entry.currency} ${fmt.format(entry.amount)}')),
+                  DataCell(Text(dateFmt.format(entry.date))),
+                  DataCell(accDep > 0
+                      ? Text('(${entry.currency} ${fmt.format(accDep)})',
+                          style: const TextStyle(color: AppColors.error))
+                      : const Text('—')),
+                  DataCell(Text('${entry.currency} ${fmt.format(nbv)}',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: nbv < 0 ? AppColors.error : null))),
+                  DataCell(Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      entry.isActive ? 'Active' : 'Pending',
+                      style: TextStyle(color: statusColor, fontSize: 11,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  )),
+                  DataCell(entry.isDraft
+                      ? Row(mainAxisSize: MainAxisSize.min, children: [
+                          TextButton(
+                            onPressed: () {
+                              ref.read(assetDraftsProvider.notifier)
+                                  .confirmAsset(entry.id);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Asset confirmed and activated'),
+                                  backgroundColor: AppColors.success,
+                                ),
+                              );
+                            },
+                            style: TextButton.styleFrom(
+                                minimumSize: const Size(60, 28),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8)),
+                            child: const Text('Confirm'),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline,
+                                size: 16, color: AppColors.error),
+                            onPressed: () => ref
+                                .read(assetDraftsProvider.notifier)
+                                .removeDraft(entry.id),
+                            tooltip: 'Remove',
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ])
+                      : const Icon(Icons.check_circle,
+                          color: AppColors.success, size: 20)),
+                ]);
+              }).toList(),
             ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Text(
-                  '${entry.currency} ${NumberFormat('#,###').format(entry.amount)}'
-                  '  ·  ${entry.category}'
-                  '  ·  ${DateFormat('MMM d, yyyy').format(entry.date)}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                if (entry.vendorName != null)
-                  Text('Vendor: ${entry.vendorName}',
-                      style: Theme.of(context).textTheme.bodySmall),
-                if (entry.reference != null)
-                  Text('Ref: ${entry.reference}',
-                      style: Theme.of(context).textTheme.bodySmall),
-                if (entry.source == _AssetSource.bill)
-                  Text(
-                    'Source: Bill ${entry.billNumber ?? ''}',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: AppColors.info,
-                        ),
-                  ),
-              ],
-            ),
-            trailing: entry.isDraft
-                ? Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextButton(
-                        onPressed: () {
-                          ref
-                              .read(assetDraftsProvider.notifier)
-                              .confirmAsset(entry.id);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Asset confirmed and activated'),
-                              backgroundColor: AppColors.success,
-                            ),
-                          );
-                        },
-                        child: const Text('Confirm'),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline,
-                            size: 18, color: AppColors.error),
-                        onPressed: () => ref
-                            .read(assetDraftsProvider.notifier)
-                            .removeDraft(entry.id),
-                        tooltip: 'Remove draft',
-                      ),
-                    ],
-                  )
-                : const Icon(Icons.check_circle, color: AppColors.success),
           ),
-        );
-      },
+          const Divider(height: 1),
+          // Totals row
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _TotalChip('Total Purchase Value',
+                    'UGX ${fmt.format(totalPurchase)}', AppColors.primary),
+                const SizedBox(width: 12),
+                _TotalChip('Total Accumulated Dep.',
+                    '(UGX ${fmt.format(totalAccumDep)})', AppColors.error),
+                const SizedBox(width: 12),
+                _TotalChip('Total Net Book Value',
+                    'UGX ${fmt.format(totalNBV)}', AppColors.success),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
+  }
+
+  Future<void> _exportAssetsToExcel() async {
+    final schedules = ref.read(depreciationSchedulesProvider);
+    final depByAsset = {for (final s in schedules) s.assetDraftId: s};
+    final all = _buildAssetEntries();
+    final fmt = NumberFormat('#,###');
+
+    final excel = xl.Excel.createExcel();
+    final sheetName = 'Asset Register';
+    final sheet = excel[sheetName];
+    if (excel.sheets.containsKey('Sheet1')) excel.delete('Sheet1');
+
+    final headers = [
+      'Asset Name', 'Category', 'Purchase Price', 'Purchase Date',
+      'Accum. Depreciation', 'Net Book Value', 'Status',
+    ];
+    sheet.appendRow(headers.map((h) => xl.TextCellValue(h)).toList());
+    for (int c = 0; c < headers.length; c++) {
+      sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: 0))
+          .cellStyle = xl.CellStyle(
+        bold: true,
+        backgroundColorHex: xl.ExcelColor.fromHexString('#1E3A5F'),
+        fontColorHex: xl.ExcelColor.fromHexString('#FFFFFF'),
+      );
+    }
+
+    for (final entry in all) {
+      final accDep = depByAsset[entry.id]?.accumulatedDepreciation ?? 0.0;
+      final nbv = entry.amount - accDep;
+      sheet.appendRow([
+        xl.TextCellValue(entry.name),
+        xl.TextCellValue(entry.category),
+        xl.DoubleCellValue(entry.amount),
+        xl.TextCellValue(DateFormat('yyyy-MM-dd').format(entry.date)),
+        xl.DoubleCellValue(accDep),
+        xl.DoubleCellValue(nbv),
+        xl.TextCellValue(entry.isActive ? 'Active' : 'Pending'),
+      ]);
+    }
+
+    sheet.setColumnWidth(0, 30);
+    sheet.setColumnWidth(1, 15);
+    sheet.setColumnWidth(2, 18);
+    sheet.setColumnWidth(3, 14);
+    sheet.setColumnWidth(4, 22);
+    sheet.setColumnWidth(5, 18);
+    sheet.setColumnWidth(6, 10);
+
+    final bytes = excel.save();
+    if (bytes == null) return;
+
+    try {
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Export Asset Register',
+        fileName:
+            'asset_register_${DateFormat('yyyyMMdd').format(DateTime.now())}.xlsx',
+        type: FileType.custom,
+        allowedExtensions: ['xlsx'],
+      );
+      if (path != null) {
+        await File(path).writeAsBytes(bytes);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Exported: $path'),
+            backgroundColor: AppColors.success,
+          ));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Export failed: $e'),
+          backgroundColor: AppColors.error,
+        ));
+      }
+    }
   }
 
   IconData _categoryIcon(String category) {
@@ -633,6 +743,40 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
       const SnackBar(
         content: Text('Navigate to Depreciation screen to set up schedule'),
         backgroundColor: AppColors.info,
+      ),
+    );
+  }
+}
+
+// ── Small totals chip shown below the register table ──────────────────────────
+class _TotalChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  const _TotalChip(this.label, this.value, this.color);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(label,
+              style: TextStyle(
+                  fontSize: 10,
+                  color: Theme.of(context).colorScheme.outline)),
+          Text(value,
+              style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: color)),
+        ],
       ),
     );
   }

@@ -1107,8 +1107,167 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             isHighlight: true,
             isFinal: true,
           ),
+
+          // ── Year-to-Date Monthly Breakdown ──────────────────────────────
+          _buildMonthlyBreakdown(entries, revenueAccts, corAccts, directTaxAccts, opexAccts),
         ],
       ),
+    );
+  }
+
+  /// Returns { accountId → { month (1–12) → (∑debits − ∑credits) } } for posted JEs in [year].
+  Map<String, Map<int, double>> _computeMonthlyLedger(
+      List<JournalEntry> entries, int year) {
+    final result = <String, Map<int, double>>{};
+    for (final entry in entries) {
+      if (entry.status != JournalEntryStatus.posted) continue;
+      if (entry.date.year != year) continue;
+      final m = entry.date.month;
+      for (final line in entry.lines) {
+        (result[line.accountId] ??= {})[m] =
+            (result[line.accountId]![m] ?? 0) + line.debit - line.credit;
+      }
+    }
+    return result;
+  }
+
+  double _monthSum(List<Account> accts, Map<String, Map<int, double>> monthly, int m) =>
+      accts.fold(0.0, (s, a) {
+        final raw = monthly['acct-${a.code}']?[m] ?? 0.0;
+        return s + (a.isDebitNormal ? raw : -raw);
+      });
+
+  Widget _buildMonthlyBreakdown(
+      List<JournalEntry> entries,
+      List<Account> revenueAccts,
+      List<Account> corAccts,
+      List<Account> directTaxAccts,
+      List<Account> opexAccts) {
+    final year = DateTime.now().year;
+    final monthly = _computeMonthlyLedger(entries, year);
+    final fmt = NumberFormat('#,###');
+
+    // Only show months with data
+    final monthsWithData = <int>{};
+    for (final acc in monthly.values) {
+      for (final m in acc.keys) {
+        if ((acc[m] ?? 0) != 0) monthsWithData.add(m);
+      }
+    }
+    if (monthsWithData.isEmpty) return const SizedBox.shrink();
+
+    final months = [for (int i = 1; i <= 12; i++) i]
+        .where((m) => monthsWithData.contains(m))
+        .toList();
+
+    Widget cell(double val, {bool bold = false, bool bracket = false}) {
+      final str = bracket ? '(${fmt.format(val)})' : fmt.format(val);
+      return Text(str,
+          style: TextStyle(
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+              color: !bracket && val < 0 ? AppColors.error : null));
+    }
+
+    Widget netCell(double val) => Text(fmt.format(val),
+        style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: val >= 0 ? AppColors.success : AppColors.error));
+
+    double totRev = 0, totCor = 0, totTax = 0, totOpex = 0;
+    for (final m in months) {
+      totRev  += _monthSum(revenueAccts, monthly, m);
+      totCor  += _monthSum(corAccts, monthly, m);
+      totTax  += _monthSum(directTaxAccts, monthly, m);
+      totOpex += _monthSum(opexAccts, monthly, m);
+    }
+    final totNet = totRev - totCor - totTax - totOpex;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 28),
+        Row(children: [
+          Icon(Icons.calendar_month,
+              size: 16, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 6),
+          Text('Month-by-Month Breakdown — $year',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.bold)),
+        ]),
+        const SizedBox(height: 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            headingRowColor: MaterialStateProperty.all(
+                Theme.of(context).colorScheme.surfaceVariant),
+            columnSpacing: 20,
+            dataRowMinHeight: 36,
+            headingRowHeight: 40,
+            columns: const [
+              DataColumn(label: Text('Month',
+                  style: TextStyle(fontWeight: FontWeight.bold))),
+              DataColumn(
+                  label: Text('Revenue',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  numeric: true),
+              DataColumn(
+                  label: Text('Cost of Revenue',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  numeric: true),
+              DataColumn(
+                  label: Text('GGR',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  numeric: true),
+              DataColumn(
+                  label: Text('Oper. Expenses',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  numeric: true),
+              DataColumn(
+                  label: Text('Net Income',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  numeric: true),
+            ],
+            rows: [
+              ...months.map((m) {
+                final rev  = _monthSum(revenueAccts, monthly, m);
+                final cor  = _monthSum(corAccts, monthly, m);
+                final tax  = _monthSum(directTaxAccts, monthly, m);
+                final opex = _monthSum(opexAccts, monthly, m);
+                final ggr  = rev - cor;
+                final net  = ggr - tax - opex;
+                return DataRow(cells: [
+                  DataCell(Text(DateFormat('MMM').format(DateTime(year, m)),
+                      style: const TextStyle(fontWeight: FontWeight.w500))),
+                  DataCell(cell(rev)),
+                  DataCell(cell(cor, bracket: true)),
+                  DataCell(Text(fmt.format(ggr),
+                      style: TextStyle(
+                          color: ggr < 0 ? AppColors.error : null))),
+                  DataCell(cell(opex, bracket: true)),
+                  DataCell(netCell(net)),
+                ]);
+              }),
+              // Totals row
+              DataRow(
+                color: MaterialStateProperty.all(
+                    Theme.of(context).colorScheme.surfaceVariant),
+                cells: [
+                  const DataCell(Text('TOTAL',
+                      style: TextStyle(fontWeight: FontWeight.bold))),
+                  DataCell(cell(totRev, bold: true)),
+                  DataCell(cell(totCor, bold: true, bracket: true)),
+                  DataCell(Text(fmt.format(totRev - totCor),
+                      style: const TextStyle(fontWeight: FontWeight.bold))),
+                  DataCell(cell(totOpex, bold: true, bracket: true)),
+                  DataCell(netCell(totNet)),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

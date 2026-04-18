@@ -288,21 +288,7 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
                     if (s.isActive)
                       TextButton.icon(
                         onPressed: isDue
-                            ? () async {
-                                await ref
-                                    .read(depreciationSchedulesProvider
-                                        .notifier)
-                                    .runDepreciation(s.id);
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                          'Depreciation applied: UGX ${fmt.format(s.nextDepreciation)}'),
-                                      backgroundColor: AppColors.success,
-                                    ),
-                                  );
-                                }
-                              }
+                            ? () => _postDepreciationJournalEntries([s])
                             : null,
                         icon: const Icon(Icons.play_arrow, size: 16),
                         label: const Text('Run Now'),
