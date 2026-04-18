@@ -26,6 +26,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   String _selectedPeriod = 'This Month';
   String _selectedReportType = 'all';
   final _currencyFormat = NumberFormat.currency(symbol: 'UGX ', decimalDigits: 0);
+  DateTime? _customFrom;
+  DateTime? _customTo;
 
   final List<Map<String, dynamic>> _reportCategories = [
     {
@@ -107,7 +109,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   Map<String, double> _computeCashFlowFigures() {
     final accounts = ref.read(accountsProvider).accounts;
     final raw      = ref.read(ledgerBalancesProvider);
-    final dashData = ref.read(dashboardDataProvider).valueOrNull;
 
     double sumRaw(Iterable<Account> accts) =>
         accts.fold(0.0, (s, a) => s + (raw['acct-${a.code}'] ?? 0.0));
@@ -153,11 +154,28 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       (a) => a.name.toLowerCase().contains('dividend') &&
              a.type == AccountType.equity));
 
-    // ── Core operating figures from dashboard ────────────────────────────────
-    final cashIn         = dashData?.cashIn      ?? 0;
-    final cashOut        = dashData?.cashOut     ?? 0;
-    final commission     = dashData?.totalExpenses ?? 0;
-    final operatingProfit = dashData?.netIncome  ?? 0;
+    // ── Operating profit from income statement (ledger-derived) ──────────────
+    final cfCorCodes = const {'107', '178'};
+    final cfTaxCodes = const {'108'};
+    final cfRevAccts  = accounts.where((a) => a.type == AccountType.revenue).toList();
+    final cfExpAccts  = accounts.where((a) => a.type == AccountType.expense).toList();
+    final cfCorAccts  = cfExpAccts.where((a) => cfCorCodes.contains(a.code)).toList();
+    final cfTaxAccts  = cfExpAccts.where((a) => cfTaxCodes.contains(a.code)).toList();
+    final cfOpexAccts = cfExpAccts
+        .where((a) => !cfCorCodes.contains(a.code) && !cfTaxCodes.contains(a.code))
+        .toList();
+
+    double cfBal(Account a) {
+      final b = raw['acct-${a.code}'] ?? 0.0;
+      return a.isDebitNormal ? b : -b;
+    }
+    double cfSum(List<Account> list) => list.fold(0.0, (s, a) => s + cfBal(a));
+
+    final cfRevenue = cfSum(cfRevAccts);
+    final cfCoR     = cfSum(cfCorAccts);
+    final cfTax     = cfSum(cfTaxAccts);
+    final cfOpex    = cfSum(cfOpexAccts);
+    final operatingProfit = cfRevenue - cfCoR - cfTax - cfOpex;
 
     // ── Net totals ───────────────────────────────────────────────────────────
     final netOperating = operatingProfit + depreciationAddBack +
@@ -168,10 +186,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final openingCash  = closingCash - netIncrease;
 
     return {
-      'cashIn'              : cashIn,
-      'cashOut'             : cashOut,
-      'netBettingCash'      : cashIn - cashOut,
-      'commission'          : commission,
       'operatingProfit'     : operatingProfit,
       'depreciationAddBack' : depreciationAddBack,
       'receivablesImpact'   : receivablesImpact,
@@ -246,7 +260,35 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                   items: ['Today', 'This Week', 'This Month', 'This Quarter', 'This Year', 'Last Month', 'Last Quarter', 'Last Year', 'Custom']
                       .map((p) => DropdownMenuItem(value: p, child: Text(p)))
                       .toList(),
-                  onChanged: (value) => setState(() => _selectedPeriod = value!),
+                  onChanged: (value) async {
+                    if (value == 'Custom') {
+                      final now = DateTime.now();
+                      final range = await showDateRangePicker(
+                        context: context,
+                        firstDate: DateTime(now.year - 5),
+                        lastDate: DateTime(now.year + 1),
+                        initialDateRange: _customFrom != null && _customTo != null
+                            ? DateTimeRange(start: _customFrom!, end: _customTo!)
+                            : DateTimeRange(
+                                start: DateTime(now.year, now.month, 1),
+                                end: now,
+                              ),
+                      );
+                      if (range != null && mounted) {
+                        setState(() {
+                          _customFrom = range.start;
+                          _customTo = range.end;
+                          _selectedPeriod = 'Custom';
+                        });
+                      }
+                    } else {
+                      setState(() {
+                        _selectedPeriod = value!;
+                        _customFrom = null;
+                        _customTo = null;
+                      });
+                    }
+                  },
                 ),
               ),
             ),
@@ -643,13 +685,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             pw.Text('OPERATING ACTIVITIES',
                 style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
             pw.SizedBox(height: 4),
-            _pdfRow('  Cash received from betting customers',     fmt(cf['cashIn']!)),
-            _pdfRow('  Cash paid to winning customers (Payouts)', fmt(-cf['cashOut']!)),
-            _pdfDivider(),
-            _pdfRow('  Net cash from betting operations',         fmt(cf['netBettingCash']!), bold: true),
-            _pdfRow('  Commission paid to outlet owners (40% GGR)', fmt(-cf['commission']!)),
-            _pdfDivider(),
-            _pdfRow('  Operating Profit',                         fmt(cf['operatingProfit']!), bold: true),
+            _pdfRow('  Net Profit (from Income Statement)',        fmt(cf['operatingProfit']!), bold: true),
             pw.SizedBox(height: 6),
             pw.Text('  Changes in Net Working Capital',
                 style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
@@ -905,7 +941,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         }
         for (final a in opexAccts2) tableData.add(acctRow(a.name, [a], br: true));
         tableData.add(acctRow('Total Operating Expenses', opexAccts2, br: true));
-        tableData.add(derivedRow('Net Income', (m) {
+        tableData.add(derivedRow('Net Profit', (m) {
           final ggr = (revM[m] ?? 0) - (corM[m] ?? 0);
           final ngr = ggr - (taxM[m] ?? 0);
           return ngr - (opexM[m] ?? 0);
@@ -1198,7 +1234,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
           const Divider(height: 32),
           _ReportTotalRow(
-            label: 'Net Income',
+            label: 'Net Profit',
             amount: netIncome,
             isHighlight: true,
             isFinal: true,
@@ -1486,9 +1522,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 ..._opexAccountRows(),
                 _subtotalRow('Total Operating Expenses', opexByM, _ytdOpex),
 
-                // ── Net Income ───────────────────────────────────────────────
+                // ── Net Profit ───────────────────────────────────────────────
                 _dividerRow(),
-                _subtotalRow('Net Income', netByM, _ytdNet, isNet: true),
+                _subtotalRow('Net Profit', netByM, _ytdNet, isNet: true),
               ],
             ),
           ),
@@ -2173,10 +2209,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         final cf = _computeCashFlowFigures();
         final numFmt = NumberFormat('#,##0', 'en_US');
 
-        if (cf['cashIn'] == 0) {
+        if (cf['operatingProfit'] == 0 && cf['closingCash'] == 0) {
           return Center(
             child: Text(
-              'No data yet. Import CSV data to see the cash flow statement.',
+              'No data yet. Post journal entries to see the cash flow statement.',
               style: TextStyle(
                   color: Theme.of(context).colorScheme.outline,
                   fontStyle: FontStyle.italic),
@@ -2250,13 +2286,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               // ── OPERATING ACTIVITIES ─────────────────────────────────────
               cfRow('OPERATING ACTIVITIES', 0, isSection: true),
               sectionDivider(),
-              cfRow('Cash received from betting customers', cf['cashIn']!, indent: true),
-              cfRow('Cash paid to winning customers (Payouts)', -cf['cashOut']!, indent: true),
-              sectionDivider(),
-              cfRow('Net cash from betting operations', cf['netBettingCash']!, bold: true),
-              cfRow('Commission paid to outlet owners (40% GGR)', -cf['commission']!, indent: true),
-              sectionDivider(),
-              cfRow('Operating Profit', cf['operatingProfit']!, bold: true),
+              cfRow('Net Profit (from Income Statement)', cf['operatingProfit']!, bold: true),
               const SizedBox(height: 6),
               Text('  Changes in Net Working Capital',
                   style: TextStyle(
@@ -2535,11 +2565,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ['Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}'],
           [],
           ['Section', 'Description', 'Amount (UGX)'],
-          ['Operating', 'Cash received from betting customers',                         fmtCsv(cf['cashIn']!)],
-          ['Operating', 'Cash paid to winning customers (Payouts)',                     fmtCsv(-cf['cashOut']!)],
-          ['Operating', 'Net cash from betting operations',                             fmtCsv(cf['netBettingCash']!)],
-          ['Operating', 'Commission paid to outlet owners (40% GGR)',                  fmtCsv(-cf['commission']!)],
-          ['Operating', 'Operating Profit',                                             fmtCsv(cf['operatingProfit']!)],
+          ['Operating', 'Net Profit (from Income Statement)',                            fmtCsv(cf['operatingProfit']!)],
           ['Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments',   fmtCsv(cf['receivablesImpact']!)],
           ['Operating', 'Increase/(Decrease) in Accounts Payables',                    fmtCsv(cf['payablesImpact']!)],
           ['Operating', 'Add: Depreciation of Assets (non-cash)',                      fmtCsv(cf['depreciationAddBack']!)],
@@ -2574,20 +2600,94 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ['Net Revenue After Commission', numFmt.format(ggr - (dashData?.totalExpenses ?? 0))],
         ];
       } else if (reportName == 'Income Statement' || reportName == 'GGR by Month') {
-        final cashIn = dashData?.cashIn ?? 0;
-        final cashOut = dashData?.cashOut ?? 0;
-        final ggr = dashData?.totalRevenue ?? 0;
-        final commission = dashData?.totalExpenses ?? 0;
+        final isAccts3   = ref.read(accountsProvider).accounts;
+        final isEntries3 = ref.read(journalsProvider).entries;
+        final now3       = DateTime.now();
+        final isYear3    = _selectedPeriod == 'Last Year' ? now3.year - 1 : now3.year;
+        final isLastM3   = isYear3 == now3.year ? now3.month : 12;
+        final isMonths3  = List.generate(isLastM3, (i) => i + 1);
+        final isMonthly3 = _computeMonthlyLedger(isEntries3, isYear3);
+
+        const cCorCodes3  = {'107', '178'};
+        const cTaxCodes3  = {'108'};
+        final allExp3     = isAccts3.where((a) => a.type == AccountType.expense).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final revAccts3   = isAccts3.where((a) => a.type == AccountType.revenue).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final corAccts3   = allExp3.where((a) => cCorCodes3.contains(a.code)).toList();
+        final taxAccts3   = allExp3.where((a) => cTaxCodes3.contains(a.code)).toList();
+        final opexAccts3  = allExp3
+            .where((a) => !cCorCodes3.contains(a.code) && !cTaxCodes3.contains(a.code))
+            .toList();
+
+        String fmtIs3(double v) => v == 0 ? '—' : numFmt.format(v);
+
+        List<dynamic> pivotRow3(String label, List<Account> accts) {
+          final row = <dynamic>[label];
+          double ytd = 0;
+          for (final m in isMonths3) {
+            final v = _monthSum(accts, isMonthly3, m);
+            ytd += v;
+            row.add(fmtIs3(v));
+          }
+          row.add(fmtIs3(ytd));
+          return row;
+        }
+
+        List<dynamic> derivedRow3(String label, double Function(int) fn) {
+          final row = <dynamic>[label];
+          double ytd = 0;
+          for (final m in isMonths3) {
+            final v = fn(m);
+            ytd += v;
+            row.add(fmtIs3(v));
+          }
+          row.add(fmtIs3(ytd));
+          return row;
+        }
+
+        final revM3  = {for (final m in isMonths3) m: _monthSum(revAccts3, isMonthly3, m)};
+        final corM3  = {for (final m in isMonths3) m: _monthSum(corAccts3, isMonthly3, m)};
+        final taxM3  = {for (final m in isMonths3) m: _monthSum(taxAccts3, isMonthly3, m)};
+        final opexM3 = {for (final m in isMonths3) m: _monthSum(opexAccts3, isMonthly3, m)};
+
+        final hdrs3 = <dynamic>[
+          'Line Item',
+          ...isMonths3.map((m) => DateFormat('MMM').format(DateTime(isYear3, m))),
+          'YTD',
+        ];
+
         csvRows = [
-          ['MAGIC BET LTD — INCOME STATEMENT'],
+          ['MAGIC BET LTD — INCOME STATEMENT ($isYear3)'],
           ['Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}'],
           [],
-          ['Category', 'Item', 'Amount (UGX)'],
-          ['Revenue', 'Total Stakes (Cash In)', numFmt.format(cashIn)],
-          ['Cost of Revenue', 'Customer Winnings (Payouts)', '(${numFmt.format(cashOut)})'],
-          ['', 'GROSS GAMING REVENUE (GGR)', numFmt.format(ggr)],
-          ['Expenses', 'Outlet Commission (40%)', '(${numFmt.format(commission)})'],
-          ['', 'NET REVENUE', numFmt.format(dashData?.netIncome ?? 0)],
+          hdrs3,
+          ['--- REVENUE ---'],
+          ...revAccts3.map((a) => pivotRow3(a.name, [a])),
+          pivotRow3('Total Revenue', revAccts3),
+          [],
+          ['--- COST OF REVENUE ---'],
+          ...corAccts3.map((a) => pivotRow3(a.name, [a])),
+          pivotRow3('Total Cost of Revenue', corAccts3),
+          [],
+          derivedRow3('Gross Gaming Revenue (GGR)',
+              (m) => (revM3[m] ?? 0) - (corM3[m] ?? 0)),
+          if (taxAccts3.isNotEmpty) ...[
+            [],
+            ['--- DIRECT TAXES ---'],
+            ...taxAccts3.map((a) => pivotRow3(a.name, [a])),
+            derivedRow3('Net Gaming Revenue (NGR)',
+                (m) => (revM3[m] ?? 0) - (corM3[m] ?? 0) - (taxM3[m] ?? 0)),
+          ],
+          [],
+          ['--- OPERATING EXPENSES ---'],
+          ...opexAccts3.map((a) => pivotRow3(a.name, [a])),
+          pivotRow3('Total Operating Expenses', opexAccts3),
+          [],
+          derivedRow3('Net Profit', (m) {
+            final ggr = (revM3[m] ?? 0) - (corM3[m] ?? 0);
+            return ggr - (taxM3[m] ?? 0) - (opexM3[m] ?? 0);
+          }),
         ];
       } else {
         // Outlet performance for all other reports
@@ -2702,11 +2802,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         addHeader(['Section', 'Description', 'Amount (UGX)']);
         void xRow(String section, String desc, double val) =>
             sheet.appendRow([xl.TextCellValue(section), xl.TextCellValue(desc), xl.DoubleCellValue(val)]);
-        xRow('Operating', 'Cash received from betting customers',                       cf['cashIn']!);
-        xRow('Operating', 'Cash paid to winning customers (Payouts)',                   -cf['cashOut']!);
-        xRow('Operating', 'Net cash from betting operations',                           cf['netBettingCash']!);
-        xRow('Operating', 'Commission paid to outlet owners (40% GGR)',                -cf['commission']!);
-        xRow('Operating', 'Operating Profit',                                           cf['operatingProfit']!);
+        xRow('Operating', 'Net Profit (from Income Statement)',                         cf['operatingProfit']!);
         xRow('Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments', cf['receivablesImpact']!);
         xRow('Operating', 'Increase/(Decrease) in Accounts Payables',                  cf['payablesImpact']!);
         xRow('Operating', 'Add: Depreciation of Assets (non-cash)',                    cf['depreciationAddBack']!);
@@ -2730,13 +2826,93 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         sheet.appendRow([xl.TextCellValue('Outlet Commission (40%)'), xl.DoubleCellValue(-(dashData?.totalExpenses ?? 0))]);
         sheet.appendRow([xl.TextCellValue('Net Revenue After Commission'), xl.DoubleCellValue(ggr - (dashData?.totalExpenses ?? 0))]);
       } else if (reportName == 'Income Statement' || reportName == 'GGR by Month') {
-        addTitle('MAGIC BET LTD — INCOME STATEMENT');
-        addHeader(['Category', 'Item', 'Amount (UGX)']);
-        sheet.appendRow([xl.TextCellValue('Revenue'), xl.TextCellValue('Total Stakes (Cash In)'), xl.DoubleCellValue(dashData?.cashIn ?? 0)]);
-        sheet.appendRow([xl.TextCellValue('Cost of Revenue'), xl.TextCellValue('Customer Winnings (Payouts)'), xl.DoubleCellValue(-(dashData?.cashOut ?? 0))]);
-        sheet.appendRow([xl.TextCellValue(''), xl.TextCellValue('GROSS GAMING REVENUE'), xl.DoubleCellValue(dashData?.totalRevenue ?? 0)]);
-        sheet.appendRow([xl.TextCellValue('Expenses'), xl.TextCellValue('Outlet Commission (40%)'), xl.DoubleCellValue(-(dashData?.totalExpenses ?? 0))]);
-        sheet.appendRow([xl.TextCellValue(''), xl.TextCellValue('NET REVENUE'), xl.DoubleCellValue(dashData?.netIncome ?? 0)]);
+        final isAccts4   = ref.read(accountsProvider).accounts;
+        final isEntries4 = ref.read(journalsProvider).entries;
+        final now4       = DateTime.now();
+        final isYear4    = _selectedPeriod == 'Last Year' ? now4.year - 1 : now4.year;
+        final isLastM4   = isYear4 == now4.year ? now4.month : 12;
+        final isMonths4  = List.generate(isLastM4, (i) => i + 1);
+        final isMonthly4 = _computeMonthlyLedger(isEntries4, isYear4);
+
+        const cCorCodes4  = {'107', '178'};
+        const cTaxCodes4  = {'108'};
+        final allExp4     = isAccts4.where((a) => a.type == AccountType.expense).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final revAccts4   = isAccts4.where((a) => a.type == AccountType.revenue).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final corAccts4   = allExp4.where((a) => cCorCodes4.contains(a.code)).toList();
+        final taxAccts4   = allExp4.where((a) => cTaxCodes4.contains(a.code)).toList();
+        final opexAccts4  = allExp4
+            .where((a) => !cCorCodes4.contains(a.code) && !cTaxCodes4.contains(a.code))
+            .toList();
+
+        final revM4  = {for (final m in isMonths4) m: _monthSum(revAccts4, isMonthly4, m)};
+        final corM4  = {for (final m in isMonths4) m: _monthSum(corAccts4, isMonthly4, m)};
+        final taxM4  = {for (final m in isMonths4) m: _monthSum(taxAccts4, isMonthly4, m)};
+        final opexM4 = {for (final m in isMonths4) m: _monthSum(opexAccts4, isMonthly4, m)};
+
+        addTitle('MAGIC BET LTD — INCOME STATEMENT ($isYear4)');
+        addHeader([
+          'Line Item',
+          ...isMonths4.map((m) => DateFormat('MMM').format(DateTime(isYear4, m))),
+          'YTD',
+        ]);
+
+        void xlPivotRow4(String label, List<Account> accts) {
+          final row = <xl.CellValue>[xl.TextCellValue(label)];
+          double ytd = 0;
+          for (final m in isMonths4) {
+            final v = _monthSum(accts, isMonthly4, m);
+            ytd += v;
+            row.add(v != 0 ? xl.DoubleCellValue(v) : xl.TextCellValue('—'));
+          }
+          row.add(ytd != 0 ? xl.DoubleCellValue(ytd) : xl.TextCellValue('—'));
+          sheet.appendRow(row);
+        }
+
+        void xlDerivedRow4(String label, double Function(int) fn) {
+          final row = <xl.CellValue>[xl.TextCellValue(label)];
+          double ytd = 0;
+          for (final m in isMonths4) {
+            final v = fn(m);
+            ytd += v;
+            row.add(v != 0 ? xl.DoubleCellValue(v) : xl.TextCellValue('—'));
+          }
+          row.add(ytd != 0 ? xl.DoubleCellValue(ytd) : xl.TextCellValue('—'));
+          sheet.appendRow(row);
+        }
+
+        sheet.appendRow([xl.TextCellValue('REVENUE')]);
+        for (final a in revAccts4) xlPivotRow4(a.name, [a]);
+        xlPivotRow4('Total Revenue', revAccts4);
+        sheet.appendRow([xl.TextCellValue('')]);
+
+        sheet.appendRow([xl.TextCellValue('COST OF REVENUE')]);
+        for (final a in corAccts4) xlPivotRow4(a.name, [a]);
+        xlPivotRow4('Total Cost of Revenue', corAccts4);
+        sheet.appendRow([xl.TextCellValue('')]);
+
+        xlDerivedRow4('Gross Gaming Revenue (GGR)',
+            (m) => (revM4[m] ?? 0) - (corM4[m] ?? 0));
+
+        if (taxAccts4.isNotEmpty) {
+          sheet.appendRow([xl.TextCellValue('')]);
+          sheet.appendRow([xl.TextCellValue('DIRECT TAXES')]);
+          for (final a in taxAccts4) xlPivotRow4(a.name, [a]);
+          xlDerivedRow4('Net Gaming Revenue (NGR)',
+              (m) => (revM4[m] ?? 0) - (corM4[m] ?? 0) - (taxM4[m] ?? 0));
+        }
+
+        sheet.appendRow([xl.TextCellValue('')]);
+        sheet.appendRow([xl.TextCellValue('OPERATING EXPENSES')]);
+        for (final a in opexAccts4) xlPivotRow4(a.name, [a]);
+        xlPivotRow4('Total Operating Expenses', opexAccts4);
+        sheet.appendRow([xl.TextCellValue('')]);
+
+        xlDerivedRow4('Net Profit', (m) {
+          final ggr = (revM4[m] ?? 0) - (corM4[m] ?? 0);
+          return ggr - (taxM4[m] ?? 0) - (opexM4[m] ?? 0);
+        });
       } else {
         // Outlet performance
         final sortedEntries = (summary?.entries.toList() ?? [])
