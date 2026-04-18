@@ -126,9 +126,15 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final payablesImpact    = -apRaw;
 
     // ── Depreciation add-back (non-cash expense) ─────────────────────────────
-    final depreciationAddBack = sumRaw(accounts.where(
+    final _depAccts = accounts.where(
       (a) => a.type == AccountType.expense &&
-             a.name.toLowerCase().contains('depreciation')));
+             a.name.toLowerCase().contains('depreciation')).toList();
+    double depreciationAddBack = sumRaw(_depAccts);
+    // Always include acct-143 (Depreciation Expense) directly as fallback
+    // in case CoA name doesn't match the filter above.
+    if (_depAccts.every((a) => 'acct-${a.code}' != 'acct-143')) {
+      depreciationAddBack += raw['acct-143'] ?? 0.0;
+    }
 
     // ── Investing ────────────────────────────────────────────────────────────
     final assetAcquisitions = sumRaw(accounts.where(
@@ -1143,128 +1149,258 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       List<Account> corAccts,
       List<Account> directTaxAccts,
       List<Account> opexAccts) {
-    final year = DateTime.now().year;
+    // Determine year from selected period
+    final now = DateTime.now();
+    final year = _selectedPeriod == 'Last Year' ? now.year - 1 : now.year;
     final monthly = _computeMonthlyLedger(entries, year);
     final fmt = NumberFormat('#,###');
 
-    // Only show months with data
-    final monthsWithData = <int>{};
-    for (final acc in monthly.values) {
-      for (final m in acc.keys) {
-        if ((acc[m] ?? 0) != 0) monthsWithData.add(m);
-      }
-    }
-    if (monthsWithData.isEmpty) return const SizedBox.shrink();
+    // Show Jan through Dec (or current month for current year).
+    final lastMonth = year == now.year ? now.month : 12;
+    final months = List.generate(lastMonth, (i) => i + 1);
 
-    final months = [for (int i = 1; i <= 12; i++) i]
-        .where((m) => monthsWithData.contains(m))
-        .toList();
+    if (months.isEmpty) return const SizedBox.shrink();
 
-    Widget cell(double val, {bool bold = false, bool bracket = false}) {
-      final str = bracket ? '(${fmt.format(val)})' : fmt.format(val);
-      return Text(str,
+    // ── cell helpers ─────────────────────────────────────────────────────────
+    const _dash = '—';
+    final _hdrStyle = const TextStyle(fontWeight: FontWeight.bold, fontSize: 12);
+    final _sectionColor = AppColors.primary;
+
+    String _fmtAmt(double val) => val == 0 ? _dash : fmt.format(val);
+    String _fmtBracket(double val) => val == 0 ? _dash : '(${fmt.format(val)})';
+
+    Widget _amtCell(double val, {bool bold = false, bool bracket = false}) {
+      final str = bracket ? _fmtBracket(val) : _fmtAmt(val);
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Text(
+          str,
+          textAlign: TextAlign.right,
           style: TextStyle(
-              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
-              color: !bracket && val < 0 ? AppColors.error : null));
+            fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+            fontSize: 12,
+            color: val < 0 && !bracket ? AppColors.error : null,
+          ),
+        ),
+      );
     }
 
-    Widget netCell(double val) => Text(fmt.format(val),
+    Widget _netCell(double val) => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Text(
+        _fmtAmt(val),
+        textAlign: TextAlign.right,
         style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: val >= 0 ? AppColors.success : AppColors.error));
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+          color: val >= 0 ? AppColors.success : AppColors.error,
+        ),
+      ),
+    );
 
-    double totRev = 0, totCor = 0, totTax = 0, totOpex = 0;
+    // Pre-compute monthly values
+    final revByM   = {for (final m in months) m: _monthSum(revenueAccts, monthly, m)};
+    final corByM   = {for (final m in months) m: _monthSum(corAccts, monthly, m)};
+    final taxByM   = {for (final m in months) m: _monthSum(directTaxAccts, monthly, m)};
+    final opexByM  = {for (final m in months) m: _monthSum(opexAccts, monthly, m)};
+
+    double _ytdRev = 0, _ytdCor = 0, _ytdTax = 0, _ytdOpex = 0;
     for (final m in months) {
-      totRev  += _monthSum(revenueAccts, monthly, m);
-      totCor  += _monthSum(corAccts, monthly, m);
-      totTax  += _monthSum(directTaxAccts, monthly, m);
-      totOpex += _monthSum(opexAccts, monthly, m);
+      _ytdRev  += revByM[m]!;
+      _ytdCor  += corByM[m]!;
+      _ytdTax  += taxByM[m]!;
+      _ytdOpex += opexByM[m]!;
     }
-    final totNet = totRev - totCor - totTax - totOpex;
+
+    // ── Table column widths ───────────────────────────────────────────────────
+    const labelW = 220.0;
+    const colW   = 88.0;
+
+    TableRow _sectionHeaderRow(String title) => TableRow(
+      decoration: BoxDecoration(color: _sectionColor.withOpacity(0.10)),
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Text(title.toUpperCase(),
+              style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                  color: _sectionColor,
+                  letterSpacing: 0.5)),
+        ),
+        for (int _ = 0; _ < months.length + 1; _++)
+          const SizedBox(),
+      ],
+    );
+
+    TableRow _dataRow(
+      String label,
+      Map<int, double> byM,
+      double ytd, {
+      bool bracket = false,
+      bool bold = false,
+    }) =>
+        TableRow(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 16, top: 6, bottom: 6, right: 8),
+              child: Text(label, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
+            ),
+            for (final m in months)
+              _amtCell(byM[m] ?? 0, bracket: bracket, bold: bold),
+            _amtCell(ytd, bracket: bracket, bold: bold),
+          ],
+        );
+
+    TableRow _subtotalRow(
+      String label,
+      Map<int, double> byM,
+      double ytd, {
+      bool isNet = false,
+    }) =>
+        TableRow(
+          decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceVariant),
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+              child: Text(label, style: _hdrStyle),
+            ),
+            for (final m in months)
+              isNet ? _netCell(byM[m] ?? 0) : _amtCell(byM[m] ?? 0, bold: true),
+            isNet ? _netCell(ytd) : _amtCell(ytd, bold: true),
+          ],
+        );
+
+    TableRow _dividerRow() => TableRow(
+      children: [
+        Divider(height: 1, color: Theme.of(context).dividerColor),
+        for (int _ = 0; _ < months.length + 1; _++)
+          Divider(height: 1, color: Theme.of(context).dividerColor),
+      ],
+    );
+
+    // Build computed-by-month maps for derived lines
+    final ggrByM  = {for (final m in months) m: (revByM[m]! - corByM[m]!)};
+    final ngrByM  = {for (final m in months) m: (ggrByM[m]! - taxByM[m]!)};
+    final netByM  = {for (final m in months) m: (ngrByM[m]! - opexByM[m]!)};
+    final _ytdGgr  = _ytdRev - _ytdCor;
+    final _ytdNgr  = _ytdGgr - _ytdTax;
+    final _ytdNet  = _ytdNgr - _ytdOpex;
+
+    // Individual opex account rows by month
+    List<TableRow> _opexAccountRows() {
+      final rows = <TableRow>[];
+      for (final acct in opexAccts) {
+        final byM = {for (final m in months) m: _monthSum([acct], monthly, m)};
+        final ytd = byM.values.fold(0.0, (s, v) => s + v);
+        if (byM.values.any((v) => v != 0)) {
+          rows.add(_dataRow(acct.name, byM, ytd, bracket: true));
+        }
+      }
+      return rows;
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 28),
         Row(children: [
-          Icon(Icons.calendar_month,
-              size: 16, color: Theme.of(context).colorScheme.primary),
+          Icon(Icons.calendar_month, size: 16, color: Theme.of(context).colorScheme.primary),
           const SizedBox(width: 6),
-          Text('Month-by-Month Breakdown — $year',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleSmall
-                  ?.copyWith(fontWeight: FontWeight.bold)),
+          Text(
+            'Income Statement — Month-by-Month ($year)',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+          ),
         ]),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowColor: MaterialStateProperty.all(
-                Theme.of(context).colorScheme.surfaceVariant),
-            columnSpacing: 20,
-            dataRowMinHeight: 36,
-            headingRowHeight: 40,
-            columns: const [
-              DataColumn(label: Text('Month',
-                  style: TextStyle(fontWeight: FontWeight.bold))),
-              DataColumn(
-                  label: Text('Revenue',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  numeric: true),
-              DataColumn(
-                  label: Text('Cost of Revenue',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  numeric: true),
-              DataColumn(
-                  label: Text('GGR',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  numeric: true),
-              DataColumn(
-                  label: Text('Oper. Expenses',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  numeric: true),
-              DataColumn(
-                  label: Text('Net Income',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  numeric: true),
-            ],
-            rows: [
-              ...months.map((m) {
-                final rev  = _monthSum(revenueAccts, monthly, m);
-                final cor  = _monthSum(corAccts, monthly, m);
-                final tax  = _monthSum(directTaxAccts, monthly, m);
-                final opex = _monthSum(opexAccts, monthly, m);
-                final ggr  = rev - cor;
-                final net  = ggr - tax - opex;
-                return DataRow(cells: [
-                  DataCell(Text(DateFormat('MMM').format(DateTime(year, m)),
-                      style: const TextStyle(fontWeight: FontWeight.w500))),
-                  DataCell(cell(rev)),
-                  DataCell(cell(cor, bracket: true)),
-                  DataCell(Text(fmt.format(ggr),
-                      style: TextStyle(
-                          color: ggr < 0 ? AppColors.error : null))),
-                  DataCell(cell(opex, bracket: true)),
-                  DataCell(netCell(net)),
-                ]);
-              }),
-              // Totals row
-              DataRow(
-                color: MaterialStateProperty.all(
-                    Theme.of(context).colorScheme.surfaceVariant),
-                cells: [
-                  const DataCell(Text('TOTAL',
-                      style: TextStyle(fontWeight: FontWeight.bold))),
-                  DataCell(cell(totRev, bold: true)),
-                  DataCell(cell(totCor, bold: true, bracket: true)),
-                  DataCell(Text(fmt.format(totRev - totCor),
-                      style: const TextStyle(fontWeight: FontWeight.bold))),
-                  DataCell(cell(totOpex, bold: true, bracket: true)),
-                  DataCell(netCell(totNet)),
-                ],
+          child: SizedBox(
+            width: labelW + (months.length + 1) * colW,
+            child: Table(
+              columnWidths: {
+                0: const FixedColumnWidth(labelW),
+                for (int i = 1; i <= months.length + 1; i++)
+                  i: const FixedColumnWidth(colW),
+              },
+              border: TableBorder(
+                horizontalInside: BorderSide(color: Theme.of(context).dividerColor, width: 0.5),
               ),
-            ],
+              children: [
+                // ── Header row ──────────────────────────────────────────────
+                TableRow(
+                  decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceVariant),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      child: Text('', style: _hdrStyle),
+                    ),
+                    for (final m in months)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                        child: Text(
+                          DateFormat('MMM').format(DateTime(year, m)),
+                          textAlign: TextAlign.right,
+                          style: _hdrStyle,
+                        ),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      child: Text('YTD', textAlign: TextAlign.right, style: _hdrStyle),
+                    ),
+                  ],
+                ),
+
+                // ── Revenue ─────────────────────────────────────────────────
+                _sectionHeaderRow('Revenue'),
+                ...revenueAccts
+                    .where((a) => months.any((m) => _monthSum([a], monthly, m) != 0))
+                    .map((acct) {
+                  final byM = {for (final m in months) m: _monthSum([acct], monthly, m)};
+                  final ytd = byM.values.fold(0.0, (s, v) => s + v);
+                  return _dataRow(acct.name, byM, ytd);
+                }),
+                _subtotalRow('Total Revenue', revByM, _ytdRev),
+
+                // ── Cost of Revenue ──────────────────────────────────────────
+                _sectionHeaderRow('Cost of Revenue'),
+                ...corAccts
+                    .where((a) => months.any((m) => _monthSum([a], monthly, m) != 0))
+                    .map((acct) {
+                  final byM = {for (final m in months) m: _monthSum([acct], monthly, m)};
+                  final ytd = byM.values.fold(0.0, (s, v) => s + v);
+                  return _dataRow(acct.name, byM, ytd, bracket: true);
+                }),
+                _subtotalRow('Total Cost of Revenue', corByM, _ytdCor),
+
+                // ── GGR ──────────────────────────────────────────────────────
+                _subtotalRow('Gross Gaming Revenue (GGR)', ggrByM, _ytdGgr, isNet: true),
+
+                // ── Direct Taxes ─────────────────────────────────────────────
+                if (directTaxAccts.isNotEmpty) ...[
+                  _sectionHeaderRow('Direct Taxes'),
+                  ...directTaxAccts
+                      .where((a) => months.any((m) => _monthSum([a], monthly, m) != 0))
+                      .map((acct) {
+                    final byM = {for (final m in months) m: _monthSum([acct], monthly, m)};
+                    final ytd = byM.values.fold(0.0, (s, v) => s + v);
+                    return _dataRow(acct.name, byM, ytd, bracket: true);
+                  }),
+                  _subtotalRow('Net Gaming Revenue (NGR)', ngrByM, _ytdNgr, isNet: true),
+                ],
+
+                // ── Operating Expenses ───────────────────────────────────────
+                _sectionHeaderRow('Operating Expenses'),
+                ..._opexAccountRows(),
+                _subtotalRow('Total Operating Expenses', opexByM, _ytdOpex),
+
+                // ── Net Income ───────────────────────────────────────────────
+                _dividerRow(),
+                _subtotalRow('Net Income', netByM, _ytdNet, isNet: true),
+              ],
+            ),
           ),
         ),
       ],

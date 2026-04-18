@@ -323,9 +323,11 @@ class _BankReconciliationScreenState
                 border: Border.all(color: AppColors.warning.withOpacity(0.4)),
               ),
               child: Text(
-                'Deleting this statement will remove it from the server and '
+                'Deleting this statement will remove it from the server, '
                 'reverse all ${stmt.jeIds.isNotEmpty ? "${stmt.jeIds.length} " : ""}journal '
-                'entries created during reconciliation, updating the reports.',
+                'entries created during reconciliation'
+                '${stmt.billPayments.isNotEmpty ? ", and unpay ${stmt.billPayments.length} bill(s)" : ""}'
+                ', updating the reports.',
                 style: const TextStyle(fontSize: 13),
               ),
             ),
@@ -358,6 +360,18 @@ class _BankReconciliationScreenState
     // Reverse all local journal entries created during reconciliation.
     if (stmt.jeIds.isNotEmpty) {
       ref.read(journalsProvider.notifier).removeEntries(stmt.jeIds);
+    }
+
+    // Unpay bills that were paid during reconciliation.
+    if (stmt.billPayments.isNotEmpty) {
+      final billsNotifier = ref.read(billsProvider.notifier);
+      for (final payment in stmt.billPayments) {
+        final billId = payment['billId'] as String?;
+        final amount = (payment['amount'] as num?)?.toDouble();
+        if (billId != null && amount != null && amount > 0) {
+          billsNotifier.reversePayment(billId, amount);
+        }
+      }
     }
 
     await ref.read(localBankStatementsProvider.notifier).remove(stmt.id);
@@ -1595,6 +1609,7 @@ class _BankReconciliationScreenState
     // 1. Mark matched bills as Paid
     final billsNotifier = ref.read(billsProvider.notifier);
     final billsState = ref.read(billsProvider);
+    final createdBillPayments = <Map<String, dynamic>>[];
 
     for (final line in matched) {
       if (line.matchedRecordType == 'bill' && line.matchedRecordId != null) {
@@ -1622,6 +1637,8 @@ class _BankReconciliationScreenState
               : remainingBalance;
           // recordPayment persists to local storage and queues a server sync
           billsNotifier.recordPayment(entry.id, payAmt);
+          // Track payment so we can reverse it if the statement is deleted
+          createdBillPayments.add({'billId': entry.id, 'amount': payAmt});
         }
       }
     }
@@ -1858,6 +1875,12 @@ class _BankReconciliationScreenState
         await ref
             .read(localBankStatementsProvider.notifier)
             .updateJeIds(_savedStatementLocalId!, createdJeIds);
+      }
+      // Persist bill payments so deletion can unpay the bills.
+      if (_savedStatementLocalId != null && createdBillPayments.isNotEmpty) {
+        await ref
+            .read(localBankStatementsProvider.notifier)
+            .updateBillPayments(_savedStatementLocalId!, createdBillPayments);
       }
     }
 

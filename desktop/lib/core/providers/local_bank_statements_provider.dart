@@ -31,6 +31,10 @@ class LocalBankStatement {
   /// IDs of journal entries created during reconciliation of this statement.
   /// Used to reverse them when the statement is deleted.
   final List<String> jeIds;
+  /// Bill payments recorded during reconciliation.
+  /// Format: [{'billId': 'xxx', 'amount': 5000.0}, ...]
+  /// Used to reverse payments when the statement is deleted.
+  final List<Map<String, dynamic>> billPayments;
 
   const LocalBankStatement({
     required this.id,
@@ -47,6 +51,7 @@ class LocalBankStatement {
     this.serverStatementId,
     required this.uploadedAt,
     this.jeIds = const [],
+    this.billPayments = const [],
   });
 
   int get lineCount => rows.isEmpty ? 0 : rows.length - 1; // exclude header
@@ -57,6 +62,7 @@ class LocalBankStatement {
     double? openingBalance,
     double? closingBalance,
     List<String>? jeIds,
+    List<Map<String, dynamic>>? billPayments,
   }) =>
       LocalBankStatement(
         id: id,
@@ -73,6 +79,7 @@ class LocalBankStatement {
         serverStatementId: serverStatementId ?? this.serverStatementId,
         uploadedAt: uploadedAt,
         jeIds: jeIds ?? this.jeIds,
+        billPayments: billPayments ?? this.billPayments,
       );
 
   Map<String, dynamic> toJson() => {
@@ -90,6 +97,7 @@ class LocalBankStatement {
         'serverStatementId': serverStatementId,
         'uploadedAt': uploadedAt.toIso8601String(),
         'jeIds': jeIds,
+        'billPayments': billPayments,
       };
 
   factory LocalBankStatement.fromJson(Map<String, dynamic> j) {
@@ -98,6 +106,7 @@ class LocalBankStatement {
         .map((r) => (r as List<dynamic>).map((c) => c.toString()).toList())
         .toList();
     final rawJeIds = j['jeIds'] as List<dynamic>? ?? [];
+    final rawBillPayments = j['billPayments'] as List<dynamic>? ?? [];
     return LocalBankStatement(
       id: j['id'] as String,
       fileName: j['fileName'] as String,
@@ -113,6 +122,9 @@ class LocalBankStatement {
       serverStatementId: j['serverStatementId'] as int?,
       uploadedAt: DateTime.parse(j['uploadedAt'] as String),
       jeIds: rawJeIds.map((e) => e.toString()).toList(),
+      billPayments: rawBillPayments
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(),
     );
   }
 }
@@ -163,6 +175,14 @@ class LocalBankStatementsNotifier
   Future<void> updateJeIds(String id, List<String> jeIds) async {
     state = state
         .map((s) => s.id == id ? s.copyWith(jeIds: jeIds) : s)
+        .toList();
+    await _save();
+  }
+
+  Future<void> updateBillPayments(
+      String id, List<Map<String, dynamic>> billPayments) async {
+    state = state
+        .map((s) => s.id == id ? s.copyWith(billPayments: billPayments) : s)
         .toList();
     await _save();
   }
