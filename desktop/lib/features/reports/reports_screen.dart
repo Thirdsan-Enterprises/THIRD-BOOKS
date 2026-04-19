@@ -546,30 +546,106 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         );
 
     if (reportName == 'Income Statement' || reportName == 'GGR by Month') {
-      final totalIn = dashData?.cashIn ?? 0;
-      final totalOut = dashData?.cashOut ?? 0;
-      final ggr = dashData?.totalRevenue ?? 0;
-      final commission = dashData?.totalExpenses ?? 0;
-      final netRevenue = dashData?.netIncome ?? 0;
+      final isAcctsPdf   = ref.read(accountsProvider).accounts;
+      final isEntriesPdf = ref.read(journalsProvider).entries;
+      final nowPdf       = DateTime.now();
+      final isYearPdf    = _selectedPeriod == 'Last Year' ? nowPdf.year - 1 : nowPdf.year;
+      final isLastMPdf   = isYearPdf == nowPdf.year ? nowPdf.month : 12;
+      final isMonthsPdf  = List.generate(isLastMPdf, (i) => i + 1);
+      final isMonthlyPdf = _computeMonthlyLedger(isEntriesPdf, isYearPdf);
+
+      const corCodesPdf    = {'107', '178'};
+      const dirTaxCodesPdf = {'108'};
+      final allExpPdf      = isAcctsPdf.where((a) => a.type == AccountType.expense).toList()
+        ..sort((a, b) => a.code.compareTo(b.code));
+      final revAcctsPdf    = isAcctsPdf.where((a) => a.type == AccountType.revenue).toList()
+        ..sort((a, b) => a.code.compareTo(b.code));
+      final corAcctsPdf    = allExpPdf.where((a) => corCodesPdf.contains(a.code)).toList();
+      final taxAcctsPdf    = allExpPdf.where((a) => dirTaxCodesPdf.contains(a.code)).toList();
+      final opexAcctsPdf   = allExpPdf
+          .where((a) => !corCodesPdf.contains(a.code) && !dirTaxCodesPdf.contains(a.code))
+          .toList();
+
+      String fcPdf(double val, {bool br = false}) {
+        if (val == 0) return '-';
+        return br ? '(${numFmt.format(val)})' : numFmt.format(val);
+      }
+
+      List<String> acctRowPdf(String label, List<Account> accts, {bool br = false}) {
+        final row = <String>[label];
+        double ytd = 0;
+        for (final m in isMonthsPdf) {
+          final v = _monthSum(accts, isMonthlyPdf, m);
+          ytd += v;
+          row.add(fcPdf(v, br: br));
+        }
+        row.add(fcPdf(ytd, br: br));
+        return row;
+      }
+
+      List<String> derivedRowPdf(String label, double Function(int) fn) {
+        final row = <String>[label];
+        double ytd = 0;
+        for (final m in isMonthsPdf) {
+          final v = fn(m);
+          ytd += v;
+          row.add(fcPdf(v));
+        }
+        row.add(fcPdf(ytd));
+        return row;
+      }
+
+      final revMPdf  = {for (final m in isMonthsPdf) m: _monthSum(revAcctsPdf, isMonthlyPdf, m)};
+      final corMPdf  = {for (final m in isMonthsPdf) m: _monthSum(corAcctsPdf, isMonthlyPdf, m)};
+      final taxMPdf  = {for (final m in isMonthsPdf) m: _monthSum(taxAcctsPdf, isMonthlyPdf, m)};
+      final opexMPdf = {for (final m in isMonthsPdf) m: _monthSum(opexAcctsPdf, isMonthlyPdf, m)};
+
+      final tableDataPdf = <List<String>>[];
+      for (final a in revAcctsPdf) tableDataPdf.add(acctRowPdf(a.name, [a]));
+      tableDataPdf.add(acctRowPdf('Total Revenue', revAcctsPdf));
+      for (final a in corAcctsPdf) tableDataPdf.add(acctRowPdf(a.name, [a], br: true));
+      tableDataPdf.add(acctRowPdf('Total Cost of Revenue', corAcctsPdf, br: true));
+      tableDataPdf.add(derivedRowPdf('Gross Gaming Revenue (GGR)',
+          (m) => (revMPdf[m] ?? 0) - (corMPdf[m] ?? 0)));
+      if (taxAcctsPdf.isNotEmpty) {
+        for (final a in taxAcctsPdf) tableDataPdf.add(acctRowPdf(a.name, [a], br: true));
+        tableDataPdf.add(derivedRowPdf('Net Gaming Revenue (NGR)',
+            (m) => (revMPdf[m] ?? 0) - (corMPdf[m] ?? 0) - (taxMPdf[m] ?? 0)));
+      }
+      for (final a in opexAcctsPdf) tableDataPdf.add(acctRowPdf(a.name, [a], br: true));
+      tableDataPdf.add(acctRowPdf('Total Operating Expenses', opexAcctsPdf, br: true));
+      tableDataPdf.add(derivedRowPdf('Net Profit', (m) {
+        final ggr = (revMPdf[m] ?? 0) - (corMPdf[m] ?? 0);
+        return ggr - (taxMPdf[m] ?? 0) - (opexMPdf[m] ?? 0);
+      }));
+
+      final isHeadersPdf = <String>[
+        'Line Item',
+        ...isMonthsPdf.map((m) => DateFormat('MMM').format(DateTime(isYearPdf, m))),
+        'YTD',
+      ];
 
       pdf.addPage(pw.Page(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: PdfPageFormat.a4.landscape,
         build: (pw.Context ctx) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            buildHeader('INCOME STATEMENT'),
-            pw.Text('REVENUE', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-            pw.SizedBox(height: 4),
-            _pdfRow('Total Stakes (Cash In)', 'UGX ${numFmt.format(totalIn)}'),
-            _pdfRow('Customer Winnings (Payouts)', '(UGX ${numFmt.format(totalOut)})'),
-            _pdfDivider(),
-            _pdfRow('Gross Gaming Revenue (GGR)', 'UGX ${numFmt.format(ggr)}', bold: true),
-            pw.SizedBox(height: 12),
-            pw.Text('OPERATING EXPENSES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-            pw.SizedBox(height: 4),
-            _pdfRow('Outlet Commission (40% of GGR)', '(UGX ${numFmt.format(commission)})'),
-            _pdfDivider(),
-            _pdfRow('Net Revenue (after commission)', 'UGX ${numFmt.format(netRevenue)}', bold: true, size: 13),
+            buildHeader('INCOME STATEMENT — $isYearPdf'),
+            pw.Expanded(
+              child: pw.TableHelper.fromTextArray(
+                headers: isHeadersPdf,
+                data: tableDataPdf,
+                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
+                cellStyle: const pw.TextStyle(fontSize: 8),
+                headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
+                border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+                cellAlignments: {
+                  0: pw.Alignment.centerLeft,
+                  for (int i = 1; i <= isMonthsPdf.length + 1; i++)
+                    i: pw.Alignment.centerRight,
+                },
+              ),
+            ),
           ],
         ),
       ));
@@ -643,10 +719,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         if (net == 0.0) continue;
         final typeName = acct.type.name[0].toUpperCase() + acct.type.name.substring(1);
         if (net > 0) {
-          tbRows.add([acct.code, acct.name, typeName, numFmt.format(net), '—']);
+          tbRows.add([acct.code, acct.name, typeName, numFmt.format(net), '-']);
           tbTotalDr += net;
         } else {
-          tbRows.add([acct.code, acct.name, typeName, '—', numFmt.format(-net)]);
+          tbRows.add([acct.code, acct.name, typeName, '-', numFmt.format(-net)]);
           tbTotalCr += -net;
         }
       }
@@ -2860,26 +2936,55 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         }
         sheet.appendRow([xl.TextCellValue(''), xl.TextCellValue('TOTALS'), xl.TextCellValue(''),
           xl.DoubleCellValue(tbDr3), xl.DoubleCellValue(tbCr3)]);
+        final tbTotRow3 = sheet.maxRows - 1;
+        for (int c = 0; c < 5; c++) {
+          sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: tbTotRow3))
+              .cellStyle = xl.CellStyle(bold: true);
+        }
       } else if (reportName == 'Cash Flow Statement') {
         final cf = _computeCashFlowFigures();
         addTitle('MAGIC BET LTD — STATEMENT OF CASH FLOWS');
         addHeader(['Section', 'Description', 'Amount (UGX)']);
-        void xRow(String section, String desc, double val) =>
-            sheet.appendRow([xl.TextCellValue(section), xl.TextCellValue(desc), xl.DoubleCellValue(val)]);
+        final cfSectionStyle = xl.CellStyle(
+          bold: true,
+          backgroundColorHex: xl.ExcelColor.fromHexString('#E8EEF7'),
+        );
+        void xRow(String section, String desc, double val, {bool bold = false}) {
+          sheet.appendRow([xl.TextCellValue(section), xl.TextCellValue(desc), xl.DoubleCellValue(val)]);
+          if (bold) {
+            final r = sheet.maxRows - 1;
+            for (int c = 0; c < 3; c++) {
+              sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r))
+                  .cellStyle = xl.CellStyle(bold: true);
+            }
+          }
+        }
+        void xSection(String label) {
+          sheet.appendRow([xl.TextCellValue(label), xl.TextCellValue(''), xl.TextCellValue('')]);
+          final r = sheet.maxRows - 1;
+          for (int c = 0; c < 3; c++) {
+            sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r))
+                .cellStyle = cfSectionStyle;
+          }
+        }
+        xSection('OPERATING ACTIVITIES');
         xRow('Operating', 'Net Profit (from Income Statement)',                         cf['operatingProfit']!);
         xRow('Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments', cf['receivablesImpact']!);
         xRow('Operating', 'Increase/(Decrease) in Accounts Payables',                  cf['payablesImpact']!);
         xRow('Operating', 'Add: Depreciation of Assets (non-cash)',                    cf['depreciationAddBack']!);
-        xRow('Operating', 'NET CASH FROM OPERATING ACTIVITIES',                        cf['netOperating']!);
+        xRow('Operating', 'NET CASH FROM OPERATING ACTIVITIES',                        cf['netOperating']!, bold: true);
+        xSection('INVESTING ACTIVITIES');
         xRow('Investing', 'Acquisition of Assets',                                     -cf['assetAcquisitions']!);
-        xRow('Investing', 'NET CASH FROM INVESTING ACTIVITIES',                        cf['netInvesting']!);
+        xRow('Investing', 'NET CASH FROM INVESTING ACTIVITIES',                        cf['netInvesting']!, bold: true);
+        xSection('FINANCING ACTIVITIES');
         xRow('Financing', 'Acquisition of Loans',                                      cf['loanProceeds']!);
         xRow('Financing', 'Loan Repayment',                                            -cf['loanRepayment']!);
         xRow('Financing', 'Dividends Paid',                                            -cf['dividendsPaid']!);
-        xRow('Financing', 'NET CASH FROM FINANCING ACTIVITIES',                        cf['netFinancing']!);
+        xRow('Financing', 'NET CASH FROM FINANCING ACTIVITIES',                        cf['netFinancing']!, bold: true);
+        xSection('SUMMARY');
         xRow('Summary',  'Opening Cash Balance (Cash + Bank accounts)',                cf['openingCash']!);
-        xRow('Summary',  'Net Increase/(Decrease) in Cash',                           cf['netIncrease']!);
-        xRow('Summary',  'CLOSING CASH BALANCE (Closing Bank & Cash total)',           cf['closingCash']!);
+        xRow('Summary',  'Net Increase/(Decrease) in Cash',                           cf['netIncrease']!, bold: true);
+        xRow('Summary',  'CLOSING CASH BALANCE (Closing Bank & Cash total)',           cf['closingCash']!, bold: true);
       } else if (reportName == 'GGR Tax Report' || reportName == 'Tax Summary') {
         final ggr = dashData?.totalRevenue ?? 0;
         addTitle('MAGIC BET LTD — GGR REVENUE REPORT');
@@ -2922,16 +3027,38 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           'YTD',
         ]);
 
-        void xlPivotRow4(String label, List<Account> accts) {
+        final isColCount4 = isMonths4.length + 2;
+        final isSectionStyle4 = xl.CellStyle(
+          bold: true,
+          backgroundColorHex: xl.ExcelColor.fromHexString('#E8EEF7'),
+        );
+
+        void xlSection4(String label) {
+          sheet.appendRow([xl.TextCellValue(label)]);
+          final r = sheet.maxRows - 1;
+          for (int c = 0; c < isColCount4; c++) {
+            sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r))
+                .cellStyle = isSectionStyle4;
+          }
+        }
+
+        void xlPivotRow4(String label, List<Account> accts, {bool bold = false}) {
           final row = <xl.CellValue>[xl.TextCellValue(label)];
           double ytd = 0;
           for (final m in isMonths4) {
             final v = _monthSum(accts, isMonthly4, m);
             ytd += v;
-            row.add(v != 0 ? xl.DoubleCellValue(v) : xl.TextCellValue('—'));
+            row.add(v != 0 ? xl.DoubleCellValue(v) : xl.TextCellValue('-'));
           }
-          row.add(ytd != 0 ? xl.DoubleCellValue(ytd) : xl.TextCellValue('—'));
+          row.add(ytd != 0 ? xl.DoubleCellValue(ytd) : xl.TextCellValue('-'));
           sheet.appendRow(row);
+          if (bold) {
+            final r = sheet.maxRows - 1;
+            for (int c = 0; c < isColCount4; c++) {
+              sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r))
+                  .cellStyle = xl.CellStyle(bold: true);
+            }
+          }
         }
 
         void xlDerivedRow4(String label, double Function(int) fn) {
@@ -2940,20 +3067,25 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           for (final m in isMonths4) {
             final v = fn(m);
             ytd += v;
-            row.add(v != 0 ? xl.DoubleCellValue(v) : xl.TextCellValue('—'));
+            row.add(v != 0 ? xl.DoubleCellValue(v) : xl.TextCellValue('-'));
           }
-          row.add(ytd != 0 ? xl.DoubleCellValue(ytd) : xl.TextCellValue('—'));
+          row.add(ytd != 0 ? xl.DoubleCellValue(ytd) : xl.TextCellValue('-'));
           sheet.appendRow(row);
+          final r = sheet.maxRows - 1;
+          for (int c = 0; c < isColCount4; c++) {
+            sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r))
+                .cellStyle = xl.CellStyle(bold: true);
+          }
         }
 
-        sheet.appendRow([xl.TextCellValue('REVENUE')]);
+        xlSection4('REVENUE');
         for (final a in revAccts4) xlPivotRow4(a.name, [a]);
-        xlPivotRow4('Total Revenue', revAccts4);
+        xlPivotRow4('Total Revenue', revAccts4, bold: true);
         sheet.appendRow([xl.TextCellValue('')]);
 
-        sheet.appendRow([xl.TextCellValue('COST OF REVENUE')]);
+        xlSection4('COST OF REVENUE');
         for (final a in corAccts4) xlPivotRow4(a.name, [a]);
-        xlPivotRow4('Total Cost of Revenue', corAccts4);
+        xlPivotRow4('Total Cost of Revenue', corAccts4, bold: true);
         sheet.appendRow([xl.TextCellValue('')]);
 
         xlDerivedRow4('Gross Gaming Revenue (GGR)',
@@ -2961,16 +3093,16 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
         if (taxAccts4.isNotEmpty) {
           sheet.appendRow([xl.TextCellValue('')]);
-          sheet.appendRow([xl.TextCellValue('DIRECT TAXES')]);
+          xlSection4('DIRECT TAXES');
           for (final a in taxAccts4) xlPivotRow4(a.name, [a]);
           xlDerivedRow4('Net Gaming Revenue (NGR)',
               (m) => (revM4[m] ?? 0) - (corM4[m] ?? 0) - (taxM4[m] ?? 0));
         }
 
         sheet.appendRow([xl.TextCellValue('')]);
-        sheet.appendRow([xl.TextCellValue('OPERATING EXPENSES')]);
+        xlSection4('OPERATING EXPENSES');
         for (final a in opexAccts4) xlPivotRow4(a.name, [a]);
-        xlPivotRow4('Total Operating Expenses', opexAccts4);
+        xlPivotRow4('Total Operating Expenses', opexAccts4, bold: true);
         sheet.appendRow([xl.TextCellValue('')]);
 
         xlDerivedRow4('Net Profit', (m) {

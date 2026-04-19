@@ -395,7 +395,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.edit_outlined, size: 18),
-                          onPressed: entry.status == JournalEntryStatus.draft
+                          onPressed: entry.status != JournalEntryStatus.voided
                               ? () => _showEditEntryDialog(context, entry)
                               : null,
                           tooltip: 'Edit',
@@ -1000,9 +1000,286 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
   }
 
   void _showEditEntryDialog(BuildContext context, JournalEntry entry) {
-    // Similar to create dialog but pre-populated with entry data
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Edit functionality coming soon')),
+    final accountsState = ref.read(accountsProvider);
+    final dateController = TextEditingController(
+      text: DateFormat('MMM d, yyyy').format(entry.date),
+    );
+    final referenceController = TextEditingController(text: entry.reference ?? '');
+    final descriptionController = TextEditingController(text: entry.description);
+    DateTime selectedDate = entry.date;
+
+    final List<_JournalLineData> lines = entry.lines.map((l) {
+      final ld = _JournalLineData();
+      ld.accountId   = l.accountId;
+      ld.accountName = l.accountName ?? '';
+      ld.debit       = l.debit;
+      ld.credit      = l.credit;
+      return ld;
+    }).toList();
+    if (lines.length < 2) lines.add(_JournalLineData());
+
+    final isPosted = entry.status == JournalEntryStatus.posted;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          double totalDebit  = lines.fold(0, (s, l) => s + l.debit);
+          double totalCredit = lines.fold(0, (s, l) => s + l.credit);
+          bool isBalanced    = (totalDebit - totalCredit).abs() < 0.01;
+
+          return AlertDialog(
+            title: Row(
+              children: [
+                Text('Edit Journal Entry: ${entry.entryNumber}'),
+                if (isPosted) ...[
+                  const SizedBox(width: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.expense.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      'POSTED — editing will update the ledger',
+                      style: TextStyle(fontSize: 11, color: AppColors.expense),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            content: SizedBox(
+              width: 750,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: dateController,
+                            decoration: const InputDecoration(
+                              labelText: 'Date',
+                              suffixIcon: Icon(Icons.calendar_today, size: 18),
+                            ),
+                            readOnly: true,
+                            onTap: () async {
+                              final date = await showDatePicker(
+                                context: context,
+                                initialDate: selectedDate,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                              );
+                              if (date != null) {
+                                selectedDate = date;
+                                dateController.text = DateFormat('MMM d, yyyy').format(date);
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: TextFormField(
+                            controller: referenceController,
+                            decoration: const InputDecoration(labelText: 'Reference (Optional)'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: descriptionController,
+                      decoration: const InputDecoration(labelText: 'Description *'),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Journal Lines', style: Theme.of(context).textTheme.titleMedium),
+                        if (!isBalanced && totalDebit > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.expense.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'Unbalanced: ${NumberFormat('#,###').format((totalDebit - totalCredit).abs())}',
+                              style: const TextStyle(color: AppColors.expense, fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        if (isBalanced && totalDebit > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.income.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Row(children: [
+                              Icon(Icons.check, size: 14, color: AppColors.income),
+                              SizedBox(width: 4),
+                              Text('Balanced', style: TextStyle(color: AppColors.income, fontSize: 12, fontWeight: FontWeight.w600)),
+                            ]),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Theme.of(context).dividerColor),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(children: [
+                            Expanded(flex: 3, child: Text('Account', style: const TextStyle(fontWeight: FontWeight.w600))),
+                            Expanded(flex: 2, child: Text('Debit',   style: const TextStyle(fontWeight: FontWeight.w600))),
+                            Expanded(flex: 2, child: Text('Credit',  style: const TextStyle(fontWeight: FontWeight.w600))),
+                            const SizedBox(width: 40),
+                          ]),
+                          const Divider(),
+                          ...lines.asMap().entries.map((e) {
+                            final index = e.key;
+                            final line  = e.value;
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: AccountSearchField(
+                                    accounts: accountsState.accounts,
+                                    value: line.accountId.isEmpty ? null : line.accountId,
+                                    onChanged: (v) {
+                                      setDialogState(() {
+                                        line.accountId = v ?? '';
+                                        final matched = accountsState.accounts
+                                            .cast<Account?>()
+                                            .firstWhere((a) => a?.id == v, orElse: () => null);
+                                        if (matched != null) line.accountName = matched.name;
+                                      });
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  flex: 2,
+                                  child: TextFormField(
+                                    initialValue: line.debit > 0 ? line.debit.toString() : '',
+                                    decoration: const InputDecoration(hintText: '0.00', contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8), isDense: true),
+                                    keyboardType: TextInputType.number,
+                                    onChanged: (v) {
+                                      setDialogState(() {
+                                        line.debit = double.tryParse(v) ?? 0;
+                                        if (line.debit > 0) line.credit = 0;
+                                      });
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  flex: 2,
+                                  child: TextFormField(
+                                    initialValue: line.credit > 0 ? line.credit.toString() : '',
+                                    decoration: const InputDecoration(hintText: '0.00', contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8), isDense: true),
+                                    keyboardType: TextInputType.number,
+                                    onChanged: (v) {
+                                      setDialogState(() {
+                                        line.credit = double.tryParse(v) ?? 0;
+                                        if (line.credit > 0) line.debit = 0;
+                                      });
+                                    },
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, size: 18),
+                                  onPressed: lines.length > 2
+                                      ? () => setDialogState(() => lines.removeAt(index))
+                                      : null,
+                                ),
+                              ]),
+                            );
+                          }),
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: () => setDialogState(() => lines.add(_JournalLineData())),
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Add Line'),
+                          ),
+                          const Divider(),
+                          Row(children: [
+                            const Expanded(flex: 3, child: Text('Total', style: TextStyle(fontWeight: FontWeight.bold))),
+                            Expanded(flex: 2, child: Text(NumberFormat('#,###').format(totalDebit),  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.debit))),
+                            Expanded(flex: 2, child: Text(NumberFormat('#,###').format(totalCredit), style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.credit))),
+                            const SizedBox(width: 40),
+                          ]),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: isBalanced && totalDebit > 0
+                    ? () {
+                        if (descriptionController.text.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Please enter a description')),
+                          );
+                          return;
+                        }
+                        final validLines = lines
+                            .where((l) => l.accountId.isNotEmpty && (l.debit > 0 || l.credit > 0))
+                            .toList();
+                        if (validLines.length < 2) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Please add at least 2 lines with accounts')),
+                          );
+                          return;
+                        }
+                        final journalLines = validLines.map((l) => JournalLine(
+                          id: DateTime.now().millisecondsSinceEpoch.toString(),
+                          journalEntryId: entry.id,
+                          accountId: l.accountId,
+                          accountName: l.accountName,
+                          debit: l.debit,
+                          credit: l.credit,
+                        )).toList();
+                        final updated = JournalEntry(
+                          id: entry.id,
+                          entryNumber: entry.entryNumber,
+                          date: selectedDate,
+                          description: descriptionController.text,
+                          reference: referenceController.text.isEmpty ? null : referenceController.text,
+                          status: entry.status,
+                          lines: journalLines,
+                          createdAt: entry.createdAt,
+                          updatedAt: DateTime.now(),
+                          createdBy: entry.createdBy,
+                          notes: entry.notes,
+                        );
+                        ref.read(journalsProvider.notifier).updateEntry(updated);
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Journal entry updated${isPosted ? ' — ledger recomputed' : ''}'),
+                            backgroundColor: AppColors.income,
+                          ),
+                        );
+                      }
+                    : null,
+                child: const Text('Save Changes'),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
