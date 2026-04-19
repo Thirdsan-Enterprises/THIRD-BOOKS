@@ -828,51 +828,58 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
   void _postDepreciationJournalEntries(List<DepreciationSchedule> due) {
     final journalsNotifier = ref.read(journalsProvider.notifier);
     final schedNotifier   = ref.read(depreciationSchedulesProvider.notifier);
-    final now = DateTime.now();
     int posted = 0;
 
     for (final schedule in due) {
-      final amount = schedule.nextDepreciation;
-      if (amount <= 0) continue;
+      DepreciationSchedule current = schedule;
 
-      final jeId = const Uuid().v4();
-      final periodLabel = DateFormat('MMM yyyy').format(now);
+      // Back-fill every overdue period, each with its own JE dated at the period.
+      while (current.isDue) {
+        final periodDate = current.nextRunDate;
+        final amount = current.nextDepreciation;
+        if (amount <= 0) break;
 
-      journalsNotifier.addEntry(JournalEntry(
-        id: jeId,
-        entryNumber: 'DEP-${schedule.assetName.replaceAll(' ', '-').toUpperCase()}-$periodLabel',
-        date: now,
-        description: 'Depreciation: ${schedule.assetName} — $periodLabel',
-        reference: 'DEPR-${schedule.id.substring(0, 6).toUpperCase()}',
-        status: JournalEntryStatus.posted,
-        lines: [
-          // DR Depreciation Expense
-          JournalLine(
-            id: '$jeId-1',
-            journalEntryId: jeId,
-            accountId: 'acct-143',
-            accountCode: '143',
-            accountName: 'Depreciation',
-            debit: amount,
-            credit: 0,
-          ),
-          // CR Accumulated Depreciation (contra-asset)
-          JournalLine(
-            id: '$jeId-2',
-            journalEntryId: jeId,
-            accountId: _accumDeprecAccountId(schedule.assetCategory),
-            accountCode: _accumDeprecAccountCode(schedule.assetCategory),
-            accountName: _accumDeprecAccountName(schedule.assetCategory),
-            debit: 0,
-            credit: amount,
-          ),
-        ],
-        createdAt: now,
-        updatedAt: now,
-      ));
+        final jeId = const Uuid().v4();
+        final periodLabel = DateFormat('MMM yyyy').format(periodDate);
 
-      schedNotifier.runDepreciation(schedule.id);
-      posted++;
+        journalsNotifier.addEntry(JournalEntry(
+          id: jeId,
+          entryNumber: 'DEP-${schedule.assetName.replaceAll(' ', '-').toUpperCase()}-$periodLabel',
+          date: periodDate,
+          description: 'Depreciation: ${schedule.assetName} — $periodLabel',
+          reference: 'DEPR-${schedule.id.substring(0, 6).toUpperCase()}',
+          status: JournalEntryStatus.posted,
+          lines: [
+            JournalLine(
+              id: '$jeId-1',
+              journalEntryId: jeId,
+              accountId: 'acct-143',
+              accountCode: '143',
+              accountName: 'Depreciation',
+              debit: amount,
+              credit: 0,
+            ),
+            JournalLine(
+              id: '$jeId-2',
+              journalEntryId: jeId,
+              accountId: _accumDeprecAccountId(schedule.assetCategory),
+              accountCode: _accumDeprecAccountCode(schedule.assetCategory),
+              accountName: _accumDeprecAccountName(schedule.assetCategory),
+              debit: 0,
+              credit: amount,
+            ),
+          ],
+          createdAt: periodDate,
+          updatedAt: periodDate,
+        ));
+
+        // Advance the local copy to the next period (preserves declining-balance math).
+        current = current.applyDepreciation(periodDate);
+        posted++;
+      }
+
+      // Persist the fully-caught-up schedule.
+      schedNotifier.updateSchedule(current);
     }
 
     ScaffoldMessenger.of(context).showSnackBar(

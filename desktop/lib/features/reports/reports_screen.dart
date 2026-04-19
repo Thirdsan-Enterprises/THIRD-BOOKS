@@ -833,11 +833,26 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       final pdf = await _buildPdfDocument(reportName);
       final bytes = await pdf.save();
       final filename = '${reportName.replaceAll(' ', '_')}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf';
-      await Printing.sharePdf(bytes: bytes, filename: filename);
+
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Export $reportName as PDF',
+        fileName: filename,
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+      );
+
+      if (path != null) {
+        await File(path).writeAsBytes(bytes);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('PDF exported: $path'), backgroundColor: AppColors.success),
+          );
+        }
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e'), backgroundColor: AppColors.error),
+          SnackBar(content: Text('PDF export failed: $e'), backgroundColor: AppColors.error),
         );
       }
     }
@@ -2689,6 +2704,55 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             return ggr - (taxM3[m] ?? 0) - (opexM3[m] ?? 0);
           }),
         ];
+      } else if (reportName == 'Balance Sheet') {
+        final bsAccts2   = ref.read(accountsProvider).accounts;
+        final bsEntries2 = ref.read(journalsProvider).entries;
+        final bsRaw2     = _computeLedgerBalances(bsEntries2);
+
+        double bsBal2(Account a) {
+          final b = bsRaw2['acct-${a.code}'] ?? 0.0;
+          return a.isDebitNormal ? b : -b;
+        }
+
+        final bsAssets2 = bsAccts2.where((a) => a.type == AccountType.asset).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final bsLiabs2 = bsAccts2.where((a) => a.type == AccountType.liability).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final bsEq2 = bsAccts2.where((a) => a.type == AccountType.equity).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final bsRevAccts2 = bsAccts2.where((a) => a.type == AccountType.revenue).toList();
+        final bsExpAccts2 = bsAccts2.where((a) => a.type == AccountType.expense).toList();
+
+        final totalAssets2  = bsAssets2.fold(0.0, (s, a) => s + bsBal2(a));
+        final totalLiabs2   = bsLiabs2.fold(0.0, (s, a) => s + bsBal2(a));
+        final permEquity2   = bsEq2.fold(0.0, (s, a) => s + bsBal2(a));
+        final netEarnings2  = bsRevAccts2.fold(0.0, (s, a) => s + bsBal2(a))
+            - bsExpAccts2.fold(0.0, (s, a) => s + bsBal2(a));
+        final totalEquity2  = permEquity2 + netEarnings2;
+
+        csvRows = [
+          ['MAGIC BET LTD — BALANCE SHEET'],
+          ['As at ${DateFormat('MMMM d, yyyy').format(DateTime.now())}'],
+          [],
+          ['Section', 'Code', 'Account Name', 'Amount (UGX)'],
+          ['ASSETS', '', '', ''],
+          ...bsAssets2.where((a) => bsBal2(a) != 0).map((a) =>
+              ['', a.code, a.name, numFmt.format(bsBal2(a))]),
+          ['', '', 'TOTAL ASSETS', numFmt.format(totalAssets2)],
+          [],
+          ['LIABILITIES', '', '', ''],
+          ...bsLiabs2.where((a) => bsBal2(a) != 0).map((a) =>
+              ['', a.code, a.name, numFmt.format(bsBal2(a))]),
+          ['', '', 'TOTAL LIABILITIES', numFmt.format(totalLiabs2)],
+          [],
+          ['EQUITY', '', '', ''],
+          ...bsEq2.where((a) => bsBal2(a) != 0).map((a) =>
+              ['', a.code, a.name, numFmt.format(bsBal2(a))]),
+          ['', '', 'Current Year Earnings', numFmt.format(netEarnings2)],
+          ['', '', 'TOTAL EQUITY', numFmt.format(totalEquity2)],
+          [],
+          ['', '', 'TOTAL LIABILITIES + EQUITY', numFmt.format(totalLiabs2 + totalEquity2)],
+        ];
       } else {
         // Outlet performance for all other reports
         final sortedEntries = (summary?.entries.toList() ?? [])
@@ -2913,6 +2977,89 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           final ggr = (revM4[m] ?? 0) - (corM4[m] ?? 0);
           return ggr - (taxM4[m] ?? 0) - (opexM4[m] ?? 0);
         });
+      } else if (reportName == 'Balance Sheet') {
+        final bsAccts3   = ref.read(accountsProvider).accounts;
+        final bsEntries3 = ref.read(journalsProvider).entries;
+        final bsRaw3     = _computeLedgerBalances(bsEntries3);
+
+        double bsBal3(Account a) {
+          final b = bsRaw3['acct-${a.code}'] ?? 0.0;
+          return a.isDebitNormal ? b : -b;
+        }
+
+        final bsAssets3  = bsAccts3.where((a) => a.type == AccountType.asset).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final bsLiabs3   = bsAccts3.where((a) => a.type == AccountType.liability).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final bsEq3      = bsAccts3.where((a) => a.type == AccountType.equity).toList()
+          ..sort((a, b) => a.code.compareTo(b.code));
+        final bsRevAccts3 = bsAccts3.where((a) => a.type == AccountType.revenue).toList();
+        final bsExpAccts3 = bsAccts3.where((a) => a.type == AccountType.expense).toList();
+
+        final totalAssets3  = bsAssets3.fold(0.0, (s, a) => s + bsBal3(a));
+        final totalLiabs3   = bsLiabs3.fold(0.0, (s, a) => s + bsBal3(a));
+        final permEquity3   = bsEq3.fold(0.0, (s, a) => s + bsBal3(a));
+        final netEarnings3  = bsRevAccts3.fold(0.0, (s, a) => s + bsBal3(a))
+            - bsExpAccts3.fold(0.0, (s, a) => s + bsBal3(a));
+        final totalEquity3  = permEquity3 + netEarnings3;
+
+        addTitle('MAGIC BET LTD — BALANCE SHEET');
+        sheet.appendRow([xl.TextCellValue('As at ${DateFormat('MMMM d, yyyy').format(DateTime.now())}')]);
+        sheet.appendRow([xl.TextCellValue('')]);
+        addHeader(['Section', 'Code', 'Account Name', 'Amount (UGX)']);
+
+        final sectionStyle = xl.CellStyle(
+          bold: true,
+          backgroundColorHex: xl.ExcelColor.fromHexString('#E8EEF7'),
+        );
+        final subtotalStyle = xl.CellStyle(bold: true);
+
+        void bsSection(String title, List<Account> accounts, double total, String totalLabel) {
+          final hRow = sheet.maxRows;
+          sheet.appendRow([xl.TextCellValue(title), xl.TextCellValue(''), xl.TextCellValue(''), xl.TextCellValue('')]);
+          for (int c = 0; c < 4; c++) {
+            sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: hRow)).cellStyle = sectionStyle;
+          }
+          for (final a in accounts.where((a) => bsBal3(a) != 0)) {
+            sheet.appendRow([
+              xl.TextCellValue(''),
+              xl.TextCellValue(a.code),
+              xl.TextCellValue(a.name),
+              xl.DoubleCellValue(bsBal3(a)),
+            ]);
+          }
+          final tRow = sheet.maxRows;
+          sheet.appendRow([xl.TextCellValue(''), xl.TextCellValue(''), xl.TextCellValue(totalLabel), xl.DoubleCellValue(total)]);
+          for (int c = 0; c < 4; c++) {
+            sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: tRow)).cellStyle = subtotalStyle;
+          }
+          sheet.appendRow([xl.TextCellValue('')]);
+        }
+
+        bsSection('ASSETS', bsAssets3, totalAssets3, 'TOTAL ASSETS');
+        bsSection('LIABILITIES', bsLiabs3, totalLiabs3, 'TOTAL LIABILITIES');
+
+        // Equity section
+        final eHRow = sheet.maxRows;
+        sheet.appendRow([xl.TextCellValue('EQUITY'), xl.TextCellValue(''), xl.TextCellValue(''), xl.TextCellValue('')]);
+        for (int c = 0; c < 4; c++) {
+          sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: eHRow)).cellStyle = sectionStyle;
+        }
+        for (final a in bsEq3.where((a) => bsBal3(a) != 0)) {
+          sheet.appendRow([xl.TextCellValue(''), xl.TextCellValue(a.code), xl.TextCellValue(a.name), xl.DoubleCellValue(bsBal3(a))]);
+        }
+        sheet.appendRow([xl.TextCellValue(''), xl.TextCellValue(''), xl.TextCellValue('Current Year Earnings'), xl.DoubleCellValue(netEarnings3)]);
+        final eTRow = sheet.maxRows;
+        sheet.appendRow([xl.TextCellValue(''), xl.TextCellValue(''), xl.TextCellValue('TOTAL EQUITY'), xl.DoubleCellValue(totalEquity3)]);
+        for (int c = 0; c < 4; c++) {
+          sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: eTRow)).cellStyle = subtotalStyle;
+        }
+        sheet.appendRow([xl.TextCellValue('')]);
+        final grandRow = sheet.maxRows;
+        sheet.appendRow([xl.TextCellValue(''), xl.TextCellValue(''), xl.TextCellValue('TOTAL LIABILITIES + EQUITY'), xl.DoubleCellValue(totalLiabs3 + totalEquity3)]);
+        for (int c = 0; c < 4; c++) {
+          sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: grandRow)).cellStyle = subtotalStyle;
+        }
       } else {
         // Outlet performance
         final sortedEntries = (summary?.entries.toList() ?? [])
