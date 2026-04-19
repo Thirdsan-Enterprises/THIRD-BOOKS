@@ -1379,6 +1379,23 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
     );
   }
 
+  void updateEntry(JournalEntry entry) {
+    final updatedEntries = state.entries
+        .map((e) => e.id == entry.id ? entry : e)
+        .toList();
+    state = state.copyWith(entries: updatedEntries);
+    _localStorage.saveJournalEntries(updatedEntries);
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.update,
+      entityType: SyncEntityType.journalEntry,
+      entityId: entry.id,
+      data: entry.toJson(),
+    );
+    if (entry.status == JournalEntryStatus.posted) {
+      _ref.read(accountsProvider.notifier).recomputeBalancesFromJournals(updatedEntries);
+    }
+  }
+
   /// Removes journal entries by ID — called when a bank statement is deleted
   /// so reports immediately reflect the reversal.
   void removeEntries(List<String> ids) {

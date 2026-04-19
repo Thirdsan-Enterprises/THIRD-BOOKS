@@ -54,10 +54,13 @@ class DepreciationSchedule {
       assetValue > 0 ? (accumulatedDepreciation / assetValue) * 100 : 0;
 
   DateTime get nextRunDate {
-    final base = lastRunDate ?? startDate;
+    if (lastRunDate == null) {
+      // First period: depreciation covers the purchase month itself.
+      return startDate;
+    }
     return period == 'monthly'
-        ? DateTime(base.year, base.month + 1, base.day)
-        : DateTime(base.year + 1, base.month, base.day);
+        ? DateTime(lastRunDate!.year, lastRunDate!.month + 1, lastRunDate!.day)
+        : DateTime(lastRunDate!.year + 1, lastRunDate!.month, lastRunDate!.day);
   }
 
   bool get isDue => nextRunDate.isBefore(DateTime.now());
