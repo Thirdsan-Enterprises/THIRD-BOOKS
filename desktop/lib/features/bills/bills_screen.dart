@@ -376,6 +376,12 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                         ),
                         if (bill.status != BillStatus.paid && bill.status != BillStatus.cancelled)
                           IconButton(
+                            icon: const Icon(Icons.edit_outlined, size: 18),
+                            onPressed: () => _showEditBillDialog(context, bill),
+                            tooltip: 'Edit Bill',
+                          ),
+                        if (bill.status != BillStatus.paid && bill.status != BillStatus.cancelled)
+                          IconButton(
                             icon: const Icon(Icons.payment_outlined, size: 18),
                             onPressed: () => _showRecordPaymentDialog(context, bill),
                             tooltip: 'Pay Bill',
@@ -876,6 +882,317 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                   }
                 },
                 child: const Text('Save Bill'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showEditBillDialog(BuildContext context, Bill bill) {
+    final vendorsState  = ref.read(vendorsProvider);
+    final accountsState = ref.read(accountsProvider);
+
+    String selectedCurrency   = bill.currencyCode;
+    String? selectedCategory  = bill.category;
+    String? selectedVendorId  = bill.vendorId;
+    final referenceCtrl = TextEditingController(text: bill.reference ?? '');
+    final notesCtrl     = TextEditingController(text: bill.notes ?? '');
+    DateTime billDate   = bill.date;
+    DateTime dueDate    = bill.dueDate;
+
+    // Seed line items from existing bill lines (qty=1, unitPrice=line amount)
+    final List<_BillLineData> lines = bill.lines.map((l) {
+      final ld = _BillLineData();
+      ld.accountId  = l.accountId;
+      ld.description = l.description;
+      ld.qty       = 1;
+      ld.unitPrice  = l.amount;
+      return ld;
+    }).toList();
+    if (lines.isEmpty) lines.add(_BillLineData());
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final enableVAT = ref.read(appSettingsProvider).enableVAT;
+          final subtotal = lines.fold(0.0, (s, l) => s + l.amount);
+          final vat      = enableVAT ? subtotal * 0.18 : 0.0;
+          final total    = subtotal + vat;
+          final fmt      = NumberFormat('#,###');
+
+          return AlertDialog(
+            title: Row(
+              children: [
+                const Icon(Icons.edit_outlined, size: 20),
+                const SizedBox(width: 8),
+                Text('Edit Bill — ${bill.billNumber}'),
+                if (bill.amountPaid > 0) ...[
+                  const SizedBox(width: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.warning.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'Has payments — amount changes affect balance only',
+                      style: TextStyle(fontSize: 11, color: AppColors.warning),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            content: SizedBox(
+              width: 760,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: DropdownButtonFormField<String>(
+                            decoration: const InputDecoration(labelText: 'Vendor *'),
+                            value: selectedVendorId,
+                            items: vendorsState.vendors
+                                .map((v) => DropdownMenuItem(value: v.id, child: Text(v.name)))
+                                .toList(),
+                            onChanged: (v) => setDialogState(() => selectedVendorId = v),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 110,
+                          child: DropdownButtonFormField<String>(
+                            value: selectedCurrency,
+                            decoration: const InputDecoration(labelText: 'Currency'),
+                            items: ['UGX', 'USD', 'EUR', 'GBP', 'KES', 'TZS']
+                                .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                                .toList(),
+                            onChanged: (v) => setDialogState(() => selectedCurrency = v ?? 'UGX'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: selectedCategory,
+                            decoration: const InputDecoration(labelText: 'Category'),
+                            items: [
+                              'Inventory', 'Office Supplies', 'Utilities', 'Raw Materials',
+                              'Services', 'Equipment', 'Vehicle', 'Furniture',
+                              'Electronics', 'Machinery', 'Building', 'Land',
+                            ].map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                            onChanged: (v) => setDialogState(() => selectedCategory = v),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            decoration: const InputDecoration(
+                              labelText: 'Bill Date',
+                              suffixIcon: Icon(Icons.calendar_today, size: 18),
+                            ),
+                            readOnly: true,
+                            controller: TextEditingController(
+                              text: DateFormat('MMM d, yyyy').format(billDate),
+                            ),
+                            onTap: () async {
+                              final d = await showDatePicker(
+                                context: context,
+                                initialDate: billDate,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                              );
+                              if (d != null) setDialogState(() => billDate = d);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            decoration: const InputDecoration(
+                              labelText: 'Due Date',
+                              suffixIcon: Icon(Icons.calendar_today, size: 18),
+                            ),
+                            readOnly: true,
+                            controller: TextEditingController(
+                              text: DateFormat('MMM d, yyyy').format(dueDate),
+                            ),
+                            onTap: () async {
+                              final d = await showDatePicker(
+                                context: context,
+                                initialDate: dueDate,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now().add(const Duration(days: 730)),
+                              );
+                              if (d != null) setDialogState(() => dueDate = d);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: referenceCtrl,
+                            decoration: const InputDecoration(labelText: 'Reference Number'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: notesCtrl,
+                      decoration: const InputDecoration(labelText: 'Notes'),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 24),
+                    Text('Line Items', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Theme.of(context).dividerColor),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(flex: 3, child: Text('Account', style: const TextStyle(fontWeight: FontWeight.w600))),
+                              Expanded(flex: 2, child: Text('Description', style: const TextStyle(fontWeight: FontWeight.w600))),
+                              SizedBox(width: 72, child: Text('Qty', style: const TextStyle(fontWeight: FontWeight.w600))),
+                              SizedBox(width: 100, child: Text('Unit Price', style: const TextStyle(fontWeight: FontWeight.w600))),
+                              SizedBox(width: 100, child: Text('Amount', style: const TextStyle(fontWeight: FontWeight.w600))),
+                              const SizedBox(width: 40),
+                            ],
+                          ),
+                          const Divider(),
+                          ...lines.asMap().entries.map((entry) {
+                            final idx  = entry.key;
+                            final line = entry.value;
+                            return _BillLineWidget(
+                              key: ValueKey(line.id),
+                              line: line,
+                              accounts: accountsState.accounts,
+                              currency: selectedCurrency,
+                              onChanged: () => setDialogState(() {}),
+                              onDelete: lines.length > 1
+                                  ? () => setDialogState(() => lines.removeAt(idx))
+                                  : null,
+                            );
+                          }),
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: () => setDialogState(() => lines.add(_BillLineData())),
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Add Line'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text('$selectedCurrency Subtotal: ${fmt.format(subtotal)}'),
+                            if (enableVAT) Text('$selectedCurrency VAT (18%): ${fmt.format(vat)}'),
+                            const SizedBox(height: 4),
+                            Text(
+                              '$selectedCurrency Total: ${fmt.format(total)}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton.icon(
+                icon: const Icon(Icons.save_outlined, size: 18),
+                onPressed: () {
+                  if (selectedVendorId == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Please select a vendor.'), backgroundColor: AppColors.warning),
+                    );
+                    return;
+                  }
+                  final validLines = lines.where((l) => l.amount > 0).toList();
+                  if (validLines.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Add at least one line item.'), backgroundColor: AppColors.warning),
+                    );
+                    return;
+                  }
+
+                  final newSubtotal  = validLines.fold<double>(0, (s, l) => s + l.amount);
+                  final newTaxAmount = enableVAT ? newSubtotal * 0.18 : 0.0;
+                  final newTotal     = newSubtotal + newTaxAmount;
+                  final vendor       = vendorsState.vendors.firstWhere((v) => v.id == selectedVendorId);
+
+                  // Derive status from payment state relative to new total
+                  BillStatus newStatus;
+                  if (bill.amountPaid <= 0) {
+                    newStatus = BillStatus.pending;
+                  } else if (bill.amountPaid >= newTotal) {
+                    newStatus = BillStatus.paid;
+                  } else {
+                    newStatus = BillStatus.partial;
+                  }
+
+                  final updatedBill = Bill(
+                    id: bill.id,
+                    billNumber: bill.billNumber,
+                    vendorId: selectedVendorId!,
+                    vendorName: vendor.name,
+                    date: billDate,
+                    dueDate: dueDate,
+                    subtotal: newSubtotal,
+                    taxAmount: newTaxAmount,
+                    total: newTotal,
+                    amountPaid: bill.amountPaid,
+                    status: newStatus,
+                    currencyCode: selectedCurrency,
+                    category: selectedCategory,
+                    reference: referenceCtrl.text.trim().isEmpty ? null : referenceCtrl.text.trim(),
+                    notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
+                    lines: validLines.map((l) => BillLine(
+                      id: l.id,
+                      billId: bill.id,
+                      accountId: l.accountId,
+                      description: l.description,
+                      amount: l.amount,
+                      taxRate: enableVAT ? 0.18 : 0.0,
+                      taxAmount: enableVAT ? l.amount * 0.18 : 0.0,
+                    )).toList(),
+                    createdAt: bill.createdAt,
+                    updatedAt: DateTime.now(),
+                  );
+
+                  ref.read(billsProvider.notifier).updateBill(updatedBill);
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Bill updated successfully'), backgroundColor: AppColors.success),
+                  );
+                },
+                label: const Text('Save Changes'),
               ),
             ],
           );

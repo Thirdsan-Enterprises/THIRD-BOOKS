@@ -62,10 +62,10 @@ class DepreciationSchedule {
 
   bool get isDue => nextRunDate.isBefore(DateTime.now());
 
-  DepreciationSchedule applyDepreciation() {
+  DepreciationSchedule applyDepreciation([DateTime? forDate]) {
     final dep = nextDepreciation;
     final newValue = (currentValue - dep).clamp(0.0, assetValue);
-    return copyWith(currentValue: newValue, lastRunDate: DateTime.now());
+    return copyWith(currentValue: newValue, lastRunDate: forDate ?? DateTime.now());
   }
 
   DepreciationSchedule copyWith({
@@ -158,6 +158,13 @@ class DepreciationSchedulesNotifier
     state = state
         .map((s) => s.id == id ? s.applyDepreciation() : s)
         .toList();
+    await _save();
+  }
+
+  /// Replace the schedule with an already-updated instance (used when back-filling
+  /// multiple overdue periods at once in depreciation_screen).
+  Future<void> updateSchedule(DepreciationSchedule updated) async {
+    state = state.map((s) => s.id == updated.id ? updated : s).toList();
     await _save();
   }
 
