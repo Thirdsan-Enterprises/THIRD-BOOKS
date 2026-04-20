@@ -40,33 +40,53 @@ class DepreciationSchedule {
   });
 
   // ── Computed values ────────────────────────────────────────────────────────
-  double get periodRate =>
-      period == 'monthly' ? rate / 100 / 12 : rate / 100;
-
-  double get nextDepreciation =>
-      method == 'declining_balance'
-          ? currentValue * periodRate
-          : assetValue * periodRate;
 
   double get accumulatedDepreciation => assetValue - currentValue;
 
   double get percentageDepreciated =>
       assetValue > 0 ? (accumulatedDepreciation / assetValue) * 100 : 0;
 
-  DateTime get nextRunDate {
-    if (lastRunDate == null) {
-      // First period: depreciation covers the purchase month itself.
-      return startDate;
-    }
+  // Returns the last calendar day of the period that starts on [from].
+  // Monthly → last day of [from]'s month. Yearly → Dec 31 of [from]'s year.
+  static DateTime periodEndDate(String period, DateTime from) {
     return period == 'monthly'
-        ? DateTime(lastRunDate!.year, lastRunDate!.month + 1, lastRunDate!.day)
-        : DateTime(lastRunDate!.year + 1, lastRunDate!.month, lastRunDate!.day);
+        ? DateTime(from.year, from.month + 1, 0) // day 0 of next month = last day of this month
+        : DateTime(from.year, 12, 31);
+  }
+
+  // Pro-rata depreciation using daily rate over the exact days in [from..to].
+  double depreciationForPeriod(DateTime from, DateTime to) {
+    final days = to.difference(from).inDays + 1;
+    const daysInYear = 365.0;
+    final dailyRate = rate / 100 / daysInYear;
+    final baseValue = method == 'declining_balance' ? currentValue : assetValue;
+    return (baseValue * dailyRate * days).clamp(0.0, currentValue);
+  }
+
+  // Next period's pro-rata depreciation (used for display in UI cards).
+  double get nextDepreciation {
+    final from = nextRunDate;
+    final to = DepreciationSchedule.periodEndDate(period, from);
+    return depreciationForPeriod(from, to);
+  }
+
+  // First period: starts at purchase date.
+  // Subsequent periods: always the 1st of the next calendar month/year so
+  // that each period covers a full calendar month after the first partial one.
+  DateTime get nextRunDate {
+    if (lastRunDate == null) return startDate;
+    return period == 'monthly'
+        ? DateTime(lastRunDate!.year, lastRunDate!.month + 1, 1)
+        : DateTime(lastRunDate!.year + 1, 1, 1);
   }
 
   bool get isDue => nextRunDate.isBefore(DateTime.now());
 
-  DepreciationSchedule applyDepreciation([DateTime? forDate]) {
-    final dep = nextDepreciation;
+  // [forDate] should be the LAST day of the period (periodEndDate) so that the
+  // next nextRunDate advances to the 1st of the following month.
+  // [amount] is the pre-computed pro-rata depreciation for the period.
+  DepreciationSchedule applyDepreciation([DateTime? forDate, double? amount]) {
+    final dep = amount ?? nextDepreciation;
     final newValue = (currentValue - dep).clamp(0.0, assetValue);
     return copyWith(currentValue: newValue, lastRunDate: forDate ?? DateTime.now());
   }
@@ -158,9 +178,12 @@ class DepreciationSchedulesNotifier
   }
 
   Future<void> runDepreciation(String id) async {
-    state = state
-        .map((s) => s.id == id ? s.applyDepreciation() : s)
-        .toList();
+    state = state.map((s) {
+      if (s.id != id) return s;
+      final from = s.nextRunDate;
+      final to   = DepreciationSchedule.periodEndDate(s.period, from);
+      return s.applyDepreciation(to, s.depreciationForPeriod(from, to));
+    }).toList();
     await _save();
   }
 

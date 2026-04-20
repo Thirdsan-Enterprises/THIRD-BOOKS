@@ -746,7 +746,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       ));
     } else if (reportName == 'Cash Flow Statement') {
       final cf = _computeCashFlowFigures();
-      String fmt(double v) => v == 0 ? '—'
+      String fmt(double v) => v == 0 ? '-'
           : v < 0 ? '(UGX ${numFmt.format(v.abs())})'
           : 'UGX ${numFmt.format(v)}';
 
@@ -780,9 +780,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
             pw.SizedBox(height: 4),
             _pdfRow('  Acquisition of Assets',          fmt(-cf['assetAcquisitions']!)),
-            _pdfRow('  Sale of Assets',                 '—'),
-            _pdfRow('  Acquisition of Securities (Bonds)', '—'),
-            _pdfRow('  Receipt of Interest on Bonds',   '—'),
+            _pdfRow('  Sale of Assets',                    '-'),
+            _pdfRow('  Acquisition of Securities (Bonds)', '-'),
+            _pdfRow('  Receipt of Interest on Bonds',      '-'),
             _pdfDivider(),
             _pdfRow('NET CASH FROM INVESTING ACTIVITIES', fmt(cf['netInvesting']!), bold: true),
             pw.SizedBox(height: 12),
@@ -2663,9 +2663,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ['Operating', 'NET CASH FROM OPERATING ACTIVITIES',                          fmtCsv(cf['netOperating']!)],
           [],
           ['Investing', 'Acquisition of Assets',                                       fmtCsv(-cf['assetAcquisitions']!)],
-          ['Investing', 'Sale of Assets',                                               '—'],
-          ['Investing', 'Acquisition of Securities (Bonds)',                           '—'],
-          ['Investing', 'Receipt of Interest on Bonds',                                '—'],
+          ['Investing', 'Sale of Assets',                                               '-'],
+          ['Investing', 'Acquisition of Securities (Bonds)',                           '-'],
+          ['Investing', 'Receipt of Interest on Bonds',                                '-'],
           ['Investing', 'NET CASH FROM INVESTING ACTIVITIES',                          fmtCsv(cf['netInvesting']!)],
           [],
           ['Financing', 'Acquisition of Loans',                                        fmtCsv(cf['loanProceeds']!)],

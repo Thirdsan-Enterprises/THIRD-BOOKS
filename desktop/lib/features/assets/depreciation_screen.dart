@@ -834,9 +834,12 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
       DepreciationSchedule current = schedule;
 
       // Back-fill every overdue period, each with its own JE dated at the period.
+      // Pro-rata: first period covers purchase date → end of that month;
+      // subsequent periods cover the full calendar month (1st → last day).
       while (current.isDue) {
         final periodDate = current.nextRunDate;
-        final amount = current.nextDepreciation;
+        final periodEnd  = DepreciationSchedule.periodEndDate(current.period, periodDate);
+        final amount     = current.depreciationForPeriod(periodDate, periodEnd);
         if (amount <= 0) break;
 
         final jeId = const Uuid().v4();
@@ -873,8 +876,8 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
           updatedAt: periodDate,
         ));
 
-        // Advance the local copy to the next period (preserves declining-balance math).
-        current = current.applyDepreciation(periodDate);
+        // Store periodEnd as lastRunDate → nextRunDate becomes 1st of next month.
+        current = current.applyDepreciation(periodEnd, amount);
         posted++;
       }
 
