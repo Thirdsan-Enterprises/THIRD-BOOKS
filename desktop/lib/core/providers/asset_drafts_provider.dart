@@ -34,15 +34,21 @@ class AssetDraft {
     this.isConfirmed = false,
   });
 
-  AssetDraft copyWith({bool? isConfirmed}) => AssetDraft(
+  AssetDraft copyWith({
+    String? assetName,
+    double? amount,
+    String? vendorName,
+    DateTime? date,
+    bool? isConfirmed,
+  }) => AssetDraft(
         id: id,
-        assetName: assetName,
+        assetName: assetName ?? this.assetName,
         category: category,
-        amount: amount,
+        amount: amount ?? this.amount,
         currency: currency,
-        vendorName: vendorName,
+        vendorName: vendorName ?? this.vendorName,
         billReference: billReference,
-        date: date,
+        date: date ?? this.date,
         isConfirmed: isConfirmed ?? this.isConfirmed,
       );
 
@@ -139,6 +145,48 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
   Future<void> removeDraft(String id) async {
     await _loadCompleter.future;
     state = state.where((a) => a.id != id).toList();
+    await _save();
+  }
+
+  /// Update the amount (and optional metadata) of the draft linked to a bill.
+  /// If no draft exists for [billRef] yet, creates a new one from the supplied
+  /// parameters (handles the "deleted then re-edit" scenario).
+  Future<void> updateDraftByBillRef(
+    String billRef, {
+    required double amount,
+    String? assetName,
+    String? vendorName,
+    DateTime? date,
+    // Required for recreation when no existing draft is found
+    String? id,
+    String? category,
+    String currency = 'UGX',
+  }) async {
+    await _loadCompleter.future;
+    final idx = state.indexWhere((a) => a.billReference == billRef);
+    if (idx >= 0) {
+      final updated = state[idx].copyWith(
+        amount: amount,
+        assetName: assetName,
+        vendorName: vendorName,
+        date: date,
+      );
+      state = [...state.sublist(0, idx), updated, ...state.sublist(idx + 1)];
+    } else if (id != null && category != null) {
+      state = [
+        ...state,
+        AssetDraft(
+          id: id,
+          assetName: assetName ?? billRef,
+          category: category,
+          amount: amount,
+          currency: currency,
+          vendorName: vendorName,
+          billReference: billRef,
+          date: date ?? DateTime.now(),
+        ),
+      ];
+    }
     await _save();
   }
 

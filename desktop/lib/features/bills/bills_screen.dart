@@ -1257,6 +1257,16 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
   }
 
   void _showBillDetails(BuildContext context, Bill bill) {
+    final payments = ref.read(paymentsProvider).payments
+        .where((p) =>
+            p.paymentType == PaymentType.made &&
+            p.vendorId == bill.vendorId &&
+            (p.notes?.contains(bill.billNumber) ?? false))
+        .toList()
+      ..sort((a, b) => a.paymentDate.compareTo(b.paymentDate));
+
+    final fmt = NumberFormat('#,##0', 'en_US');
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1268,30 +1278,186 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
           ],
         ),
         content: SizedBox(
-          width: 600,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _DetailRow('Vendor', bill.vendorName ?? '-'),
-              _DetailRow('Bill Date', DateFormat('MMMM d, yyyy').format(bill.date)),
-              _DetailRow('Due Date', DateFormat('MMMM d, yyyy').format(bill.dueDate)),
-              _DetailRow('Items', '${bill.lines.length} items'),
-              const Divider(),
-              _DetailRow('Subtotal', 'UGX ${_currencyFormat.format(bill.subtotal)}'),
-              if (bill.taxAmount > 0)
-                _DetailRow('VAT (18%)', 'UGX ${_currencyFormat.format(bill.taxAmount)}'),
-              _DetailRow('Total', 'UGX ${_currencyFormat.format(bill.total)}'),
-              _DetailRow('Amount Paid', 'UGX ${_currencyFormat.format(bill.amountPaid)}'),
-              _DetailRow('Balance Due', 'UGX ${_currencyFormat.format(bill.total - bill.amountPaid)}'),
-              const SizedBox(height: 12),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
-              AttachmentPanel(
-                attachableType: 'bill',
-                localRecordId: bill.id,
-              ),
-            ],
+          width: 700,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Header info ────────────────────────────────────────────
+                Row(
+                  children: [
+                    Expanded(child: _DetailRow('Vendor', bill.vendorName ?? '-')),
+                    Expanded(child: _DetailRow('Bill Date',
+                        DateFormat('MMM d, yyyy').format(bill.date))),
+                    Expanded(child: _DetailRow('Due Date',
+                        DateFormat('MMM d, yyyy').format(bill.dueDate))),
+                  ],
+                ),
+                if (bill.reference != null && bill.reference!.isNotEmpty)
+                  _DetailRow('Reference', bill.reference!),
+                if (bill.notes != null && bill.notes!.isNotEmpty)
+                  _DetailRow('Notes', bill.notes!),
+                const SizedBox(height: 16),
+
+                // ── Line items ─────────────────────────────────────────────
+                Text('Line Items',
+                    style: Theme.of(context).textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Theme.of(context).dividerColor),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Table(
+                    columnWidths: const {
+                      0: FlexColumnWidth(3),
+                      1: FlexColumnWidth(3),
+                      2: FlexColumnWidth(1),
+                      3: FlexColumnWidth(2),
+                      4: FlexColumnWidth(1),
+                      5: FlexColumnWidth(2),
+                    },
+                    children: [
+                      TableRow(
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceVariant,
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(6),
+                            topRight: Radius.circular(6),
+                          ),
+                        ),
+                        children: [
+                          _th('Account'),
+                          _th('Description'),
+                          _th('Qty'),
+                          _th('Unit Price'),
+                          _th('VAT%'),
+                          _th('Amount', align: TextAlign.right),
+                        ],
+                      ),
+                      ...bill.lines.map((l) => TableRow(
+                        children: [
+                          _td(l.accountName ?? l.accountId),
+                          _td(l.description),
+                          _td('1'),
+                          _td('UGX ${fmt.format(l.amount)}', align: TextAlign.right),
+                          _td(l.taxRate > 0 ? '${l.taxRate.toStringAsFixed(0)}%' : '-',
+                              align: TextAlign.center),
+                          _td('UGX ${fmt.format(l.amount + l.taxAmount)}',
+                              align: TextAlign.right),
+                        ],
+                      )),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // ── Totals summary ─────────────────────────────────────────
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: SizedBox(
+                    width: 280,
+                    child: Column(
+                      children: [
+                        _DetailRow('Subtotal', 'UGX ${fmt.format(bill.subtotal)}'),
+                        if (bill.taxAmount > 0)
+                          _DetailRow('VAT (18%)', 'UGX ${fmt.format(bill.taxAmount)}'),
+                        const Divider(height: 8),
+                        _DetailRow('Total', 'UGX ${fmt.format(bill.total)}'),
+                        _DetailRow('Amount Paid', 'UGX ${fmt.format(bill.amountPaid)}'),
+                        _DetailRow(
+                          'Balance Due',
+                          'UGX ${fmt.format(bill.total - bill.amountPaid)}',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // ── Payment history ────────────────────────────────────────
+                Text('Payment History',
+                    style: Theme.of(context).textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                if (payments.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text('No payments recorded yet.',
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.outline)),
+                  )
+                else
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Table(
+                      columnWidths: const {
+                        0: FlexColumnWidth(2),
+                        1: FlexColumnWidth(2),
+                        2: FlexColumnWidth(2),
+                        3: FlexColumnWidth(2),
+                      },
+                      children: [
+                        TableRow(
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceVariant,
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(6),
+                              topRight: Radius.circular(6),
+                            ),
+                          ),
+                          children: [
+                            _th('Date'),
+                            _th('Method'),
+                            _th('Reference'),
+                            _th('Amount', align: TextAlign.right),
+                          ],
+                        ),
+                        ...payments.map((p) => TableRow(
+                          children: [
+                            _td(DateFormat('MMM d, yyyy').format(p.paymentDate)),
+                            _td(p.paymentMethod),
+                            _td(p.reference ?? p.paymentNumber),
+                            _td('UGX ${fmt.format(p.amount)}',
+                                align: TextAlign.right),
+                          ],
+                        )),
+                        TableRow(
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceVariant
+                                .withOpacity(0.5),
+                          ),
+                          children: [
+                            _td(''),
+                            _td(''),
+                            _td('Total Paid',
+                                bold: true, align: TextAlign.right),
+                            _td(
+                              'UGX ${fmt.format(bill.amountPaid)}',
+                              bold: true,
+                              align: TextAlign.right,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                AttachmentPanel(
+                  attachableType: 'bill',
+                  localRecordId: bill.id,
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -1312,6 +1478,25 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
       ),
     );
   }
+
+  static Widget _th(String label, {TextAlign align = TextAlign.left}) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Text(label,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+            textAlign: align),
+      );
+
+  static Widget _td(String value,
+          {TextAlign align = TextAlign.left, bool bold = false}) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        child: Text(value,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: bold ? FontWeight.w600 : FontWeight.normal),
+            textAlign: align),
+      );
 
   void _showRecordPaymentDialog(BuildContext context, Bill bill) {
     final balance = bill.total - bill.amountPaid;

@@ -17,6 +17,7 @@ import 'sync_service.dart';
 import 'theme_service.dart';
 import '../models/models.dart';
 import '../database/app_database.dart' hide Account, Customer, Vendor, Invoice, Bill, JournalEntry, JournalLine;
+import '../providers/asset_drafts_provider.dart';
 
 // Global local storage instance
 final _localStorage = LocalStorageService.instance;
@@ -1157,8 +1158,122 @@ class BillsNotifier extends StateNotifier<BillsState> {
       return b.id == bill.id ? bill : b;
     }).toList();
     state = state.copyWith(bills: updatedBills);
-
     _localStorage.saveBills(updatedBills);
+
+    // ── Sync linked GL journal entry ──────────────────────────────────────
+    final jeNumber = 'BILL-JE-${bill.billNumber}';
+    final allEntries = _ref.read(journalsProvider).entries;
+    final existingJE = allEntries.cast<JournalEntry?>().firstWhere(
+      (e) => e?.entryNumber == jeNumber,
+      orElse: () => null,
+    );
+    if (existingJE != null) {
+      final allAccounts = _ref.read(accountsProvider).accounts;
+      Account? lookupAcct(String id) => allAccounts
+          .cast<Account?>()
+          .firstWhere((a) => a?.id == id, orElse: () => null);
+
+      final updatedLines = <JournalLine>[];
+      for (var i = 0; i < bill.lines.length; i++) {
+        final l = bill.lines[i];
+        if (l.amount <= 0) continue;
+        final acc = lookupAcct(l.accountId);
+        final category = _coaCategory(acc?.type);
+        final lineDesc = l.description.trim().isEmpty ? null : l.description.trim();
+        updatedLines.add(JournalLine(
+          id: '${existingJE.id}-exp-$i',
+          journalEntryId: existingJE.id,
+          accountId: l.accountId,
+          accountCode: l.accountId.replaceAll('acct-', ''),
+          accountName: acc?.name ?? l.accountName ?? l.description,
+          debit: l.amount + l.taxAmount,
+          credit: 0,
+          description: lineDesc != null ? '[$category] $lineDesc' : '[$category]',
+        ));
+      }
+      if (updatedLines.isEmpty) {
+        updatedLines.add(JournalLine(
+          id: '${existingJE.id}-exp-0',
+          journalEntryId: existingJE.id,
+          accountId: 'acct-125',
+          accountCode: '125',
+          accountName: 'Operating Expenses',
+          debit: bill.total,
+          credit: 0,
+          description: '[Expense]',
+        ));
+      }
+      updatedLines.add(JournalLine(
+        id: '${existingJE.id}-ap',
+        journalEntryId: existingJE.id,
+        accountId: 'acct-164',
+        accountCode: '164',
+        accountName: 'Accounts Payable',
+        debit: 0,
+        credit: bill.total,
+        description: '[Liability] Payable to ${bill.vendorName ?? bill.vendorId}',
+      ));
+
+      _ref.read(journalsProvider.notifier).updateEntry(
+        existingJE.copyWith(
+          date: bill.date,
+          description: 'Bill ${bill.billNumber} — ${bill.vendorName ?? bill.vendorId}',
+          lines: updatedLines,
+          updatedAt: DateTime.now(),
+        ),
+      );
+    }
+
+    // ── Sync linked AssetDraft (if any bill line is a fixed-asset account) ─
+    final billAccounts = _ref.read(accountsProvider).accounts;
+    Account? lookupBillAcct(String id) => billAccounts
+        .cast<Account?>()
+        .firstWhere((a) => a?.id == id, orElse: () => null);
+
+    bool _isFixedAssetAcct(Account? a) =>
+        a != null &&
+        a.type == AccountType.asset &&
+        (a.subType == AccountSubType.fixedAsset ||
+            a.subType == AccountSubType.otherAsset ||
+            a.subType == AccountSubType.otherCurrentAsset);
+
+    String _inferCategory(Account acct) {
+      final n = acct.name.toLowerCase();
+      if (n.contains('vehicle') || n.contains('motor') || n.contains('car')) return 'Vehicle';
+      if (n.contains('furniture') || n.contains('fittings')) return 'Furniture';
+      if (n.contains('computer') || n.contains('laptop') || n.contains('electronic') || n.contains('phone')) return 'Electronics';
+      if (n.contains('building') || n.contains('premises') || n.contains('property')) return 'Building';
+      if (n.contains('land') || n.contains('plot')) return 'Land';
+      if (n.contains('machine') || n.contains('machinery') || n.contains('plant')) return 'Machinery';
+      return 'Equipment';
+    }
+
+    final billRef = (bill.reference?.trim().isNotEmpty ?? false)
+        ? bill.reference!
+        : bill.billNumber;
+
+    for (var i = 0; i < bill.lines.length; i++) {
+      final l = bill.lines[i];
+      if (l.amount <= 0) continue;
+      final acct = lookupBillAcct(l.accountId);
+      if (!_isFixedAssetAcct(acct)) continue;
+      final category = _inferCategory(acct!);
+      final assetName = l.description.trim().isNotEmpty
+          ? l.description.trim()
+          : bill.vendorName != null && bill.vendorName!.isNotEmpty
+              ? '${acct.name} — ${bill.vendorName}'
+              : acct.name;
+      _ref.read(assetDraftsProvider.notifier).updateDraftByBillRef(
+        billRef,
+        amount: l.amount,
+        assetName: assetName,
+        vendorName: bill.vendorName,
+        date: bill.date,
+        id: '${bill.id}_${l.id}',
+        category: category,
+        currency: bill.currencyCode,
+      );
+    }
 
     _ref.read(syncServiceProvider.notifier).queueChange(
       action: SyncAction.update,

@@ -607,24 +607,93 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       final taxMPdf  = {for (final m in isMonthsPdf) m: _monthSum(taxAcctsPdf, isMonthlyPdf, m)};
       final opexMPdf = {for (final m in isMonthsPdf) m: _monthSum(opexAcctsPdf, isMonthlyPdf, m)};
 
-      final tableDataPdf = <List<String>>[];
-      for (final a in revAcctsPdf) tableDataPdf.add(acctRowPdf(a.name, [a]));
-      tableDataPdf.add(acctRowPdf('Total Revenue', revAcctsPdf));
-      for (final a in corAcctsPdf) tableDataPdf.add(acctRowPdf(a.name, [a], br: true));
-      tableDataPdf.add(acctRowPdf('Total Cost of Revenue', corAcctsPdf, br: true));
-      tableDataPdf.add(derivedRowPdf('Gross Gaming Revenue (GGR)',
-          (m) => (revMPdf[m] ?? 0) - (corMPdf[m] ?? 0)));
-      if (taxAcctsPdf.isNotEmpty) {
-        for (final a in taxAcctsPdf) tableDataPdf.add(acctRowPdf(a.name, [a], br: true));
-        tableDataPdf.add(derivedRowPdf('Net Gaming Revenue (NGR)',
-            (m) => (revMPdf[m] ?? 0) - (corMPdf[m] ?? 0) - (taxMPdf[m] ?? 0)));
+      // Build rows as pw.Widget lists so we can bold specific rows reliably.
+      pw.Widget isCell(String v,
+          {bool bold = false,
+          bool rightAlign = false,
+          PdfColor? bg}) {
+        final widget = pw.Text(
+          v,
+          style: pw.TextStyle(
+            fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+            fontSize: 8,
+          ),
+          textAlign: rightAlign ? pw.TextAlign.right : pw.TextAlign.left,
+        );
+        if (bg != null) {
+          return pw.Container(
+              color: bg,
+              padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+              child: widget);
+        }
+        return pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+            child: widget);
       }
-      for (final a in opexAcctsPdf) tableDataPdf.add(acctRowPdf(a.name, [a], br: true));
-      tableDataPdf.add(acctRowPdf('Total Operating Expenses', opexAcctsPdf, br: true));
-      tableDataPdf.add(derivedRowPdf('Net Profit', (m) {
-        final ggr = (revMPdf[m] ?? 0) - (corMPdf[m] ?? 0);
-        return ggr - (taxMPdf[m] ?? 0) - (opexMPdf[m] ?? 0);
-      }));
+
+      final int numMonths = isMonthsPdf.length;
+      final int numCols   = numMonths + 2; // label + months + YTD
+
+      List<pw.Widget> sectionRow(String label) {
+        return [
+          isCell(label, bold: true, bg: PdfColors.blueGrey50),
+          ...List.generate(numCols - 1,
+              (_) => isCell('', bold: true, bg: PdfColors.blueGrey50)),
+        ];
+      }
+
+      List<pw.Widget> dataRowWidgets(List<String> strings,
+          {bool bold = false}) {
+        return strings.asMap().entries.map((e) {
+          final isNum = e.key > 0;
+          return isCell(e.value, bold: bold, rightAlign: isNum);
+        }).toList();
+      }
+
+      final tableRows = <List<pw.Widget>>[];
+
+      tableRows.add(sectionRow('REVENUE'));
+      for (final a in revAcctsPdf) {
+        tableRows.add(dataRowWidgets(acctRowPdf(a.name, [a])));
+      }
+      tableRows.add(dataRowWidgets(acctRowPdf('Total Revenue', revAcctsPdf), bold: true));
+
+      tableRows.add(sectionRow('COST OF REVENUE'));
+      for (final a in corAcctsPdf) {
+        tableRows.add(dataRowWidgets(acctRowPdf(a.name, [a], br: true)));
+      }
+      tableRows.add(dataRowWidgets(
+          acctRowPdf('Total Cost of Revenue', corAcctsPdf, br: true),
+          bold: true));
+      tableRows.add(dataRowWidgets(
+          derivedRowPdf('Gross Gaming Revenue (GGR)',
+              (m) => (revMPdf[m] ?? 0) - (corMPdf[m] ?? 0)),
+          bold: true));
+
+      if (taxAcctsPdf.isNotEmpty) {
+        tableRows.add(sectionRow('DIRECT TAXES'));
+        for (final a in taxAcctsPdf) {
+          tableRows.add(dataRowWidgets(acctRowPdf(a.name, [a], br: true)));
+        }
+        tableRows.add(dataRowWidgets(
+            derivedRowPdf('Net Gaming Revenue (NGR)',
+                (m) => (revMPdf[m] ?? 0) - (corMPdf[m] ?? 0) - (taxMPdf[m] ?? 0)),
+            bold: true));
+      }
+
+      tableRows.add(sectionRow('OPERATING EXPENSES'));
+      for (final a in opexAcctsPdf) {
+        tableRows.add(dataRowWidgets(acctRowPdf(a.name, [a], br: true)));
+      }
+      tableRows.add(dataRowWidgets(
+          acctRowPdf('Total Operating Expenses', opexAcctsPdf, br: true),
+          bold: true));
+      tableRows.add(dataRowWidgets(
+          derivedRowPdf('Net Profit', (m) {
+            final ggr = (revMPdf[m] ?? 0) - (corMPdf[m] ?? 0);
+            return ggr - (taxMPdf[m] ?? 0) - (opexMPdf[m] ?? 0);
+          }),
+          bold: true));
 
       final isHeadersPdf = <String>[
         'Line Item',
@@ -632,24 +701,47 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         'YTD',
       ];
 
+      // Build column-width map: label column is 3x wider than month columns.
+      final Map<int, pw.TableColumnWidth> isColWidths = {
+        0: const pw.FlexColumnWidth(3),
+      };
+      for (int i = 1; i < numCols; i++) {
+        isColWidths[i] = const pw.FlexColumnWidth(1);
+      }
+
       pdf.addPage(pw.MultiPage(
         pageFormat: PdfPageFormat.a4.landscape,
         margin: const pw.EdgeInsets.symmetric(horizontal: 36, vertical: 32),
         build: (pw.Context ctx) => [
           buildHeader('INCOME STATEMENT — $isYearPdf'),
           pw.SizedBox(height: 6),
-          pw.TableHelper.fromTextArray(
-            headers: isHeadersPdf,
-            data: tableDataPdf,
-            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
-            cellStyle: const pw.TextStyle(fontSize: 8),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
+          pw.Table(
             border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-            cellAlignments: {
-              0: pw.Alignment.centerLeft,
-              for (int i = 1; i <= isMonthsPdf.length + 1; i++)
-                i: pw.Alignment.centerRight,
-            },
+            columnWidths: isColWidths,
+            children: [
+              // Header row
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
+                children: isHeadersPdf
+                    .asMap()
+                    .entries
+                    .map((e) => pw.Padding(
+                          padding: const pw.EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 4),
+                          child: pw.Text(
+                            e.value,
+                            style: pw.TextStyle(
+                                fontWeight: pw.FontWeight.bold, fontSize: 8),
+                            textAlign: e.key > 0
+                                ? pw.TextAlign.right
+                                : pw.TextAlign.left,
+                          ),
+                        ))
+                    .toList(),
+              ),
+              // Data rows
+              ...tableRows.map((cells) => pw.TableRow(children: cells)),
+            ],
           ),
         ],
       ));

@@ -385,36 +385,39 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                   ),
                   DataCell(_buildStatusBadge(entry.status)),
                   DataCell(
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.visibility_outlined, size: 18),
-                          onPressed: () => _showEntryDetails(context, entry),
-                          tooltip: 'View',
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                          onPressed: entry.status != JournalEntryStatus.voided
-                              ? () => _showEditEntryDialog(context, entry)
-                              : null,
-                          tooltip: 'Edit',
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          onPressed: () => _confirmDeleteEntry(context, entry),
-                          tooltip: 'Delete',
-                          color: AppColors.error,
-                        ),
-                        if (entry.status == JournalEntryStatus.draft ||
-                            entry.status == JournalEntryStatus.pending)
+                    SizedBox(
+                      width: 168,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           IconButton(
-                            icon: const Icon(Icons.check_circle_outline, size: 18),
-                            onPressed: () => _postEntry(context, entry),
-                            tooltip: 'Post',
-                            color: AppColors.income,
+                            icon: const Icon(Icons.visibility_outlined, size: 18),
+                            onPressed: () => _showEntryDetails(context, entry),
+                            tooltip: 'View',
                           ),
-                      ],
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined, size: 18),
+                            onPressed: entry.status != JournalEntryStatus.voided
+                                ? () => _showEditEntryDialog(context, entry)
+                                : null,
+                            tooltip: 'Edit',
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, size: 18),
+                            onPressed: () => _confirmDeleteEntry(context, entry),
+                            tooltip: 'Delete',
+                            color: AppColors.error,
+                          ),
+                          if (entry.status == JournalEntryStatus.draft ||
+                              entry.status == JournalEntryStatus.pending)
+                            IconButton(
+                              icon: const Icon(Icons.check_circle_outline, size: 18),
+                              onPressed: () => _postEntry(context, entry),
+                              tooltip: 'Post',
+                              color: AppColors.income,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
