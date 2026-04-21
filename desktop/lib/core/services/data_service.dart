@@ -1075,6 +1075,83 @@ class BillsNotifier extends StateNotifier<BillsState> {
     );
   }
 
+  /// Delete a bill and post a reversal journal entry to undo the original
+  /// DR Expense / CR Accounts Payable double-entry created by [addBill].
+  void deleteBill(String billId) {
+    final billIndex = state.bills.indexWhere((b) => b.id == billId);
+    if (billIndex == -1) return;
+    final bill = state.bills[billIndex];
+
+    final updatedBills = state.bills.where((b) => b.id != billId).toList();
+    state = state.copyWith(bills: updatedBills);
+    _localStorage.saveBills(updatedBills);
+
+    // Post reversal JE: DR Accounts Payable / CR each expense account.
+    final now = DateTime.now();
+    final jeId = _uuid.v4();
+    final allAccounts = _ref.read(accountsProvider).accounts;
+    Account? lookupAcct(String id) =>
+        allAccounts.cast<Account?>().firstWhere((a) => a?.id == id, orElse: () => null);
+
+    final reversalLines = <JournalLine>[];
+    for (var i = 0; i < bill.lines.length; i++) {
+      final l = bill.lines[i];
+      if (l.amount <= 0) continue;
+      final acc = lookupAcct(l.accountId);
+      reversalLines.add(JournalLine(
+        id: '$jeId-rev-$i',
+        journalEntryId: jeId,
+        accountId: l.accountId,
+        accountCode: l.accountId.replaceAll('acct-', ''),
+        accountName: acc?.name ?? l.accountName ?? l.description,
+        debit: 0,
+        credit: l.amount + l.taxAmount,
+        description: '[Reversal] ${l.description}',
+      ));
+    }
+    if (reversalLines.isEmpty) {
+      reversalLines.add(JournalLine(
+        id: '$jeId-rev-0',
+        journalEntryId: jeId,
+        accountId: 'acct-125',
+        accountCode: '125',
+        accountName: 'Operating Expenses',
+        debit: 0,
+        credit: bill.total,
+        description: '[Reversal]',
+      ));
+    }
+    reversalLines.add(JournalLine(
+      id: '$jeId-rev-ap',
+      journalEntryId: jeId,
+      accountId: 'acct-164',
+      accountCode: '164',
+      accountName: 'Accounts Payable',
+      debit: bill.total,
+      credit: 0,
+      description: '[Reversal] ${bill.vendorName ?? bill.vendorId}',
+    ));
+
+    _ref.read(journalsProvider.notifier).addEntry(JournalEntry(
+      id: jeId,
+      entryNumber: 'VOID-BILL-${bill.billNumber}',
+      date: now,
+      description: 'Void Bill ${bill.billNumber} — ${bill.vendorName ?? bill.vendorId}',
+      reference: 'VOID-${bill.billNumber}',
+      status: JournalEntryStatus.posted,
+      lines: reversalLines,
+      createdAt: now,
+      updatedAt: now,
+    ));
+
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.delete,
+      entityType: SyncEntityType.bill,
+      entityId: billId,
+      data: {'id': billId},
+    );
+  }
+
   void updateBill(Bill bill) {
     final updatedBills = state.bills.map((b) {
       return b.id == bill.id ? bill : b;
