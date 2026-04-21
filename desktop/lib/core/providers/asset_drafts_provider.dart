@@ -148,10 +148,21 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
     await _save();
   }
 
-  /// Update the amount (and optional metadata) of the draft linked to a bill.
-  /// If no draft exists for [billRef] yet, creates a new one from the supplied
-  /// parameters (handles the "deleted then re-edit" scenario).
-  Future<void> updateDraftByBillRef(
+  /// Remove every draft linked to [billRef] and replace them with [newDrafts].
+  /// This is the canonical update path when a bill is edited — it guarantees
+  /// exactly one draft per asset line with no stale duplicates.
+  Future<void> resetDraftsForBillRef(
+    String billRef, {
+    required List<AssetDraft> newDrafts,
+  }) async {
+    await _loadCompleter.future;
+    // Keep confirmed assets (already in the register) and unrelated drafts.
+    final keep = state
+        .where((a) => a.billReference != billRef || a.isConfirmed)
+        .toList();
+    state = [...keep, ...newDrafts];
+    await _save();
+  }
     String billRef, {
     required double amount,
     String? assetName,

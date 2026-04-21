@@ -1257,13 +1257,47 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
   }
 
   void _showBillDetails(BuildContext context, Bill bill) {
-    final payments = ref.read(paymentsProvider).payments
+    // Payments recorded via the "Pay Bill" button create a Payment record.
+    final directPayments = ref.read(paymentsProvider).payments
         .where((p) =>
             p.paymentType == PaymentType.made &&
             p.vendorId == bill.vendorId &&
             (p.notes?.contains(bill.billNumber) ?? false))
         .toList()
       ..sort((a, b) => a.paymentDate.compareTo(b.paymentDate));
+
+    // Payments from bank reconciliation create a PAY-JE-* journal entry but
+    // no Payment object. Extract those so they show up in the history too.
+    final allJEs = ref.read(journalsProvider).entries;
+    final payJEs = allJEs
+        .where((e) =>
+            e.entryNumber.startsWith('PAY-JE-') &&
+            e.description.contains(bill.billNumber))
+        .toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    // Deduplicate: remove JEs whose amount already appears in directPayments.
+    final directAmounts = directPayments.map((p) => p.amount).toList();
+    final reconciliationJEs = payJEs.where((je) {
+      final amt = je.lines
+          .where((l) => l.accountId == 'acct-164' && l.debit > 0)
+          .fold(0.0, (s, l) => s + l.debit);
+      if (directAmounts.contains(amt)) {
+        directAmounts.remove(amt); // consume so it matches 1:1
+        return false;
+      }
+      return amt > 0;
+    }).toList();
+
+    // Residual: amount paid that has no detail record at all (e.g. legacy data).
+    final knownPaid = directPayments.fold(0.0, (s, p) => s + p.amount) +
+        reconciliationJEs.fold(0.0, (s, je) {
+          return s +
+              je.lines
+                  .where((l) => l.accountId == 'acct-164' && l.debit > 0)
+                  .fold(0.0, (ss, l) => ss + l.debit);
+        });
+    final residual = bill.amountPaid - knownPaid;
 
     final fmt = NumberFormat('#,##0', 'en_US');
 
@@ -1382,7 +1416,9 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                     style: Theme.of(context).textTheme.titleSmall
                         ?.copyWith(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 6),
-                if (payments.isEmpty)
+                if (directPayments.isEmpty &&
+                    reconciliationJEs.isEmpty &&
+                    residual <= 0.01)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Text('No payments recorded yet.',
@@ -1413,12 +1449,13 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                           ),
                           children: [
                             _th('Date'),
-                            _th('Method'),
+                            _th('Method / Source'),
                             _th('Reference'),
                             _th('Amount', align: TextAlign.right),
                           ],
                         ),
-                        ...payments.map((p) => TableRow(
+                        // Payments via "Pay Bill" button
+                        ...directPayments.map((p) => TableRow(
                           children: [
                             _td(DateFormat('MMM d, yyyy').format(p.paymentDate)),
                             _td(p.paymentMethod),
@@ -1427,6 +1464,34 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                                 align: TextAlign.right),
                           ],
                         )),
+                        // Payments via bank reconciliation (from journal entries)
+                        ...reconciliationJEs.map((je) {
+                          final amt = je.lines
+                              .where((l) =>
+                                  l.accountId == 'acct-164' && l.debit > 0)
+                              .fold(0.0, (s, l) => s + l.debit);
+                          final bankLine = je.lines.firstWhere(
+                            (l) => l.accountId != 'acct-164' && l.credit > 0,
+                            orElse: () => je.lines.first,
+                          );
+                          return TableRow(children: [
+                            _td(DateFormat('MMM d, yyyy').format(je.date)),
+                            _td('Bank Reconciliation (${bankLine.accountName ?? 'Bank'})'),
+                            _td(je.reference ?? je.entryNumber),
+                            _td('UGX ${fmt.format(amt)}',
+                                align: TextAlign.right),
+                          ]);
+                        }),
+                        // Residual: amount tracked in bill but no detail record
+                        if (residual > 0.01)
+                          TableRow(children: [
+                            _td('-'),
+                            _td('Recorded (no detail)'),
+                            _td('-'),
+                            _td('UGX ${fmt.format(residual)}',
+                                align: TextAlign.right),
+                          ]),
+                        // Total footer
                         TableRow(
                           decoration: BoxDecoration(
                             color: Theme.of(context)
@@ -1439,11 +1504,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                             _td(''),
                             _td('Total Paid',
                                 bold: true, align: TextAlign.right),
-                            _td(
-                              'UGX ${fmt.format(bill.amountPaid)}',
-                              bold: true,
-                              align: TextAlign.right,
-                            ),
+                            _td('UGX ${fmt.format(bill.amountPaid)}',
+                                bold: true, align: TextAlign.right),
                           ],
                         ),
                       ],

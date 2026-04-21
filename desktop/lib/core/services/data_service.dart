@@ -1225,19 +1225,21 @@ class BillsNotifier extends StateNotifier<BillsState> {
     }
 
     // ── Sync linked AssetDraft (if any bill line is a fixed-asset account) ─
+    // Replace ALL unconfirmed drafts for this bill reference atomically so
+    // there is never more than one draft per asset line.
     final billAccounts = _ref.read(accountsProvider).accounts;
     Account? lookupBillAcct(String id) => billAccounts
         .cast<Account?>()
         .firstWhere((a) => a?.id == id, orElse: () => null);
 
-    bool _isFixedAssetAcct(Account? a) =>
+    bool isFixedAssetAcct(Account? a) =>
         a != null &&
         a.type == AccountType.asset &&
         (a.subType == AccountSubType.fixedAsset ||
             a.subType == AccountSubType.otherAsset ||
             a.subType == AccountSubType.otherCurrentAsset);
 
-    String _inferCategory(Account acct) {
+    String inferCategory(Account acct) {
       final n = acct.name.toLowerCase();
       if (n.contains('vehicle') || n.contains('motor') || n.contains('car')) return 'Vehicle';
       if (n.contains('furniture') || n.contains('fittings')) return 'Furniture';
@@ -1252,26 +1254,35 @@ class BillsNotifier extends StateNotifier<BillsState> {
         ? bill.reference!
         : bill.billNumber;
 
+    final newDrafts = <AssetDraft>[];
     for (var i = 0; i < bill.lines.length; i++) {
       final l = bill.lines[i];
       if (l.amount <= 0) continue;
       final acct = lookupBillAcct(l.accountId);
-      if (!_isFixedAssetAcct(acct)) continue;
-      final category = _inferCategory(acct!);
+      if (!isFixedAssetAcct(acct)) continue;
+      final category = inferCategory(acct!);
       final assetName = l.description.trim().isNotEmpty
           ? l.description.trim()
           : bill.vendorName != null && bill.vendorName!.isNotEmpty
               ? '${acct.name} — ${bill.vendorName}'
               : acct.name;
-      _ref.read(assetDraftsProvider.notifier).updateDraftByBillRef(
-        billRef,
-        amount: l.amount,
+      newDrafts.add(AssetDraft(
+        id: '${bill.id}_line_$i',
         assetName: assetName,
-        vendorName: bill.vendorName,
-        date: bill.date,
-        id: '${bill.id}_${l.id}',
         category: category,
+        amount: l.amount,
         currency: bill.currencyCode,
+        vendorName: bill.vendorName,
+        billReference: billRef,
+        date: bill.date,
+      ));
+    }
+
+    // Only reset if the bill actually has asset lines; otherwise leave alone.
+    if (newDrafts.isNotEmpty) {
+      _ref.read(assetDraftsProvider.notifier).resetDraftsForBillRef(
+        billRef,
+        newDrafts: newDrafts,
       );
     }
 
