@@ -163,43 +163,6 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
     state = [...keep, ...newDrafts];
     await _save();
   }
-    String billRef, {
-    required double amount,
-    String? assetName,
-    String? vendorName,
-    DateTime? date,
-    // Required for recreation when no existing draft is found
-    String? id,
-    String? category,
-    String currency = 'UGX',
-  }) async {
-    await _loadCompleter.future;
-    final idx = state.indexWhere((a) => a.billReference == billRef);
-    if (idx >= 0) {
-      final updated = state[idx].copyWith(
-        amount: amount,
-        assetName: assetName,
-        vendorName: vendorName,
-        date: date,
-      );
-      state = [...state.sublist(0, idx), updated, ...state.sublist(idx + 1)];
-    } else if (id != null && category != null) {
-      state = [
-        ...state,
-        AssetDraft(
-          id: id,
-          assetName: assetName ?? billRef,
-          category: category,
-          amount: amount,
-          currency: currency,
-          vendorName: vendorName,
-          billReference: billRef,
-          date: date ?? DateTime.now(),
-        ),
-      ];
-    }
-    await _save();
-  }
 
   /// Clear all drafts — used by the settings "clear cache" action.
   Future<void> clearAll() async {
