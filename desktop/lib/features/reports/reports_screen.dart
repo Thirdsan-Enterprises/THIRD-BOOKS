@@ -531,6 +531,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final summary = ref.read(outletRevenueSummaryProvider).valueOrNull;
     final outlets = ref.read(outletsStreamProvider).valueOrNull ?? [];
 
+    // Replace Unicode chars unsupported by the default PDF font (e.g., em-dash in account names).
+    String pdfSafe(String t) => t
+        .replaceAll('—', '-').replaceAll('–', '-')
+        .replaceAll('—', '-').replaceAll('–', '-')
+        .replaceAll(''', "'").replaceAll(''', "'")
+        .replaceAll('"', '"').replaceAll('"', '"');
+
     pw.Widget buildHeader(String title) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
@@ -625,29 +632,26 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         'YTD',
       ];
 
-      pdf.addPage(pw.Page(
+      pdf.addPage(pw.MultiPage(
         pageFormat: PdfPageFormat.a4.landscape,
-        build: (pw.Context ctx) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            buildHeader('INCOME STATEMENT — $isYearPdf'),
-            pw.Expanded(
-              child: pw.TableHelper.fromTextArray(
-                headers: isHeadersPdf,
-                data: tableDataPdf,
-                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
-                cellStyle: const pw.TextStyle(fontSize: 8),
-                headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
-                border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-                cellAlignments: {
-                  0: pw.Alignment.centerLeft,
-                  for (int i = 1; i <= isMonthsPdf.length + 1; i++)
-                    i: pw.Alignment.centerRight,
-                },
-              ),
-            ),
-          ],
-        ),
+        margin: const pw.EdgeInsets.symmetric(horizontal: 36, vertical: 32),
+        build: (pw.Context ctx) => [
+          buildHeader('INCOME STATEMENT — $isYearPdf'),
+          pw.SizedBox(height: 6),
+          pw.TableHelper.fromTextArray(
+            headers: isHeadersPdf,
+            data: tableDataPdf,
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
+            cellStyle: const pw.TextStyle(fontSize: 8),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
+            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+            cellAlignments: {
+              0: pw.Alignment.centerLeft,
+              for (int i = 1; i <= isMonthsPdf.length + 1; i++)
+                i: pw.Alignment.centerRight,
+            },
+          ),
+        ],
       ));
     } else if (reportName == 'Balance Sheet') {
       final bsAccounts = ref.read(accountsProvider).accounts;
@@ -682,21 +686,21 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             buildHeader('BALANCE SHEET'),
             pw.Text('ASSETS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
             pw.SizedBox(height: 4),
-            ...bsAssetRows.map((a) => _pdfRow('  ${a.code}  ${a.name}', 'UGX ${numFmt.format(_acctBal(a, bsRaw))}'))
+            ...bsAssetRows.map((a) => _pdfRow('  ${a.code}  ${pdfSafe(a.name)}', 'UGX ${numFmt.format(_acctBal(a, bsRaw))}'))
                 .toList(),
             _pdfDivider(),
             _pdfRow('TOTAL ASSETS', 'UGX ${numFmt.format(bsTotalAssets)}', bold: true),
             pw.SizedBox(height: 16),
             pw.Text('LIABILITIES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
             pw.SizedBox(height: 4),
-            ...bsLiabRows.map((a) => _pdfRow('  ${a.code}  ${a.name}', 'UGX ${numFmt.format(_acctBal(a, bsRaw))}'))
+            ...bsLiabRows.map((a) => _pdfRow('  ${a.code}  ${pdfSafe(a.name)}', 'UGX ${numFmt.format(_acctBal(a, bsRaw))}'))
                 .toList(),
             _pdfDivider(),
             _pdfRow('TOTAL LIABILITIES', 'UGX ${numFmt.format(bsTotalLiabilities)}', bold: true),
             pw.SizedBox(height: 16),
             pw.Text('EQUITY', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
             pw.SizedBox(height: 4),
-            ...bsEquityRows.map((a) => _pdfRow('  ${a.code}  ${a.name}', 'UGX ${numFmt.format(_acctBal(a, bsRaw))}'))
+            ...bsEquityRows.map((a) => _pdfRow('  ${a.code}  ${pdfSafe(a.name)}', 'UGX ${numFmt.format(_acctBal(a, bsRaw))}'))
                 .toList(),
             _pdfRow('  Current Year Earnings', 'UGX ${numFmt.format(bsCYE)}'),
             _pdfDivider(),
@@ -719,10 +723,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         if (net == 0.0) continue;
         final typeName = acct.type.name[0].toUpperCase() + acct.type.name.substring(1);
         if (net > 0) {
-          tbRows.add([acct.code, acct.name, typeName, numFmt.format(net), '-']);
+          tbRows.add([acct.code, pdfSafe(acct.name), typeName, numFmt.format(net), '-']);
           tbTotalDr += net;
         } else {
-          tbRows.add([acct.code, acct.name, typeName, '-', numFmt.format(-net)]);
+          tbRows.add([acct.code, pdfSafe(acct.name), typeName, '-', numFmt.format(-net)]);
           tbTotalCr += -net;
         }
       }
@@ -801,15 +805,31 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             // ── SUMMARY ───────────────────────────────────────────────────
             pw.Container(
               padding: const pw.EdgeInsets.all(10),
-              decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey400)),
-              child: pw.Column(children: [
+              decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+              child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.stretch, children: [
                 _pdfRow('Opening Cash Balance  (Opening Cash + Bank Balances)',
                     fmt(cf['openingCash']!)),
                 _pdfRow('Net Increase/(Decrease) in Cash',
                     fmt(cf['netIncrease']!), bold: true),
                 _pdfDivider(),
-                _pdfRow('CLOSING CASH BALANCE  (Closing Bank & Cash accounts)',
-                    fmt(cf['closingCash']!), bold: true, size: 13),
+                pw.SizedBox(height: 4),
+                pw.Padding(
+                  padding: const pw.EdgeInsets.symmetric(vertical: 3),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Flexible(
+                        child: pw.Text(
+                          'CLOSING CASH BALANCE  (Closing Bank & Cash accounts)',
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11),
+                        ),
+                      ),
+                      pw.SizedBox(width: 6),
+                      pw.Text(fmt(cf['closingCash']!),
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+                    ],
+                  ),
+                ),
               ]),
             ),
           ],

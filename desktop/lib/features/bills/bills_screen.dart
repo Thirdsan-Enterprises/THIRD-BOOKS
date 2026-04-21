@@ -386,6 +386,12 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                             onPressed: () => _showRecordPaymentDialog(context, bill),
                             tooltip: 'Pay Bill',
                           ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          onPressed: () => _confirmDeleteBill(context, bill),
+                          tooltip: 'Delete Bill',
+                          color: AppColors.error,
+                        ),
                       ],
                     ),
                   ),
@@ -886,6 +892,55 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  void _confirmDeleteBill(BuildContext context, Bill bill) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Bill'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Delete bill ${bill.billNumber}?'),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.expense.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Row(children: [
+                Icon(Icons.info_outline, color: AppColors.expense, size: 18),
+                SizedBox(width: 8),
+                Flexible(child: Text(
+                  'A reversal journal entry will be posted to undo the Accounts Payable and expense entries. This cannot be undone.',
+                  style: TextStyle(fontSize: 12),
+                )),
+              ]),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () {
+              ref.read(billsProvider.notifier).deleteBill(bill.id);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Bill ${bill.billNumber} deleted — reversal entry posted'),
+                  backgroundColor: AppColors.error,
+                ),
+              );
+            },
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }
