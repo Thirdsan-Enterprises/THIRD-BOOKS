@@ -960,6 +960,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
     // Seed line items from existing bill lines (qty=1, unitPrice=line amount)
     final List<_BillLineData> lines = bill.lines.map((l) {
       final ld = _BillLineData();
+      ld.id         = l.id;       // preserve original line ID so asset draft lookups match
       ld.accountId  = l.accountId;
       ld.description = l.description;
       ld.qty       = 1;

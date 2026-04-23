@@ -163,10 +163,12 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
     String currency = 'UGX',
   }) async {
     await _loadCompleter.future;
-    int idx = state.indexWhere((a) => a.billReference == billRef);
-    // Fallback: match by id for older drafts created before billReference was stored
-    if (idx < 0 && id != null) {
-      idx = state.indexWhere((a) => a.id == id);
+    // Primary lookup by id — each line on a bill has a unique id, so this
+    // correctly targets the specific draft for multi-line bills.
+    // Fallback to billReference for single-asset bills or older drafts.
+    int idx = id != null ? state.indexWhere((a) => a.id == id) : -1;
+    if (idx < 0) {
+      idx = state.indexWhere((a) => a.billReference == billRef);
     }
     if (idx >= 0) {
       final updated = state[idx].copyWith(
