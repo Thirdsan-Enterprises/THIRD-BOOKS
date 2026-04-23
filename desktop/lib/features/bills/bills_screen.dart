@@ -809,7 +809,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                       currency: selectedCurrency,
                       vendorName: vendor.name,
                       billReference: referenceCtrl.text.trim().isEmpty
-                          ? null
+                          ? bill.billNumber
                           : referenceCtrl.text.trim(),
                       date: billDate,
                     );
@@ -1265,6 +1265,16 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
         .toList()
       ..sort((a, b) => a.paymentDate.compareTo(b.paymentDate));
 
+    final allAccounts = ref.read(accountsProvider).accounts;
+    String _accountLabel(Payment p) {
+      final Account? acct = allAccounts.cast<Account?>()
+          .firstWhere((a) => a?.id == p.accountId, orElse: () => null);
+      final name = (p.accountName?.isNotEmpty ?? false)
+          ? p.accountName
+          : acct?.name;
+      return name != null ? '$name (${p.paymentMethod})' : p.paymentMethod;
+    }
+
     final fmt = NumberFormat('#,##0', 'en_US');
 
     showDialog(
@@ -1382,7 +1392,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                     style: Theme.of(context).textTheme.titleSmall
                         ?.copyWith(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 6),
-                if (payments.isEmpty)
+                if (payments.isEmpty && bill.amountPaid <= 0)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Text('No payments recorded yet.',
@@ -1397,8 +1407,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                     ),
                     child: Table(
                       columnWidths: const {
-                        0: FlexColumnWidth(2),
-                        1: FlexColumnWidth(2),
+                        0: FlexColumnWidth(3),
+                        1: FlexColumnWidth(3),
                         2: FlexColumnWidth(2),
                         3: FlexColumnWidth(2),
                       },
@@ -1412,21 +1422,33 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                             ),
                           ),
                           children: [
-                            _th('Date'),
-                            _th('Method'),
+                            _th('Date & Time'),
+                            _th('Account / Method'),
                             _th('Reference'),
                             _th('Amount', align: TextAlign.right),
                           ],
                         ),
-                        ...payments.map((p) => TableRow(
-                          children: [
-                            _td(DateFormat('MMM d, yyyy').format(p.paymentDate)),
-                            _td(p.paymentMethod),
-                            _td(p.reference ?? p.paymentNumber),
-                            _td('UGX ${fmt.format(p.amount)}',
-                                align: TextAlign.right),
-                          ],
-                        )),
+                        if (payments.isEmpty && bill.amountPaid > 0)
+                          TableRow(
+                            children: [
+                              _td('—'),
+                              _td('Paid (no details on record)'),
+                              _td('—'),
+                              _td('UGX ${fmt.format(bill.amountPaid)}',
+                                  align: TextAlign.right),
+                            ],
+                          )
+                        else
+                          for (final p in payments)
+                            TableRow(
+                              children: [
+                                _td(DateFormat('MMM d, yyyy  HH:mm').format(p.paymentDate)),
+                                _td(_accountLabel(p)),
+                                _td(p.reference ?? p.paymentNumber),
+                                _td('UGX ${fmt.format(p.amount)}',
+                                    align: TextAlign.right),
+                              ],
+                            ),
                         TableRow(
                           decoration: BoxDecoration(
                             color: Theme.of(context)
@@ -1598,6 +1620,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                 }
 
                 final now = DateTime.now();
+                final Account? selectedAccount = bankAccounts.cast<Account?>()
+                    .firstWhere((a) => a?.id == selectedAccountId, orElse: () => null);
                 final payment = Payment(
                   id: now.millisecondsSinceEpoch.toString(),
                   paymentNumber: 'PAY-${now.millisecondsSinceEpoch}',
@@ -1607,6 +1631,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                   vendorId: bill.vendorId,
                   vendorName: bill.vendorName,
                   accountId: selectedAccountId,
+                  accountName: selectedAccount?.name,
                   paymentMethod: selectedMethod ?? 'Bank Transfer',
                   reference: refCtrl.text.trim().isEmpty ? null : refCtrl.text.trim(),
                   notes: 'Payment for ${bill.billNumber}',
