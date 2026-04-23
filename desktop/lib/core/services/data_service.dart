@@ -1252,6 +1252,23 @@ class BillsNotifier extends StateNotifier<BillsState> {
         ? bill.reference!
         : bill.billNumber;
 
+    // ── Path 1: bill was created with an explicit asset category dropdown ─
+    if (isAssetCategory(bill.category)) {
+      final assetName = (bill.vendorName?.isNotEmpty ?? false)
+          ? '${bill.category} — ${bill.vendorName}'
+          : bill.category!;
+      _ref.read(assetDraftsProvider.notifier).updateDraftByBillRef(
+        billRef,
+        amount: bill.subtotal,
+        assetName: assetName,
+        vendorName: bill.vendorName,
+        date: bill.date,
+        id: bill.id,
+        category: bill.category!,
+        currency: bill.currencyCode,
+      );
+    }
+
     for (var i = 0; i < bill.lines.length; i++) {
       final l = bill.lines[i];
       if (l.amount <= 0) continue;

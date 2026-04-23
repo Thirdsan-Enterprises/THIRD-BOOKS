@@ -163,7 +163,11 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
     String currency = 'UGX',
   }) async {
     await _loadCompleter.future;
-    final idx = state.indexWhere((a) => a.billReference == billRef);
+    int idx = state.indexWhere((a) => a.billReference == billRef);
+    // Fallback: match by id for older drafts created before billReference was stored
+    if (idx < 0 && id != null) {
+      idx = state.indexWhere((a) => a.id == id);
+    }
     if (idx >= 0) {
       final updated = state[idx].copyWith(
         amount: amount,
