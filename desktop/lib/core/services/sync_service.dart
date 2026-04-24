@@ -108,9 +108,11 @@ class ConnectivityNotifier extends StateNotifier<ConnectivityState> {
 
   Future<void> checkConnectivity() async {
     try {
-      // Try to reach the server with a health check
+      // Try to reach the server with a health check.
+      // 10 s gives enough headroom so this doesn't race with concurrent API
+      // calls (e.g. loading the Users screen) and falsely flip the status.
       final response = await _apiClient.get('/health').timeout(
-        const Duration(seconds: 5),
+        const Duration(seconds: 10),
         onTimeout: () => throw TimeoutException('Connection timeout'),
       );
 
@@ -967,8 +969,13 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
 
       state = state.copyWith(isSyncing: true, error: null);
 
-      // Ask backend to wipe the tenant's data
-      final response = await _apiClient.delete('/me/data');
+      // Ask backend to wipe the tenant's data.
+      // The controller requires confirmation: DELETE_ALL_MY_DATA to guard
+      // against accidental calls.
+      final response = await _apiClient.delete(
+        '/me/data',
+        data: {'confirmation': 'DELETE_ALL_MY_DATA'},
+      );
       if (response.statusCode != 200 && response.statusCode != 204) {
         throw Exception('Server returned ${response.statusCode}');
       }
