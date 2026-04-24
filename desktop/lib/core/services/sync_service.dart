@@ -201,6 +201,14 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
     await _localStorage.initialize();
     await _loadPendingChanges();
     _startAutoSync();
+
+    // Pull from server as soon as connectivity is established (handles app
+    // startup and reconnection after an offline period).
+    _ref.listen<ConnectivityState>(connectivityProvider, (previous, next) {
+      if (next.isOnline && !(previous?.isOnline ?? false)) {
+        _attemptAutoSync();
+      }
+    });
   }
 
   void _startAutoSync() {
@@ -212,7 +220,10 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
 
   Future<void> _attemptAutoSync() async {
     final connectivity = _ref.read(connectivityProvider);
-    if (connectivity.isOnline && state.pendingChanges > 0 && !state.isSyncing) {
+    // Always pull from server when online — not just when there are pending
+    // local changes. Without this, a device with no local edits never fetches
+    // data entered by another device.
+    if (connectivity.isOnline && !state.isSyncing) {
       await syncAll();
     }
   }
