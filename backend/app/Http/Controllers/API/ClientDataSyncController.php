@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Generic blob-store sync endpoint.
@@ -52,6 +53,13 @@ class ClientDataSyncController extends Controller
 
         $data = $rows->map(fn($p) => json_decode($p, true))->values();
 
+        Log::info('[CLIENT-DATA PULL]', [
+            'type'       => $type,
+            'company_id' => $companyId,
+            'user_id'    => Auth::id(),
+            'row_count'  => $data->count(),
+        ]);
+
         return response()->json(['data' => $data]);
     }
 
@@ -74,6 +82,13 @@ class ClientDataSyncController extends Controller
         $now = now()->toDateTimeString();
         $upserted = 0;
 
+        Log::info('[CLIENT-DATA PUSH] Receiving data', [
+            'type'         => $type,
+            'company_id'   => $companyId,
+            'user_id'      => Auth::id(),
+            'record_count' => count($records),
+        ]);
+
         foreach ($records as $record) {
             if (empty($record['id'])) {
                 continue;
@@ -93,6 +108,12 @@ class ClientDataSyncController extends Controller
 
             $upserted++;
         }
+
+        Log::info('[CLIENT-DATA PUSH] Done', [
+            'type'       => $type,
+            'company_id' => $companyId,
+            'upserted'   => $upserted,
+        ]);
 
         return response()->json([
             'message'  => 'Synced successfully',
