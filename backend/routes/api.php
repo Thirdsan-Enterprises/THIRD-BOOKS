@@ -21,6 +21,7 @@ use App\Http\Controllers\API\UserController;
 use App\Http\Controllers\API\Notes\CreditDebitNoteController;
 use App\Http\Controllers\API\Assets\AssetRegisterController;
 use App\Http\Controllers\API\PaymentController;
+use App\Http\Controllers\API\ClientDataSyncController;
 
 /*
 |--------------------------------------------------------------------------
@@ -181,6 +182,10 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/{asset}/depreciation-schedule', [AssetRegisterController::class, 'depreciationSchedule']);
             Route::post('/depreciate-all',               [AssetRegisterController::class, 'depreciateAll']);
         });
+
+        // ── Generic client-data blob store (bank tx, asset drafts, outlet data…) ──
+        Route::get('/client-data/{type}',  [ClientDataSyncController::class, 'index']);
+        Route::post('/client-data/{type}', [ClientDataSyncController::class, 'bulkUpsert']);
 
         // Conflict Resolution
         Route::prefix('conflicts')->group(function () {

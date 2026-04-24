@@ -1,19 +1,16 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:dio/dio.dart';
+import 'package:dio/dio.dart' show Dio, DioException, DioExceptionType, MultipartFile, FormData, DioMediaType, Response;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
-
-import 'dart:io';
-
-import 'package:dio/dio.dart' show MultipartFile, FormData, DioMediaType;
 import 'package:path/path.dart' as p;
 
 import 'api_client.dart';
 import 'local_storage_service.dart';
 import 'data_service.dart';
 import '../models/models.dart';
+import '../models/bank_transaction.dart';
 import '../providers/local_bank_statements_provider.dart';
 import '../providers/asset_drafts_provider.dart';
 import '../providers/depreciation_schedules_provider.dart';
@@ -288,6 +285,9 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
       // After syncing queue, pull fresh data from server
       await _pullFromServer();
 
+      // Push+pull client-managed entities (blob store via /client-data/{type})
+      await _syncClientDataEntities();
+
       await _localStorage.setLastSyncTime(DateTime.now());
       await _loadPendingChanges();
 
@@ -533,6 +533,307 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
     } catch (e) {
       debugPrint('Error pulling $endpoint from server: $e');
       // Fall back to local data — do not rethrow
+    }
+  }
+
+  // ============================================================================
+  // Client-Data Blob Store Sync (bank tx, asset drafts, outlet revenues, etc.)
+  // ============================================================================
+
+  /// Push+pull all entities that use the generic /client-data/{type} endpoint.
+  Future<void> _syncClientDataEntities() async {
+    try {
+      await Future.wait([
+        _syncBankTransactions(),
+        _syncBankStatements(),
+        _syncAssetDrafts(),
+        _syncDepreciationSchedules(),
+        _syncOutletSettlements(),
+        _syncOutletRevenues(),
+        _syncOutletExpenditures(),
+        _syncCommissionPayments(),
+      ]);
+    } catch (e) {
+      debugPrint('Error in _syncClientDataEntities: $e');
+    }
+  }
+
+  Future<void> _syncBankTransactions() async {
+    const type = 'bank-transactions';
+    try {
+      // Push
+      final local = await _localStorage.loadBankTransactions();
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((t) => t.toJson()).toList()},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final pulled = raw
+            .whereType<Map<String, dynamic>>()
+            .map(BankTransaction.fromJson)
+            .toList();
+        if (pulled.isNotEmpty) {
+          await _localStorage.saveBankTransactions(pulled);
+        }
+      }
+    } catch (e) {
+      debugPrint('Bank transaction sync error: $e');
+    }
+  }
+
+  Future<void> _syncBankStatements() async {
+    const type = 'bank-statements';
+    try {
+      // Push
+      final local = _ref.read(localBankStatementsProvider);
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((s) => s.toJson()).toList()},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final pulled = raw
+            .whereType<Map<String, dynamic>>()
+            .map(LocalBankStatement.fromJson)
+            .toList();
+        if (pulled.isNotEmpty) {
+          _ref.read(localBankStatementsProvider.notifier).replaceAll(pulled);
+        }
+      }
+    } catch (e) {
+      debugPrint('Bank statement sync error: $e');
+    }
+  }
+
+  Future<void> _syncAssetDrafts() async {
+    const type = 'asset-drafts';
+    try {
+      // Push
+      final local = _ref.read(assetDraftsProvider);
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((a) => a.toJson()).toList()},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final pulled = raw
+            .whereType<Map<String, dynamic>>()
+            .map(AssetDraft.fromJson)
+            .toList();
+        if (pulled.isNotEmpty) {
+          await _ref.read(assetDraftsProvider.notifier).replaceAll(pulled);
+        }
+      }
+    } catch (e) {
+      debugPrint('Asset drafts sync error: $e');
+    }
+  }
+
+  Future<void> _syncDepreciationSchedules() async {
+    const type = 'depreciation-schedules';
+    try {
+      // Push
+      final local = _ref.read(depreciationSchedulesProvider);
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((s) => s.toJson()).toList()},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final pulled = raw
+            .whereType<Map<String, dynamic>>()
+            .map(DepreciationSchedule.fromJson)
+            .toList();
+        if (pulled.isNotEmpty) {
+          _ref.read(depreciationSchedulesProvider.notifier).replaceAll(pulled);
+        }
+      }
+    } catch (e) {
+      debugPrint('Depreciation schedules sync error: $e');
+    }
+  }
+
+  Future<void> _syncOutletSettlements() async {
+    const type = 'outlet-settlements';
+    try {
+      // Push
+      final local = await _localStorage.loadOutletSettlements();
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((s) => s.toJson()).toList()},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final pulled = raw
+            .whereType<Map<String, dynamic>>()
+            .map(OutletSettlement.fromJson)
+            .toList();
+        if (pulled.isNotEmpty) {
+          await _localStorage.saveOutletSettlements(pulled);
+        }
+      }
+    } catch (e) {
+      debugPrint('Outlet settlements sync error: $e');
+    }
+  }
+
+  Future<void> _syncOutletRevenues() async {
+    const type = 'outlet-revenues';
+    try {
+      final db = _ref.read(databaseProvider);
+      // Push — include outlet_code so the receiving device can resolve the FK
+      final allOutlets = await db.getAllOutlets();
+      final outletCodeMap = {for (final o in allOutlets) o.id: o.outletCode};
+      final revenues = await db.getAllOutletRevenues();
+      if (revenues.isNotEmpty) {
+        final records = revenues.map((r) => {
+          'id': r.id,
+          'outlet_id': r.outletId,
+          'outlet_code': outletCodeMap[r.outletId] ?? '',
+          'date': r.date.toIso8601String(),
+          'amount': r.amount,
+          'commission_amount': r.commissionAmount,
+          'net_amount': r.netAmount,
+          'description': r.description,
+          'reference': r.reference,
+          'status': r.status,
+          'created_at': r.createdAt.toIso8601String(),
+          'updated_at': r.updatedAt.toIso8601String(),
+        }).toList();
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': records},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        for (final item in raw.whereType<Map<String, dynamic>>()) {
+          await db.upsertOutletRevenueFromMap(item);
+        }
+        if (raw.isNotEmpty) {
+          _ref.invalidate(dashboardDataProvider);
+          _ref.invalidate(outletRevenueSummaryProvider);
+          _ref.invalidate(outletAnalyticsProvider);
+        }
+      }
+    } catch (e) {
+      debugPrint('Outlet revenues sync error: $e');
+    }
+  }
+
+  Future<void> _syncOutletExpenditures() async {
+    const type = 'outlet-expenditures';
+    try {
+      final db = _ref.read(databaseProvider);
+      final allOutlets = await db.getAllOutlets();
+      final outletCodeMap = {for (final o in allOutlets) o.id: o.outletCode};
+      final expenditures = await db.getAllOutletExpenditures();
+      if (expenditures.isNotEmpty) {
+        final records = expenditures.map((e) => {
+          'id': e.id,
+          'outlet_id': e.outletId,
+          'outlet_code': outletCodeMap[e.outletId] ?? '',
+          'date': e.date.toIso8601String(),
+          'expense_type': e.expenseType,
+          'amount': e.amount,
+          'description': e.description,
+          'reference': e.reference,
+          'paid_to': e.paidTo,
+          'status': e.status,
+          'created_at': e.createdAt.toIso8601String(),
+          'updated_at': e.updatedAt.toIso8601String(),
+        }).toList();
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': records},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        for (final item in raw.whereType<Map<String, dynamic>>()) {
+          await db.upsertOutletExpenditureFromMap(item);
+        }
+        if (raw.isNotEmpty) {
+          _ref.invalidate(dashboardDataProvider);
+          _ref.invalidate(outletRevenueSummaryProvider);
+          _ref.invalidate(outletAnalyticsProvider);
+        }
+      }
+    } catch (e) {
+      debugPrint('Outlet expenditures sync error: $e');
+    }
+  }
+
+  Future<void> _syncCommissionPayments() async {
+    const type = 'commission-payments';
+    try {
+      final db = _ref.read(databaseProvider);
+      final allOutlets = await db.getAllOutlets();
+      final outletCodeMap = {for (final o in allOutlets) o.id: o.outletCode};
+      final payments = await db.getAllCommissionPayments();
+      if (payments.isNotEmpty) {
+        final records = payments.map((c) => {
+          'id': c.id,
+          'outlet_id': c.outletId,
+          'outlet_code': outletCodeMap[c.outletId] ?? '',
+          'period_start': c.periodStart.toIso8601String(),
+          'period_end': c.periodEnd.toIso8601String(),
+          'total_revenue': c.totalRevenue,
+          'commission_rate': c.commissionRate,
+          'commission_amount': c.commissionAmount,
+          'status': c.status,
+          'paid_date': c.paidDate?.toIso8601String(),
+          'payment_method': c.paymentMethod,
+          'payment_reference': c.paymentReference,
+          'notes': c.notes,
+          'created_at': c.createdAt.toIso8601String(),
+          'updated_at': c.updatedAt.toIso8601String(),
+        }).toList();
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': records},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        for (final item in raw.whereType<Map<String, dynamic>>()) {
+          await db.upsertCommissionPaymentFromMap(item);
+        }
+        if (raw.isNotEmpty) {
+          _ref.invalidate(dashboardDataProvider);
+          _ref.invalidate(outletRevenueSummaryProvider);
+          _ref.invalidate(outletAnalyticsProvider);
+        }
+      }
+    } catch (e) {
+      debugPrint('Commission payments sync error: $e');
     }
   }
 

@@ -196,6 +196,19 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
     await _save();
   }
 
+  /// Reload from disk after a server pull has overwritten the JSON file.
+  Future<void> reload() async {
+    await _loadCompleter.future;
+    await _load();
+  }
+
+  /// Replace entire list (called after a server pull).
+  Future<void> replaceAll(List<AssetDraft> drafts) async {
+    await _loadCompleter.future;
+    state = drafts;
+    await _save();
+  }
+
   /// Clear all drafts — used by the settings "clear cache" action.
   Future<void> clearAll() async {
     state = [];

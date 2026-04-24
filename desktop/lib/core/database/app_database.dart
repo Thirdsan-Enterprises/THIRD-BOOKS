@@ -328,6 +328,106 @@ class AppDatabase extends _$AppDatabase {
   Stream<List<DepreciationEntry>> watchPendingDepreciationEntries() =>
       (select(depreciationEntries)..where((e) => e.status.equals('draft'))).watch();
 
+  // ========== CROSS-DEVICE SYNC UPSERT HELPERS ==========
+  // These helpers accept a JSON map from the server and upsert the record into
+  // the local SQLite DB.  The key challenge is that outletId is a device-local
+  // UUID; we carry outletCode in the payload and resolve it here.
+
+  Future<void> upsertOutletRevenueFromMap(Map<String, dynamic> m) async {
+    final outletCode = m['outlet_code'] as String?;
+    String? localOutletId = m['outlet_id'] as String?;
+
+    if (outletCode != null) {
+      final outlet = await getOutletByCode(outletCode);
+      if (outlet != null) localOutletId = outlet.id;
+    }
+
+    if (localOutletId == null) return;
+
+    await into(outletRevenues).insertOnConflictUpdate(OutletRevenuesCompanion(
+      id: Value(m['id'] as String),
+      outletId: Value(localOutletId),
+      date: Value(DateTime.parse(m['date'] as String)),
+      amount: Value((m['amount'] as num).toDouble()),
+      commissionAmount: Value((m['commission_amount'] as num? ?? 0).toDouble()),
+      netAmount: Value((m['net_amount'] as num? ?? 0).toDouble()),
+      description: Value(m['description'] as String?),
+      reference: Value(m['reference'] as String?),
+      status: Value(m['status'] as String? ?? 'recorded'),
+      createdAt: Value(m['created_at'] != null
+          ? DateTime.parse(m['created_at'] as String)
+          : DateTime.now()),
+      updatedAt: Value(m['updated_at'] != null
+          ? DateTime.parse(m['updated_at'] as String)
+          : DateTime.now()),
+    ));
+  }
+
+  Future<void> upsertOutletExpenditureFromMap(Map<String, dynamic> m) async {
+    final outletCode = m['outlet_code'] as String?;
+    String? localOutletId = m['outlet_id'] as String?;
+
+    if (outletCode != null) {
+      final outlet = await getOutletByCode(outletCode);
+      if (outlet != null) localOutletId = outlet.id;
+    }
+
+    if (localOutletId == null) return;
+
+    await into(outletExpenditures).insertOnConflictUpdate(OutletExpendituresCompanion(
+      id: Value(m['id'] as String),
+      outletId: Value(localOutletId),
+      date: Value(DateTime.parse(m['date'] as String)),
+      expenseType: Value(m['expense_type'] as String? ?? 'other'),
+      amount: Value((m['amount'] as num).toDouble()),
+      description: Value(m['description'] as String? ?? ''),
+      reference: Value(m['reference'] as String?),
+      paidTo: Value(m['paid_to'] as String?),
+      status: Value(m['status'] as String? ?? 'pending'),
+      createdAt: Value(m['created_at'] != null
+          ? DateTime.parse(m['created_at'] as String)
+          : DateTime.now()),
+      updatedAt: Value(m['updated_at'] != null
+          ? DateTime.parse(m['updated_at'] as String)
+          : DateTime.now()),
+    ));
+  }
+
+  Future<void> upsertCommissionPaymentFromMap(Map<String, dynamic> m) async {
+    final outletCode = m['outlet_code'] as String?;
+    String? localOutletId = m['outlet_id'] as String?;
+
+    if (outletCode != null) {
+      final outlet = await getOutletByCode(outletCode);
+      if (outlet != null) localOutletId = outlet.id;
+    }
+
+    if (localOutletId == null) return;
+
+    await into(commissionPayments).insertOnConflictUpdate(CommissionPaymentsCompanion(
+      id: Value(m['id'] as String),
+      outletId: Value(localOutletId),
+      periodStart: Value(DateTime.parse(m['period_start'] as String)),
+      periodEnd: Value(DateTime.parse(m['period_end'] as String)),
+      totalRevenue: Value((m['total_revenue'] as num? ?? 0).toDouble()),
+      commissionRate: Value((m['commission_rate'] as num).toDouble()),
+      commissionAmount: Value((m['commission_amount'] as num? ?? 0).toDouble()),
+      status: Value(m['status'] as String? ?? 'pending'),
+      paidDate: Value(m['paid_date'] != null
+          ? DateTime.tryParse(m['paid_date'] as String)
+          : null),
+      paymentMethod: Value(m['payment_method'] as String?),
+      paymentReference: Value(m['payment_reference'] as String?),
+      notes: Value(m['notes'] as String?),
+      createdAt: Value(m['created_at'] != null
+          ? DateTime.parse(m['created_at'] as String)
+          : DateTime.now()),
+      updatedAt: Value(m['updated_at'] != null
+          ? DateTime.parse(m['updated_at'] as String)
+          : DateTime.now()),
+    ));
+  }
+
   // ========== BULK / RESET OPERATIONS ==========
 
   /// Delete an outlet plus all its associated revenues, expenditures,
