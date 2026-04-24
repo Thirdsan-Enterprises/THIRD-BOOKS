@@ -11,105 +11,13 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../core/services/local_storage_service.dart';
 import '../../core/services/data_service.dart';
-import '../../core/services/api_client.dart';
+import '../../core/services/sync_service.dart';
 import '../../core/models/models.dart';
 import '../../core/widgets/attachment_widget.dart';
-
-// ---------------------------------------------------------------------------
-// State / Notifiers
-// ---------------------------------------------------------------------------
-
-class CreditNotesState {
-  final List<CreditNote> notes;
-  CreditNotesState({required this.notes});
-  CreditNotesState copyWith({List<CreditNote>? notes}) =>
-      CreditNotesState(notes: notes ?? this.notes);
-}
-
-class CreditNotesNotifier extends StateNotifier<CreditNotesState> {
-  final LocalStorageService _ls = LocalStorageService.instance;
-
-  CreditNotesNotifier() : super(CreditNotesState(notes: [])) {
-    _load();
-  }
-
-  Future<void> _load() async {
-    final notes = await _ls.loadCreditNotes();
-    state = state.copyWith(notes: notes);
-  }
-
-  Future<void> addNote(CreditNote note) async {
-    final updated = [...state.notes, note];
-    state = state.copyWith(notes: updated);
-    await _ls.saveCreditNotes(updated);
-  }
-
-  Future<void> updateNote(CreditNote note) async {
-    final updated =
-        state.notes.map((n) => n.id == note.id ? note : n).toList();
-    state = state.copyWith(notes: updated);
-    await _ls.saveCreditNotes(updated);
-  }
-
-  Future<void> deleteNote(String id) async {
-    final updated = state.notes.where((n) => n.id != id).toList();
-    state = state.copyWith(notes: updated);
-    await _ls.saveCreditNotes(updated);
-  }
-}
-
-final creditNotesProvider =
-    StateNotifierProvider<CreditNotesNotifier, CreditNotesState>(
-  (_) => CreditNotesNotifier(),
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-class DebitNotesState {
-  final List<DebitNote> notes;
-  DebitNotesState({required this.notes});
-  DebitNotesState copyWith({List<DebitNote>? notes}) =>
-      DebitNotesState(notes: notes ?? this.notes);
-}
-
-class DebitNotesNotifier extends StateNotifier<DebitNotesState> {
-  final LocalStorageService _ls = LocalStorageService.instance;
-
-  DebitNotesNotifier() : super(DebitNotesState(notes: [])) {
-    _load();
-  }
-
-  Future<void> _load() async {
-    final notes = await _ls.loadDebitNotes();
-    state = state.copyWith(notes: notes);
-  }
-
-  Future<void> addNote(DebitNote note) async {
-    final updated = [...state.notes, note];
-    state = state.copyWith(notes: updated);
-    await _ls.saveDebitNotes(updated);
-  }
-
-  Future<void> updateNote(DebitNote note) async {
-    final updated =
-        state.notes.map((n) => n.id == note.id ? note : n).toList();
-    state = state.copyWith(notes: updated);
-    await _ls.saveDebitNotes(updated);
-  }
-
-  Future<void> deleteNote(String id) async {
-    final updated = state.notes.where((n) => n.id != id).toList();
-    state = state.copyWith(notes: updated);
-    await _ls.saveDebitNotes(updated);
-  }
-}
-
-final debitNotesProvider =
-    StateNotifierProvider<DebitNotesNotifier, DebitNotesState>(
-  (_) => DebitNotesNotifier(),
-);
+import '../../core/providers/notes_providers.dart';
+import '../../core/services/local_storage_service.dart'
+    show SyncEntityType, SyncAction;
 
 // ---------------------------------------------------------------------------
 // Screen
@@ -725,8 +633,20 @@ class _CreditDebitNotesScreenState
 
                 if (isEdit) {
                   ref.read(creditNotesProvider.notifier).updateNote(cn);
+                  ref.read(syncServiceProvider.notifier).queueChange(
+                    action: SyncAction.update,
+                    entityType: SyncEntityType.creditNote,
+                    entityId: cn.id,
+                    data: cn.toJson(),
+                  );
                 } else {
                   ref.read(creditNotesProvider.notifier).addNote(cn);
+                  ref.read(syncServiceProvider.notifier).queueChange(
+                    action: SyncAction.create,
+                    entityType: SyncEntityType.creditNote,
+                    entityId: cn.id,
+                    data: cn.toJson(),
+                  );
                 }
                 // Apply to invoice and post GL journal entry when issuing
                 if (cn.status == NoteStatus.issued) {
@@ -1020,8 +940,20 @@ class _CreditDebitNotesScreenState
 
                 if (isEdit) {
                   ref.read(debitNotesProvider.notifier).updateNote(dn);
+                  ref.read(syncServiceProvider.notifier).queueChange(
+                    action: SyncAction.update,
+                    entityType: SyncEntityType.debitNote,
+                    entityId: dn.id,
+                    data: dn.toJson(),
+                  );
                 } else {
                   ref.read(debitNotesProvider.notifier).addNote(dn);
+                  ref.read(syncServiceProvider.notifier).queueChange(
+                    action: SyncAction.create,
+                    entityType: SyncEntityType.debitNote,
+                    entityId: dn.id,
+                    data: dn.toJson(),
+                  );
                 }
                 // Apply to bill and post GL journal entry when issuing
                 if (dn.status == NoteStatus.issued) {
@@ -1068,6 +1000,11 @@ class _CreditDebitNotesScreenState
             style: FilledButton.styleFrom(backgroundColor: AppColors.error),
             onPressed: () {
               ref.read(creditNotesProvider.notifier).deleteNote(note.id);
+              ref.read(syncServiceProvider.notifier).queueChange(
+                action: SyncAction.delete,
+                entityType: SyncEntityType.creditNote,
+                entityId: note.id,
+              );
               Navigator.pop(ctx);
             },
             child: const Text('Delete'),
@@ -1092,6 +1029,11 @@ class _CreditDebitNotesScreenState
             style: FilledButton.styleFrom(backgroundColor: AppColors.error),
             onPressed: () {
               ref.read(debitNotesProvider.notifier).deleteNote(note.id);
+              ref.read(syncServiceProvider.notifier).queueChange(
+                action: SyncAction.delete,
+                entityType: SyncEntityType.debitNote,
+                entityId: note.id,
+              );
               Navigator.pop(ctx);
             },
             child: const Text('Delete'),

@@ -31,6 +31,7 @@ class BillPayment extends Model
         'reference',
         'notes',
         'status',
+        'client_id',
     ];
 
     protected $casts = [

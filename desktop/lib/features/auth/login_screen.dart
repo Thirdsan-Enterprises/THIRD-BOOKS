@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/services/sync_service.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -41,9 +42,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final success = await authNotifier.login(
         _emailController.text.trim(),
         _passwordController.text,
+        rememberMe: _rememberMe,
       );
 
       if (success && mounted) {
+        // Kick off a background sync so the new device immediately gets all
+        // cloud data. Not awaited — the home screen loads in parallel.
+        ref.read(syncServiceProvider.notifier).syncAll();
+
         // Small delay to ensure state propagation
         await Future.delayed(const Duration(milliseconds: 100));
         if (mounted) {

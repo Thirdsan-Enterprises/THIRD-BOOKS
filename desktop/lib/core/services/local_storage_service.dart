@@ -260,7 +260,7 @@ class LocalStorageService {
 // ============================================================================
 
 enum SyncAction { create, update, delete }
-enum SyncEntityType { account, customer, vendor, invoice, bill, journalEntry, payment }
+enum SyncEntityType { account, customer, vendor, invoice, bill, journalEntry, payment, creditNote, debitNote }
 
 class SyncQueueItem {
   final String id;

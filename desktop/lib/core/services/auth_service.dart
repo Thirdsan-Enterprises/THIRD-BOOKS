@@ -147,11 +147,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  Future<bool> login(String email, String password) async {
+  Future<bool> login(String email, String password, {bool rememberMe = true}) async {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
-      final result = await _authService.login(email, password);
+      final result = await _authService.login(email, password, rememberMe: rememberMe);
       state = AuthState(
         isAuthenticated: true,
         user: result['user'],
@@ -289,8 +289,10 @@ class AuthService {
         await _storage.write(key: _tokenKey, value: token);
         await _storage.write(key: _userKey, value: jsonEncode(userData));
 
-        // Set token expiry (24 hours from now)
-        final expiry = DateTime.now().add(const Duration(hours: 24));
+        // Remember Me: 30 days. Otherwise session ends after 24 hours.
+        final expiry = DateTime.now().add(
+          rememberMe ? const Duration(days: 30) : const Duration(hours: 24),
+        );
         await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
 
         // Update API client with token and tenant

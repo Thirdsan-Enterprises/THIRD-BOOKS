@@ -5,6 +5,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import 'dart:io';
+
+import 'package:dio/dio.dart' show MultipartFile, FormData, DioMediaType;
+import 'package:path/path.dart' as p;
+
 import 'api_client.dart';
 import 'local_storage_service.dart';
 import 'data_service.dart';
@@ -13,6 +18,7 @@ import '../providers/local_bank_statements_provider.dart';
 import '../providers/asset_drafts_provider.dart';
 import '../providers/depreciation_schedules_provider.dart';
 import '../providers/local_attachments_provider.dart';
+import '../providers/notes_providers.dart';
 
 // ============================================================================
 // Connectivity State
@@ -276,6 +282,9 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
         state = state.copyWith(progress: (i + 1) / total);
       }
 
+      // Upload any locally-stored attachments that haven't reached the server yet
+      await _uploadPendingAttachments();
+
       // After syncing queue, pull fresh data from server
       await _pullFromServer();
 
@@ -343,10 +352,88 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
       case SyncEntityType.bill:
         return '/bills';
       case SyncEntityType.journalEntry:
-        return '/journals';
+        return '/journal-entries';
       case SyncEntityType.payment:
         return '/payments';
+      case SyncEntityType.creditNote:
+        return '/credit-notes';
+      case SyncEntityType.debitNote:
+        return '/debit-notes';
     }
+  }
+
+  // ============================================================================
+  // Attachment Upload
+  // Uploads any LocalAttachment still in 'local' status to POST /attachments.
+  // Marks each one 'synced' or 'error' and persists the result.
+  // ============================================================================
+
+  Future<void> _uploadPendingAttachments() async {
+    final notifier = _ref.read(localAttachmentsProvider.notifier);
+    final pending = _ref
+        .read(localAttachmentsProvider)
+        .where((a) => a.isLocal)
+        .toList();
+
+    for (final att in pending) {
+      try {
+        final file = File(att.localPath);
+        if (!await file.exists()) {
+          await notifier.markError(att.id);
+          continue;
+        }
+
+        final ext = p.extension(att.fileName).toLowerCase();
+        final mimeType = att.mimeType ?? _mimeFromExt(ext);
+
+        final formData = FormData.fromMap({
+          'attachable_type': att.attachableType,
+          'attachable_id':   att.localRecordId,
+          'file': await MultipartFile.fromFile(
+            att.localPath,
+            filename: att.fileName,
+            contentType: mimeType != null
+                ? DioMediaType.parse(mimeType)
+                : null,
+          ),
+        });
+
+        final response = await _apiClient.post('/attachments', data: formData);
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final body = response.data;
+          final serverData = body['attachment'] ?? body['data'] ?? body;
+          await notifier.markSynced(
+            att.id,
+            serverData['id'] as int? ?? 0,
+            serverData['url'] as String? ?? '',
+          );
+        } else {
+          await notifier.markError(att.id);
+        }
+      } catch (e) {
+        debugPrint('Attachment upload failed for ${att.id}: $e');
+        await notifier.markError(att.id);
+      }
+    }
+  }
+
+  /// Minimal MIME inference from file extension — avoids adding a mime package.
+  String? _mimeFromExt(String ext) {
+    const map = {
+      '.pdf':  'application/pdf',
+      '.jpg':  'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png':  'image/png',
+      '.gif':  'image/gif',
+      '.webp': 'image/webp',
+      '.doc':  'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.xls':  'application/vnd.ms-excel',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.txt':  'text/plain',
+      '.csv':  'text/csv',
+    };
+    return map[ext];
   }
 
   Future<void> _pullFromServer() async {
@@ -383,7 +470,7 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
           reload: () => _ref.read(billsProvider.notifier).loadBills(),
         ),
         _pullEntityFromServer<JournalEntry>(
-          endpoint: '/journals',
+          endpoint: '/journal-entries',
           fromJson: (j) => JournalEntry.fromJson(j),
           save: (items) => _localStorage.saveJournalEntries(items),
           reload: () => _ref.read(journalsProvider.notifier).loadJournals(),
@@ -394,6 +481,20 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
           save: (items) => _localStorage.savePayments(items),
           reload: () => _ref.read(paymentsProvider.notifier).loadPayments(),
         ),
+        _pullEntityFromServer<CreditNote>(
+          endpoint: '/credit-notes',
+          fromJson: (j) => CreditNote.fromJson(j),
+          save: (items) => _localStorage.saveCreditNotes(items),
+          reload: () => _ref.read(creditNotesProvider.notifier).reload(),
+          responseKey: 'credit_notes',
+        ),
+        _pullEntityFromServer<DebitNote>(
+          endpoint: '/debit-notes',
+          fromJson: (j) => DebitNote.fromJson(j),
+          save: (items) => _localStorage.saveDebitNotes(items),
+          reload: () => _ref.read(debitNotesProvider.notifier).reload(),
+          responseKey: 'debit_notes',
+        ),
       ]);
     } catch (e) {
       debugPrint('Error pulling data from server: $e');
@@ -402,20 +503,26 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
 
   /// Fetches a collection from [endpoint], persists it to local storage via
   /// [save], then triggers a provider reload via [reload].
+  /// [responseKey] allows custom JSON envelope keys (e.g. 'credit_notes').
   Future<void> _pullEntityFromServer<T>({
     required String endpoint,
     required T Function(Map<String, dynamic>) fromJson,
     required Future<void> Function(List<T>) save,
     required Future<void> Function() reload,
+    String? responseKey,
   }) async {
     try {
       final response = await _apiClient.get(endpoint);
       if (response.statusCode == 200) {
         final body = response.data;
-        // Support both { data: [...] } and bare [...] response shapes
-        final List<dynamic> rawList = body is Map && body.containsKey('data')
-            ? (body['data'] as List<dynamic>)
-            : (body as List<dynamic>);
+        List<dynamic> rawList;
+        if (responseKey != null && body is Map && body.containsKey(responseKey)) {
+          rawList = body[responseKey] as List<dynamic>;
+        } else if (body is Map && body.containsKey('data')) {
+          rawList = body['data'] as List<dynamic>;
+        } else {
+          rawList = body as List<dynamic>;
+        }
         final items = rawList
             .whereType<Map<String, dynamic>>()
             .map((j) => fromJson(j))
@@ -531,6 +638,8 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
         _ref.read(assetDraftsProvider.notifier).clearAll();
         _ref.read(depreciationSchedulesProvider.notifier).clearAll();
         _ref.read(localAttachmentsProvider.notifier).clearAll();
+        _ref.read(creditNotesProvider.notifier).clearAll();
+        _ref.read(debitNotesProvider.notifier).clearAll();
       } catch (_) {
         // Providers may not be initialised — the JSON files are already empty.
       }

@@ -20,6 +20,7 @@ use App\Http\Controllers\API\Banking\BankReconciliationController;
 use App\Http\Controllers\API\UserController;
 use App\Http\Controllers\API\Notes\CreditDebitNoteController;
 use App\Http\Controllers\API\Assets\AssetRegisterController;
+use App\Http\Controllers\API\PaymentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -85,6 +86,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('bills', BillController::class);
         Route::post('/bills/{bill}/payment', [BillController::class, 'recordPayment']);
         Route::get('/bills/{bill}/pdf', [BillController::class, 'downloadPdf']);
+
+        // ── Unified Payments (received + made) — Flutter sync endpoint ────────
+        Route::get('/payments',  [PaymentController::class, 'index']);
+        Route::post('/payments', [PaymentController::class, 'store']);
 
         // ── Attachments (polymorphic — bills, invoices, journal entries, payments) ─
         Route::get('/attachments', [AttachmentController::class, 'index']);       // Global list / filter by type
