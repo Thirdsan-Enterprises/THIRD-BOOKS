@@ -123,10 +123,13 @@ class ClientDataSyncController extends Controller
 
     private function resolveCompanyId(Request $request): ?int
     {
-        // Multi-tenant: the X-Tenant-ID header holds the tenant slug;
-        // resolve to the companies.id for storage.
-        $tenantId = $request->header('X-Tenant-ID');
+        // Primary: use the company resolved by the tenant middleware (most reliable)
+        if (app()->bound('current_company_id')) {
+            return app('current_company_id');
+        }
 
+        // Secondary: resolve from X-Tenant-ID header directly
+        $tenantId = $request->header('X-Tenant-ID');
         if ($tenantId) {
             $company = DB::table('companies')
                 ->where('tenant_id', $tenantId)
@@ -135,12 +138,6 @@ class ClientDataSyncController extends Controller
             if ($company) {
                 return $company->id;
             }
-        }
-
-        // Fall back to the authenticated user's company
-        $user = Auth::user();
-        if ($user && isset($user->company_id)) {
-            return $user->company_id;
         }
 
         return null;
