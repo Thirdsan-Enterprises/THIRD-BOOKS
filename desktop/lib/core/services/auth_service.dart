@@ -266,7 +266,7 @@ class AuthService {
   }
 
   // Login
-  Future<Map<String, dynamic>> login(String email, String password) async {
+  Future<Map<String, dynamic>> login(String email, String password, {bool rememberMe = true}) async {
     try {
       final response = await _apiClient.post(
         '/auth/login',
