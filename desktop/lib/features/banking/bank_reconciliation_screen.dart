@@ -19,6 +19,7 @@ import '../../core/database/app_database.dart' show Outlet;
 import '../../core/models/invoice.dart';
 import '../../core/models/bill.dart';
 import '../../core/models/models.dart';
+import '../../core/models/payment.dart';
 import '../../core/models/bank_transaction.dart';
 import '../../core/providers/local_bank_statements_provider.dart';
 import 'banking_screen.dart';
@@ -1651,6 +1652,25 @@ class _BankReconciliationScreenState
               : remainingBalance;
           // recordPayment persists to local storage and queues a server sync
           billsNotifier.recordPayment(entry.id, payAmt);
+          // Record payment history so bill details can show date/source
+          final now = DateTime.now();
+          ref.read(paymentsProvider.notifier).recordPaymentHistory(Payment(
+            id: const Uuid().v4(),
+            paymentNumber: 'BPAY-RECON-${now.millisecondsSinceEpoch}',
+            paymentType: PaymentType.made,
+            vendorId: bill.vendorId,
+            vendorName: bill.vendorName,
+            paymentDate: line.date,
+            amount: payAmt,
+            paymentMethod: 'Bank Transfer',
+            reference: line.reference,
+            accountId: _selectedAccount?.id,
+            accountName: _selectedAccount?.bankName,
+            notes: 'Payment for ${bill.billNumber}',
+            currencyCode: bill.currencyCode,
+            createdAt: now,
+            updatedAt: now,
+          ));
           // Track payment so we can reverse it if the statement is deleted
           createdBillPayments.add({'billId': entry.id, 'amount': payAmt});
         }

@@ -1734,6 +1734,21 @@ class PaymentsNotifier extends StateNotifier<PaymentsState> {
     );
   }
 
+  /// Records a payment for history/display only — no auto-apply side effects.
+  /// Use this when the payment has already been applied to the bill directly
+  /// (e.g. via recordPayment in bank reconciliation) to avoid double-counting.
+  void recordPaymentHistory(Payment payment) {
+    final updatedPayments = [...state.payments, payment];
+    state = state.copyWith(payments: updatedPayments);
+    _localStorage.savePayments(updatedPayments);
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.create,
+      entityType: SyncEntityType.payment,
+      entityId: payment.id,
+      data: payment.toJson(),
+    );
+  }
+
   /// Auto-creates a 6% Withholding Tax JE for supplier payments (Uganda WHT).
   /// Triggered only when autoWHTJE is enabled in settings.
   /// DR 144 Withholding Tax / CR 146 Withholding Tax Payable — Suppliers.
