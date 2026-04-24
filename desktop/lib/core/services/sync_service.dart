@@ -1,18 +1,21 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:dio/dio.dart';
+import 'package:dio/dio.dart' show Dio, DioException, DioExceptionType, MultipartFile, FormData, DioMediaType, Response;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
+import 'package:path/path.dart' as p;
 
 import 'api_client.dart';
 import 'local_storage_service.dart';
 import 'data_service.dart';
 import '../models/models.dart';
+import '../models/bank_transaction.dart';
 import '../providers/local_bank_statements_provider.dart';
 import '../providers/asset_drafts_provider.dart';
 import '../providers/depreciation_schedules_provider.dart';
 import '../providers/local_attachments_provider.dart';
+import '../providers/notes_providers.dart';
 
 // ============================================================================
 // Connectivity State
@@ -276,8 +279,14 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
         state = state.copyWith(progress: (i + 1) / total);
       }
 
+      // Upload any locally-stored attachments that haven't reached the server yet
+      await _uploadPendingAttachments();
+
       // After syncing queue, pull fresh data from server
       await _pullFromServer();
+
+      // Push+pull client-managed entities (blob store via /client-data/{type})
+      await _syncClientDataEntities();
 
       await _localStorage.setLastSyncTime(DateTime.now());
       await _loadPendingChanges();
@@ -343,10 +352,88 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
       case SyncEntityType.bill:
         return '/bills';
       case SyncEntityType.journalEntry:
-        return '/journals';
+        return '/journal-entries';
       case SyncEntityType.payment:
         return '/payments';
+      case SyncEntityType.creditNote:
+        return '/credit-notes';
+      case SyncEntityType.debitNote:
+        return '/debit-notes';
     }
+  }
+
+  // ============================================================================
+  // Attachment Upload
+  // Uploads any LocalAttachment still in 'local' status to POST /attachments.
+  // Marks each one 'synced' or 'error' and persists the result.
+  // ============================================================================
+
+  Future<void> _uploadPendingAttachments() async {
+    final notifier = _ref.read(localAttachmentsProvider.notifier);
+    final pending = _ref
+        .read(localAttachmentsProvider)
+        .where((a) => a.isLocal)
+        .toList();
+
+    for (final att in pending) {
+      try {
+        final file = File(att.localPath);
+        if (!await file.exists()) {
+          await notifier.markError(att.id);
+          continue;
+        }
+
+        final ext = p.extension(att.fileName).toLowerCase();
+        final mimeType = att.mimeType ?? _mimeFromExt(ext);
+
+        final formData = FormData.fromMap({
+          'attachable_type': att.attachableType,
+          'attachable_id':   att.localRecordId,
+          'file': await MultipartFile.fromFile(
+            att.localPath,
+            filename: att.fileName,
+            contentType: mimeType != null
+                ? DioMediaType.parse(mimeType)
+                : null,
+          ),
+        });
+
+        final response = await _apiClient.post('/attachments', data: formData);
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final body = response.data;
+          final serverData = body['attachment'] ?? body['data'] ?? body;
+          await notifier.markSynced(
+            att.id,
+            serverData['id'] as int? ?? 0,
+            serverData['url'] as String? ?? '',
+          );
+        } else {
+          await notifier.markError(att.id);
+        }
+      } catch (e) {
+        debugPrint('Attachment upload failed for ${att.id}: $e');
+        await notifier.markError(att.id);
+      }
+    }
+  }
+
+  /// Minimal MIME inference from file extension — avoids adding a mime package.
+  String? _mimeFromExt(String ext) {
+    const map = {
+      '.pdf':  'application/pdf',
+      '.jpg':  'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png':  'image/png',
+      '.gif':  'image/gif',
+      '.webp': 'image/webp',
+      '.doc':  'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.xls':  'application/vnd.ms-excel',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.txt':  'text/plain',
+      '.csv':  'text/csv',
+    };
+    return map[ext];
   }
 
   Future<void> _pullFromServer() async {
@@ -383,7 +470,7 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
           reload: () => _ref.read(billsProvider.notifier).loadBills(),
         ),
         _pullEntityFromServer<JournalEntry>(
-          endpoint: '/journals',
+          endpoint: '/journal-entries',
           fromJson: (j) => JournalEntry.fromJson(j),
           save: (items) => _localStorage.saveJournalEntries(items),
           reload: () => _ref.read(journalsProvider.notifier).loadJournals(),
@@ -394,6 +481,20 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
           save: (items) => _localStorage.savePayments(items),
           reload: () => _ref.read(paymentsProvider.notifier).loadPayments(),
         ),
+        _pullEntityFromServer<CreditNote>(
+          endpoint: '/credit-notes',
+          fromJson: (j) => CreditNote.fromJson(j),
+          save: (items) => _localStorage.saveCreditNotes(items),
+          reload: () => _ref.read(creditNotesProvider.notifier).reload(),
+          responseKey: 'credit_notes',
+        ),
+        _pullEntityFromServer<DebitNote>(
+          endpoint: '/debit-notes',
+          fromJson: (j) => DebitNote.fromJson(j),
+          save: (items) => _localStorage.saveDebitNotes(items),
+          reload: () => _ref.read(debitNotesProvider.notifier).reload(),
+          responseKey: 'debit_notes',
+        ),
       ]);
     } catch (e) {
       debugPrint('Error pulling data from server: $e');
@@ -402,20 +503,26 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
 
   /// Fetches a collection from [endpoint], persists it to local storage via
   /// [save], then triggers a provider reload via [reload].
+  /// [responseKey] allows custom JSON envelope keys (e.g. 'credit_notes').
   Future<void> _pullEntityFromServer<T>({
     required String endpoint,
     required T Function(Map<String, dynamic>) fromJson,
     required Future<void> Function(List<T>) save,
     required Future<void> Function() reload,
+    String? responseKey,
   }) async {
     try {
       final response = await _apiClient.get(endpoint);
       if (response.statusCode == 200) {
         final body = response.data;
-        // Support both { data: [...] } and bare [...] response shapes
-        final List<dynamic> rawList = body is Map && body.containsKey('data')
-            ? (body['data'] as List<dynamic>)
-            : (body as List<dynamic>);
+        List<dynamic> rawList;
+        if (responseKey != null && body is Map && body.containsKey(responseKey)) {
+          rawList = body[responseKey] as List<dynamic>;
+        } else if (body is Map && body.containsKey('data')) {
+          rawList = body['data'] as List<dynamic>;
+        } else {
+          rawList = body as List<dynamic>;
+        }
         final items = rawList
             .whereType<Map<String, dynamic>>()
             .map((j) => fromJson(j))
@@ -426,6 +533,307 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
     } catch (e) {
       debugPrint('Error pulling $endpoint from server: $e');
       // Fall back to local data — do not rethrow
+    }
+  }
+
+  // ============================================================================
+  // Client-Data Blob Store Sync (bank tx, asset drafts, outlet revenues, etc.)
+  // ============================================================================
+
+  /// Push+pull all entities that use the generic /client-data/{type} endpoint.
+  Future<void> _syncClientDataEntities() async {
+    try {
+      await Future.wait([
+        _syncBankTransactions(),
+        _syncBankStatements(),
+        _syncAssetDrafts(),
+        _syncDepreciationSchedules(),
+        _syncOutletSettlements(),
+        _syncOutletRevenues(),
+        _syncOutletExpenditures(),
+        _syncCommissionPayments(),
+      ]);
+    } catch (e) {
+      debugPrint('Error in _syncClientDataEntities: $e');
+    }
+  }
+
+  Future<void> _syncBankTransactions() async {
+    const type = 'bank-transactions';
+    try {
+      // Push
+      final local = await _localStorage.loadBankTransactions();
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((t) => t.toJson()).toList()},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final pulled = raw
+            .whereType<Map<String, dynamic>>()
+            .map(BankTransaction.fromJson)
+            .toList();
+        if (pulled.isNotEmpty) {
+          await _localStorage.saveBankTransactions(pulled);
+        }
+      }
+    } catch (e) {
+      debugPrint('Bank transaction sync error: $e');
+    }
+  }
+
+  Future<void> _syncBankStatements() async {
+    const type = 'bank-statements';
+    try {
+      // Push
+      final local = _ref.read(localBankStatementsProvider);
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((s) => s.toJson()).toList()},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final pulled = raw
+            .whereType<Map<String, dynamic>>()
+            .map(LocalBankStatement.fromJson)
+            .toList();
+        if (pulled.isNotEmpty) {
+          _ref.read(localBankStatementsProvider.notifier).replaceAll(pulled);
+        }
+      }
+    } catch (e) {
+      debugPrint('Bank statement sync error: $e');
+    }
+  }
+
+  Future<void> _syncAssetDrafts() async {
+    const type = 'asset-drafts';
+    try {
+      // Push
+      final local = _ref.read(assetDraftsProvider);
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((a) => a.toJson()).toList()},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final pulled = raw
+            .whereType<Map<String, dynamic>>()
+            .map(AssetDraft.fromJson)
+            .toList();
+        if (pulled.isNotEmpty) {
+          await _ref.read(assetDraftsProvider.notifier).replaceAll(pulled);
+        }
+      }
+    } catch (e) {
+      debugPrint('Asset drafts sync error: $e');
+    }
+  }
+
+  Future<void> _syncDepreciationSchedules() async {
+    const type = 'depreciation-schedules';
+    try {
+      // Push
+      final local = _ref.read(depreciationSchedulesProvider);
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((s) => s.toJson()).toList()},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final pulled = raw
+            .whereType<Map<String, dynamic>>()
+            .map(DepreciationSchedule.fromJson)
+            .toList();
+        if (pulled.isNotEmpty) {
+          _ref.read(depreciationSchedulesProvider.notifier).replaceAll(pulled);
+        }
+      }
+    } catch (e) {
+      debugPrint('Depreciation schedules sync error: $e');
+    }
+  }
+
+  Future<void> _syncOutletSettlements() async {
+    const type = 'outlet-settlements';
+    try {
+      // Push
+      final local = await _localStorage.loadOutletSettlements();
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((s) => s.toJson()).toList()},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final pulled = raw
+            .whereType<Map<String, dynamic>>()
+            .map(OutletSettlement.fromJson)
+            .toList();
+        if (pulled.isNotEmpty) {
+          await _localStorage.saveOutletSettlements(pulled);
+        }
+      }
+    } catch (e) {
+      debugPrint('Outlet settlements sync error: $e');
+    }
+  }
+
+  Future<void> _syncOutletRevenues() async {
+    const type = 'outlet-revenues';
+    try {
+      final db = _ref.read(databaseProvider);
+      // Push — include outlet_code so the receiving device can resolve the FK
+      final allOutlets = await db.getAllOutlets();
+      final outletCodeMap = {for (final o in allOutlets) o.id: o.outletCode};
+      final revenues = await db.getAllOutletRevenues();
+      if (revenues.isNotEmpty) {
+        final records = revenues.map((r) => {
+          'id': r.id,
+          'outlet_id': r.outletId,
+          'outlet_code': outletCodeMap[r.outletId] ?? '',
+          'date': r.date.toIso8601String(),
+          'amount': r.amount,
+          'commission_amount': r.commissionAmount,
+          'net_amount': r.netAmount,
+          'description': r.description,
+          'reference': r.reference,
+          'status': r.status,
+          'created_at': r.createdAt.toIso8601String(),
+          'updated_at': r.updatedAt.toIso8601String(),
+        }).toList();
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': records},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        for (final item in raw.whereType<Map<String, dynamic>>()) {
+          await db.upsertOutletRevenueFromMap(item);
+        }
+        if (raw.isNotEmpty) {
+          _ref.invalidate(dashboardDataProvider);
+          _ref.invalidate(outletRevenueSummaryProvider);
+          _ref.invalidate(outletAnalyticsProvider);
+        }
+      }
+    } catch (e) {
+      debugPrint('Outlet revenues sync error: $e');
+    }
+  }
+
+  Future<void> _syncOutletExpenditures() async {
+    const type = 'outlet-expenditures';
+    try {
+      final db = _ref.read(databaseProvider);
+      final allOutlets = await db.getAllOutlets();
+      final outletCodeMap = {for (final o in allOutlets) o.id: o.outletCode};
+      final expenditures = await db.getAllOutletExpenditures();
+      if (expenditures.isNotEmpty) {
+        final records = expenditures.map((e) => {
+          'id': e.id,
+          'outlet_id': e.outletId,
+          'outlet_code': outletCodeMap[e.outletId] ?? '',
+          'date': e.date.toIso8601String(),
+          'expense_type': e.expenseType,
+          'amount': e.amount,
+          'description': e.description,
+          'reference': e.reference,
+          'paid_to': e.paidTo,
+          'status': e.status,
+          'created_at': e.createdAt.toIso8601String(),
+          'updated_at': e.updatedAt.toIso8601String(),
+        }).toList();
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': records},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        for (final item in raw.whereType<Map<String, dynamic>>()) {
+          await db.upsertOutletExpenditureFromMap(item);
+        }
+        if (raw.isNotEmpty) {
+          _ref.invalidate(dashboardDataProvider);
+          _ref.invalidate(outletRevenueSummaryProvider);
+          _ref.invalidate(outletAnalyticsProvider);
+        }
+      }
+    } catch (e) {
+      debugPrint('Outlet expenditures sync error: $e');
+    }
+  }
+
+  Future<void> _syncCommissionPayments() async {
+    const type = 'commission-payments';
+    try {
+      final db = _ref.read(databaseProvider);
+      final allOutlets = await db.getAllOutlets();
+      final outletCodeMap = {for (final o in allOutlets) o.id: o.outletCode};
+      final payments = await db.getAllCommissionPayments();
+      if (payments.isNotEmpty) {
+        final records = payments.map((c) => {
+          'id': c.id,
+          'outlet_id': c.outletId,
+          'outlet_code': outletCodeMap[c.outletId] ?? '',
+          'period_start': c.periodStart.toIso8601String(),
+          'period_end': c.periodEnd.toIso8601String(),
+          'total_revenue': c.totalRevenue,
+          'commission_rate': c.commissionRate,
+          'commission_amount': c.commissionAmount,
+          'status': c.status,
+          'paid_date': c.paidDate?.toIso8601String(),
+          'payment_method': c.paymentMethod,
+          'payment_reference': c.paymentReference,
+          'notes': c.notes,
+          'created_at': c.createdAt.toIso8601String(),
+          'updated_at': c.updatedAt.toIso8601String(),
+        }).toList();
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': records},
+        );
+      }
+      // Pull
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        for (final item in raw.whereType<Map<String, dynamic>>()) {
+          await db.upsertCommissionPaymentFromMap(item);
+        }
+        if (raw.isNotEmpty) {
+          _ref.invalidate(dashboardDataProvider);
+          _ref.invalidate(outletRevenueSummaryProvider);
+          _ref.invalidate(outletAnalyticsProvider);
+        }
+      }
+    } catch (e) {
+      debugPrint('Commission payments sync error: $e');
     }
   }
 
@@ -531,6 +939,8 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
         _ref.read(assetDraftsProvider.notifier).clearAll();
         _ref.read(depreciationSchedulesProvider.notifier).clearAll();
         _ref.read(localAttachmentsProvider.notifier).clearAll();
+        _ref.read(creditNotesProvider.notifier).clearAll();
+        _ref.read(debitNotesProvider.notifier).clearAll();
       } catch (_) {
         // Providers may not be initialised — the JSON files are already empty.
       }

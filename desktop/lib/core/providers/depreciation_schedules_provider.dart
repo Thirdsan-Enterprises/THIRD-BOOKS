@@ -206,6 +206,15 @@ class DepreciationSchedulesNotifier
     await _save();
   }
 
+  /// Reload from disk after a server pull has overwritten the JSON file.
+  Future<void> reload() => _load();
+
+  /// Replace entire list (called after a server pull overwrites local storage).
+  void replaceAll(List<DepreciationSchedule> schedules) {
+    state = schedules;
+    _save();
+  }
+
   /// Clear all schedules — used by the settings "clear cache" action.
   Future<void> clearAll() async {
     state = [];
