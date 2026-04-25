@@ -13,13 +13,21 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('asset_registers', function (Blueprint $table) {
+        if (Schema::hasTable('asset_registers')) {
+            return;
+        }
+
+        // Live DB uses bill_lines; fall back gracefully if neither exists
+        $billLinesTable = Schema::hasTable('bill_lines') ? 'bill_lines' : 'bill_items';
+
+        Schema::create('asset_registers', function (Blueprint $table) use ($billLinesTable) {
             $table->id();
             $table->foreignId('company_id')->constrained()->cascadeOnDelete();
 
             // Source bill (nullable — assets can be added manually)
             $table->foreignId('bill_id')->nullable()->constrained('bills')->nullOnDelete();
-            $table->foreignId('bill_line_id')->nullable()->constrained('bill_items')->nullOnDelete();
+            $table->unsignedBigInteger('bill_line_id')->nullable();
+            $table->foreign('bill_line_id')->references('id')->on($billLinesTable)->nullOnDelete();
 
             // The Chart-of-Accounts account that carries this asset's book value
             $table->foreignId('coa_account_id')->constrained('accounts')->restrictOnDelete();
