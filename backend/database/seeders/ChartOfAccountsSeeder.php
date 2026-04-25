@@ -76,6 +76,15 @@ class ChartOfAccountsSeeder extends Seeder
             ['code' => '1610', 'name' => 'Accumulated Depreciation - Buildings', 'type' => 'asset', 'category' => 'fixed_asset', 'parent_id' => null, 'is_system' => false],
             ['code' => '1620', 'name' => 'Accumulated Depreciation - Equipment', 'type' => 'asset', 'category' => 'fixed_asset', 'parent_id' => null, 'is_system' => false],
 
+            // Intangible Assets (1700-1899) — IAS 38 / ASC 350
+            ['code' => '1700', 'name' => 'Intangible Assets', 'type' => 'asset', 'category' => 'intangible_asset', 'parent_id' => null, 'is_system' => false],
+            ['code' => '1710', 'name' => 'Software & Licenses', 'type' => 'asset', 'category' => 'intangible_asset', 'parent_id' => null, 'is_system' => false],
+            ['code' => '1720', 'name' => 'Patents & Trademarks', 'type' => 'asset', 'category' => 'intangible_asset', 'parent_id' => null, 'is_system' => false],
+            ['code' => '1730', 'name' => 'Goodwill', 'type' => 'asset', 'category' => 'intangible_asset', 'parent_id' => null, 'is_system' => false],
+            ['code' => '1800', 'name' => 'Accumulated Amortization', 'type' => 'asset', 'category' => 'intangible_asset', 'parent_id' => null, 'is_system' => false],
+            ['code' => '1810', 'name' => 'Accumulated Amortization - Software', 'type' => 'asset', 'category' => 'intangible_asset', 'parent_id' => null, 'is_system' => false],
+            ['code' => '1820', 'name' => 'Accumulated Amortization - Patents', 'type' => 'asset', 'category' => 'intangible_asset', 'parent_id' => null, 'is_system' => false],
+
             // LIABILITIES (2000-2999)
             ['code' => '2000', 'name' => 'Liabilities', 'type' => 'liability', 'category' => null, 'parent_id' => null, 'is_system' => true],
 
@@ -131,6 +140,7 @@ class ChartOfAccountsSeeder extends Seeder
             ['code' => '6810', 'name' => 'Legal Fees', 'type' => 'expense', 'category' => 'expense', 'parent_id' => null, 'is_system' => false],
             ['code' => '6820', 'name' => 'Accounting Fees', 'type' => 'expense', 'category' => 'expense', 'parent_id' => null, 'is_system' => false],
             ['code' => '6900', 'name' => 'Depreciation Expense', 'type' => 'expense', 'category' => 'expense', 'parent_id' => null, 'is_system' => false],
+            ['code' => '6910', 'name' => 'Amortization Expense', 'type' => 'expense', 'category' => 'expense', 'parent_id' => null, 'is_system' => false],
 
             ['code' => '7000', 'name' => 'Other Expenses', 'type' => 'expense', 'category' => 'other_expense', 'parent_id' => null, 'is_system' => false],
             ['code' => '7100', 'name' => 'Bank Charges', 'type' => 'expense', 'category' => 'other_expense', 'parent_id' => null, 'is_system' => false],

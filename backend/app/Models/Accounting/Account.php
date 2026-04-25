@@ -67,6 +67,7 @@ class Account extends Model
     const CATEGORY_ACCOUNTS_RECEIVABLE = 'accounts_receivable';
     const CATEGORY_INVENTORY = 'inventory';
     const CATEGORY_FIXED_ASSET = 'fixed_asset';
+    const CATEGORY_INTANGIBLE_ASSET = 'intangible_asset';
     const CATEGORY_ACCOUNTS_PAYABLE = 'accounts_payable';
     const CATEGORY_CREDIT_CARD = 'credit_card';
     const CATEGORY_LONG_TERM_LIABILITY = 'long_term_liability';

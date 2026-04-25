@@ -82,20 +82,32 @@ class BillController extends Controller
             $bill->calculateTotals();
             $bill->save();
 
-            // ── Auto-create Asset Register entries for fixed-asset lines ─────
-            // When a bill line uses an account with category = 'fixed_asset',
-            // we create an AssetRegister record so the item appears in the
-            // Asset tab and the user can configure depreciation.
+            // ── Auto-create Asset Register entries for fixed-asset and intangible lines ──
+            // When a bill line uses a fixed_asset or intangible_asset CoA account we
+            // create an AssetRegister record so the item appears in the Asset tab and
+            // the user can configure depreciation (tangible) or amortization (intangible).
             $assetCount = 0;
             foreach ($bill->lines()->with('account')->get() as $line) {
                 $account = $line->account;
                 if (!$account) continue;
-                if ($account->category !== Account::CATEGORY_FIXED_ASSET &&
-                    $account->type    !== Account::TYPE_ASSET) {
+
+                $isFixedAsset     = $account->category === Account::CATEGORY_FIXED_ASSET;
+                $isIntangibleAsset = $account->category === Account::CATEGORY_INTANGIBLE_ASSET;
+
+                // Also catch intangibles that might be stored as generic 'asset' type
+                // (e.g., accounts named "Software & Licenses" created before this feature)
+                if (!$isFixedAsset && !$isIntangibleAsset && $account->type === Account::TYPE_ASSET) {
+                    $inferredNature = AssetRegister::inferNatureFromAccountName($account->name);
+                    if ($inferredNature === AssetRegister::NATURE_INTANGIBLE) {
+                        $isIntangibleAsset = true;
+                    }
+                }
+
+                if (!$isFixedAsset && !$isIntangibleAsset) {
                     continue;
                 }
-                // Skip if account is a bank, cash, or AR account (current assets,
-                // not fixed assets that need depreciation tracking).
+
+                // Skip current asset accounts (cash, bank, AR, inventory)
                 if (in_array($account->category, [
                     Account::CATEGORY_BANK,
                     Account::CATEGORY_CASH,
@@ -105,15 +117,20 @@ class BillController extends Controller
                     continue;
                 }
 
+                $nature   = $isIntangibleAsset ? AssetRegister::NATURE_INTANGIBLE : AssetRegister::NATURE_TANGIBLE;
+                $category = AssetRegister::inferCategoryFromAccountName($account->name);
+
                 AssetRegister::create([
                     'company_id'         => $bill->company_id,
                     'bill_id'            => $bill->id,
                     'bill_line_id'       => $line->id,
                     'coa_account_id'     => $account->id,
                     'name'               => $line->description ?: $account->name,
-                    'category'           => AssetRegister::inferCategoryFromAccountName($account->name),
+                    'category'           => $category,
+                    'asset_nature'       => $nature,
                     'description'        => "Acquired via {$bill->bill_number} from {$bill->vendor->name}",
                     'cost'               => $line->amount,
+                    // Intangibles: IAS 38 residual = 0; tangibles: user sets salvage later
                     'salvage_value'      => 0,
                     'current_book_value' => $line->amount,
                     'currency_code'      => $bill->currency?->code ?? 'UGX',

@@ -171,16 +171,28 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::delete('/{debitNote}', [CreditDebitNoteController::class, 'destroyDebit']);
         });
 
-        // ── Asset Register ────────────────────────────────────────────────────
+        // ── Asset Register (tangible PP&E + intangible) ───────────────────────
         Route::prefix('assets')->group(function () {
             Route::get('/',  [AssetRegisterController::class, 'index']);
             Route::post('/', [AssetRegisterController::class, 'store']);
+
+            // Bulk runs (must be before /{asset} to avoid route collision)
+            Route::post('/depreciate-all', [AssetRegisterController::class, 'depreciateAll']);
+            Route::post('/amortize-all',   [AssetRegisterController::class, 'amortizeAll']);
+
             Route::get('/{asset}',  [AssetRegisterController::class, 'show']);
             Route::put('/{asset}',  [AssetRegisterController::class, 'update']);
-            Route::post('/{asset}/dispose',              [AssetRegisterController::class, 'dispose']);
-            Route::post('/{asset}/depreciate',           [AssetRegisterController::class, 'postDepreciation']);
-            Route::get('/{asset}/depreciation-schedule', [AssetRegisterController::class, 'depreciationSchedule']);
-            Route::post('/depreciate-all',               [AssetRegisterController::class, 'depreciateAll']);
+
+            // Dispose / derecognise (works for both tangible and intangible)
+            Route::post('/{asset}/dispose', [AssetRegisterController::class, 'dispose']);
+
+            // Tangible PP&E — depreciation (IAS 16)
+            Route::post('/{asset}/depreciate',            [AssetRegisterController::class, 'postDepreciation']);
+            Route::get('/{asset}/depreciation-schedule',  [AssetRegisterController::class, 'depreciationSchedule']);
+
+            // Intangible assets — amortization (IAS 38)
+            Route::post('/{asset}/amortize',              [AssetRegisterController::class, 'postAmortization']);
+            Route::get('/{asset}/amortization-schedule',  [AssetRegisterController::class, 'amortizationSchedule']);
         });
 
         // ── Generic client-data blob store (bank tx, asset drafts, outlet data…) ──
