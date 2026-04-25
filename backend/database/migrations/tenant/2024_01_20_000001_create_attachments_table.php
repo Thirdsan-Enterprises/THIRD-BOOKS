@@ -14,11 +14,16 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (Schema::hasTable('attachments')) {
+            return;
+        }
+
         Schema::create('attachments', function (Blueprint $table) {
             $table->id();
             $table->foreignId('company_id')->constrained()->cascadeOnDelete();
 
             // Polymorphic relation: attachable_type + attachable_id
+            // morphs() already creates the composite index — no need to add it again
             $table->morphs('attachable');
 
             $table->string('file_name');           // Original filename shown to user
@@ -32,7 +37,6 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->index(['attachable_type', 'attachable_id']);
             $table->index('company_id');
         });
     }
