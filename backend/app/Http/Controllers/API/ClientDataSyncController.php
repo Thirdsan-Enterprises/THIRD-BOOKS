@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Generic blob-store sync endpoint.
@@ -52,6 +53,13 @@ class ClientDataSyncController extends Controller
 
         $data = $rows->map(fn($p) => json_decode($p, true))->values();
 
+        Log::info('[CLIENT-DATA PULL]', [
+            'type'       => $type,
+            'company_id' => $companyId,
+            'user_id'    => Auth::id(),
+            'row_count'  => $data->count(),
+        ]);
+
         return response()->json(['data' => $data]);
     }
 
@@ -74,6 +82,13 @@ class ClientDataSyncController extends Controller
         $now = now()->toDateTimeString();
         $upserted = 0;
 
+        Log::info('[CLIENT-DATA PUSH] Receiving data', [
+            'type'         => $type,
+            'company_id'   => $companyId,
+            'user_id'      => Auth::id(),
+            'record_count' => count($records),
+        ]);
+
         foreach ($records as $record) {
             if (empty($record['id'])) {
                 continue;
@@ -94,6 +109,12 @@ class ClientDataSyncController extends Controller
             $upserted++;
         }
 
+        Log::info('[CLIENT-DATA PUSH] Done', [
+            'type'       => $type,
+            'company_id' => $companyId,
+            'upserted'   => $upserted,
+        ]);
+
         return response()->json([
             'message'  => 'Synced successfully',
             'upserted' => $upserted,
@@ -102,10 +123,13 @@ class ClientDataSyncController extends Controller
 
     private function resolveCompanyId(Request $request): ?int
     {
-        // Multi-tenant: the X-Tenant-ID header holds the tenant slug;
-        // resolve to the companies.id for storage.
-        $tenantId = $request->header('X-Tenant-ID');
+        // Primary: use the company resolved by the tenant middleware (most reliable)
+        if (app()->bound('current_company_id')) {
+            return app('current_company_id');
+        }
 
+        // Secondary: resolve from X-Tenant-ID header directly
+        $tenantId = $request->header('X-Tenant-ID');
         if ($tenantId) {
             $company = DB::table('companies')
                 ->where('tenant_id', $tenantId)
@@ -114,12 +138,6 @@ class ClientDataSyncController extends Controller
             if ($company) {
                 return $company->id;
             }
-        }
-
-        // Fall back to the authenticated user's company
-        $user = Auth::user();
-        if ($user && isset($user->company_id)) {
-            return $user->company_id;
         }
 
         return null;

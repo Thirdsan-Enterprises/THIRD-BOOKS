@@ -516,6 +516,8 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
 
   /// Fetches a collection from [endpoint], persists it to local storage via
   /// [save], then triggers a provider reload via [reload].
+  /// Requests all records in a single page to avoid silent truncation at the
+  /// server's default page size.
   /// [responseKey] allows custom JSON envelope keys (e.g. 'credit_notes').
   Future<void> _pullEntityFromServer<T>({
     required String endpoint,
@@ -525,7 +527,10 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
     String? responseKey,
   }) async {
     try {
-      final response = await _apiClient.get(endpoint);
+      final response = await _apiClient.get(
+        endpoint,
+        queryParameters: {'per_page': 10000},
+      );
       if (response.statusCode == 200) {
         final body = response.data;
         List<dynamic> rawList;

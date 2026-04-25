@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\Sync\EventSourceService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 
 class SyncController extends Controller
 {
@@ -52,11 +53,24 @@ class SyncController extends Controller
             'resolution_strategy' => 'nullable|string|in:server_wins,client_wins,last_write_wins,manual',
         ]);
 
+        Log::info('[SYNC PUSH] Data received from device', [
+            'device_id'   => $validated['device_id'],
+            'user_id'     => auth()->id(),
+            'event_count' => count($validated['events']),
+            'event_types' => array_column($validated['events'], 'event_type'),
+        ]);
+
         $result = $this->eventSourceService->uploadEvents(
             $validated['events'],
             $validated['device_id'],
             $validated['resolution_strategy'] ?? 'server_wins'
         );
+
+        Log::info('[SYNC PUSH] Result', [
+            'device_id'      => $validated['device_id'],
+            'uploaded_count' => $result['uploaded_count'],
+            'conflicts'      => $result['conflicts_count'],
+        ]);
 
         if ($result['conflicts_count'] > 0) {
             return $this->success($result, 'Events uploaded with conflicts', 207); // 207 Multi-Status
@@ -88,6 +102,15 @@ class SyncController extends Controller
             'resolution_strategy' => 'nullable|string|in:server_wins,client_wins,last_write_wins,manual',
         ]);
 
+        Log::info('[SYNC FULL] Bi-directional sync started', [
+            'device_id'    => $validated['device_id'],
+            'device_name'  => $validated['device_name'] ?? 'unknown',
+            'device_type'  => $validated['device_type'] ?? 'unknown',
+            'user_id'      => auth()->id(),
+            'push_count'   => count($validated['events'] ?? []),
+            'after_seq'    => $validated['after_sequence'] ?? 0,
+        ]);
+
         $result = [
             'pushed' => null,
             'pulled' => null,
@@ -100,6 +123,11 @@ class SyncController extends Controller
                 $validated['device_id'],
                 $validated['resolution_strategy'] ?? 'server_wins'
             );
+            Log::info('[SYNC FULL] Push complete', [
+                'device_id'      => $validated['device_id'],
+                'uploaded'       => $result['pushed']['uploaded_count'],
+                'conflicts'      => $result['pushed']['conflicts_count'],
+            ]);
         }
 
         // Download server events
@@ -107,6 +135,13 @@ class SyncController extends Controller
             $validated['device_id'],
             $validated['after_sequence'] ?? null
         );
+
+        Log::info('[SYNC FULL] Pull complete', [
+            'device_id'     => $validated['device_id'],
+            'events_sent'   => count($result['pulled']['events']),
+            'last_sequence' => $result['pulled']['last_sequence'],
+            'has_more'      => $result['pulled']['has_more'],
+        ]);
 
         // Update device sync state
         $this->eventSourceService->updateDeviceSyncState(
