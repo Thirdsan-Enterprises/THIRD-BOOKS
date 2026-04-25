@@ -37,7 +37,7 @@ return new class extends Migration
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 
-            $table->index(['company_id', 'asset_register_id', 'period_date']);
+            $table->index(['company_id', 'asset_register_id', 'period_date'], 'dep_entries_company_asset_period_idx');
         });
     }
 
