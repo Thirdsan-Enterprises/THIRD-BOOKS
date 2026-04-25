@@ -18,20 +18,46 @@ class AssetRegister extends Model
 
     protected $table = 'asset_registers';
 
+    // ── Status ───────────────────────────────────────────────────────────────
+
     const STATUS_ACTIVE     = 'active';
     const STATUS_DISPOSED   = 'disposed';
     const STATUS_DAMAGED    = 'damaged';
     const STATUS_WRITTEN_OFF = 'written_off';
 
+    // ── Asset nature (IAS 16 tangible vs IAS 38 intangible) ──────────────────
+
+    const NATURE_TANGIBLE   = 'tangible';
+    const NATURE_INTANGIBLE = 'intangible';
+
+    // ── Depreciation / amortization methods ──────────────────────────────────
+
     const METHOD_STRAIGHT_LINE     = 'straight_line';
     const METHOD_DECLINING_BALANCE = 'declining_balance';
+
+    // ── Depreciation / amortization periods ──────────────────────────────────
 
     const PERIOD_MONTHLY = 'monthly';
     const PERIOD_YEARLY  = 'yearly';
 
+    // ── Tangible asset categories (IAS 16 / PP&E) ────────────────────────────
+
+    const TANGIBLE_CATEGORIES = [
+        'Equipment', 'Vehicle', 'Furniture', 'Electronics',
+        'Building', 'Land', 'Machinery',
+    ];
+
+    // ── Intangible asset categories (IAS 38) ─────────────────────────────────
+
+    const INTANGIBLE_CATEGORIES = [
+        'Software', 'License', 'Patent', 'Trademark', 'Goodwill',
+    ];
+
+    // Merged list for validation (both natures combined)
     const CATEGORIES = [
         'Equipment', 'Vehicle', 'Furniture', 'Electronics',
         'Building', 'Land', 'Machinery',
+        'Software', 'License', 'Patent', 'Trademark', 'Goodwill',
     ];
 
     protected $fillable = [
@@ -43,6 +69,7 @@ class AssetRegister extends Model
         'name',
         'category',
         'description',
+        'asset_nature',
         'cost',
         'salvage_value',
         'current_book_value',
@@ -97,23 +124,55 @@ class AssetRegister extends Model
 
     public function depreciationEntries(): HasMany
     {
-        return $this->hasMany(DepreciationEntry::class, 'asset_register_id');
+        return $this->hasMany(DepreciationEntry::class, 'asset_register_id')
+            ->where('entry_type', 'depreciation');
+    }
+
+    public function amortizationEntries(): HasMany
+    {
+        return $this->hasMany(DepreciationEntry::class, 'asset_register_id')
+            ->where('entry_type', 'amortization');
     }
 
     // ── Computed attributes ──────────────────────────────────────────────────
 
     public function getAccumulatedDepreciationAttribute(): float
     {
-        return (float) $this->cost - (float) $this->current_book_value;
+        return $this->isIntangible() ? 0.0 : ((float) $this->cost - (float) $this->current_book_value);
+    }
+
+    public function getAccumulatedAmortizationAttribute(): float
+    {
+        return $this->isIntangible() ? ((float) $this->cost - (float) $this->current_book_value) : 0.0;
     }
 
     public function getIsFullyDepreciatedAttribute(): bool
     {
-        return (float) $this->current_book_value <= (float) $this->salvage_value;
+        return !$this->isIntangible() && (float) $this->current_book_value <= (float) $this->salvage_value;
     }
 
+    public function getIsFullyAmortizedAttribute(): bool
+    {
+        return $this->isIntangible() && (float) $this->current_book_value <= 0;
+    }
+
+    // ── Nature helpers ───────────────────────────────────────────────────────
+
+    public function isIntangible(): bool
+    {
+        return $this->asset_nature === self::NATURE_INTANGIBLE;
+    }
+
+    public function isTangible(): bool
+    {
+        return $this->asset_nature !== self::NATURE_INTANGIBLE;
+    }
+
+    // ── Calculation — depreciation (tangible) ────────────────────────────────
+
     /**
-     * Calculate the next depreciation amount (does NOT persist).
+     * Calculate the next depreciation amount for a tangible asset (does NOT persist).
+     * Applies salvage value floor per IAS 16.
      */
     public function calculateNextDepreciation(): float
     {
@@ -121,16 +180,16 @@ class AssetRegister extends Model
             return 0;
         }
 
-        $annualRate    = (float) $this->depreciation_rate / 100;
-        $periodFactor  = $this->depreciation_period === self::PERIOD_MONTHLY ? 1 / 12 : 1;
-        $periodRate    = $annualRate * $periodFactor;
-        $bookValue     = (float) $this->current_book_value;
-        $salvage       = (float) $this->salvage_value;
+        $annualRate   = (float) $this->depreciation_rate / 100;
+        $periodFactor = $this->depreciation_period === self::PERIOD_MONTHLY ? 1 / 12 : 1;
+        $periodRate   = $annualRate * $periodFactor;
+        $bookValue    = (float) $this->current_book_value;
+        $salvage      = (float) $this->salvage_value;
 
         if ($this->depreciation_method === self::METHOD_DECLINING_BALANCE) {
             $amount = $bookValue * $periodRate;
         } else {
-            // Straight-line: (cost − salvage) / useful_life periods
+            // Straight-line: (cost − salvage) / total periods
             $usefulLifeYears = (float) ($this->useful_life_years ?? 5);
             $periods = $this->depreciation_period === self::PERIOD_MONTHLY
                 ? $usefulLifeYears * 12
@@ -138,8 +197,42 @@ class AssetRegister extends Model
             $amount = ((float) $this->cost - $salvage) / $periods;
         }
 
-        // Never depreciate below salvage value
+        // Never depreciate below salvage value (IAS 16.50)
         $amount = min($amount, $bookValue - $salvage);
+        return max(0, round($amount, 4));
+    }
+
+    // ── Calculation — amortization (intangible) ──────────────────────────────
+
+    /**
+     * Calculate the next amortization amount for an intangible asset (does NOT persist).
+     *
+     * IAS 38 rules applied:
+     *  - Straight-line is the required method (no declining-balance for intangibles)
+     *  - Residual value is assumed zero unless a third-party purchase commitment exists
+     *  - Amortizes fully to zero (no salvage floor)
+     */
+    public function calculateNextAmortization(): float
+    {
+        if (!$this->useful_life_years || !$this->depreciation_period) {
+            return 0;
+        }
+
+        $bookValue = (float) $this->current_book_value;
+        if ($bookValue <= 0) {
+            return 0;
+        }
+
+        $usefulLifeYears = (float) $this->useful_life_years;
+        $periods = $this->depreciation_period === self::PERIOD_MONTHLY
+            ? $usefulLifeYears * 12
+            : $usefulLifeYears;
+
+        // Straight-line over cost (IAS 38: residual value = 0)
+        $amount = (float) $this->cost / $periods;
+
+        // Never amortize below zero
+        $amount = min($amount, $bookValue);
         return max(0, round($amount, 4));
     }
 
@@ -150,11 +243,57 @@ class AssetRegister extends Model
         return $query->where('status', self::STATUS_ACTIVE);
     }
 
+    public function scopeTangible($query)
+    {
+        return $query->where('asset_nature', self::NATURE_TANGIBLE);
+    }
+
+    public function scopeIntangible($query)
+    {
+        return $query->where('asset_nature', self::NATURE_INTANGIBLE);
+    }
+
+    /** Active tangible assets with depreciation configured. */
     public function scopeDepreciable($query)
     {
         return $query->active()
+            ->tangible()
             ->whereNotNull('depreciation_method')
             ->whereNotNull('depreciation_rate');
+    }
+
+    /** Active intangible assets with amortization period configured. */
+    public function scopeAmortizable($query)
+    {
+        return $query->active()
+            ->intangible()
+            ->whereNotNull('useful_life_years')
+            ->whereNotNull('depreciation_period');
+    }
+
+    // ── Static helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Infer whether a CoA account represents an intangible asset.
+     * Mirrors Flutter-side detection logic.
+     */
+    public static function inferNatureFromAccountName(string $name): string
+    {
+        $lower = strtolower($name);
+        if (
+            str_contains($lower, 'software') ||
+            str_contains($lower, 'license') ||
+            str_contains($lower, 'licence') ||
+            str_contains($lower, 'patent') ||
+            str_contains($lower, 'trademark') ||
+            str_contains($lower, 'goodwill') ||
+            str_contains($lower, 'intangible') ||
+            str_contains($lower, 'copyright') ||
+            str_contains($lower, 'franchise')
+        ) {
+            return self::NATURE_INTANGIBLE;
+        }
+        return self::NATURE_TANGIBLE;
     }
 
     /**
@@ -164,6 +303,25 @@ class AssetRegister extends Model
     public static function inferCategoryFromAccountName(string $name): string
     {
         $lower = strtolower($name);
+
+        // Intangible categories first
+        if (str_contains($lower, 'software')) {
+            return 'Software';
+        }
+        if (str_contains($lower, 'license') || str_contains($lower, 'licence')) {
+            return 'License';
+        }
+        if (str_contains($lower, 'patent')) {
+            return 'Patent';
+        }
+        if (str_contains($lower, 'trademark') || str_contains($lower, 'copyright') || str_contains($lower, 'franchise')) {
+            return 'Trademark';
+        }
+        if (str_contains($lower, 'goodwill')) {
+            return 'Goodwill';
+        }
+
+        // Tangible categories
         if (str_contains($lower, 'vehicle') || str_contains($lower, 'motor') || str_contains($lower, 'car')) {
             return 'Vehicle';
         }
@@ -185,6 +343,7 @@ class AssetRegister extends Model
             str_contains($lower, 'plant')) {
             return 'Machinery';
         }
+
         return 'Equipment';
     }
 }
