@@ -87,7 +87,6 @@ return [
         Stancl\Tenancy\Features\UserImpersonation::class,
         Stancl\Tenancy\Features\TelescopeTags::class,
         Stancl\Tenancy\Features\TenantConfig::class,
-        Stancl\Tenancy\Features\Timestamps::class,
     ],
 
     'migration_parameters' => [
