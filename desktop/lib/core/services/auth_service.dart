@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:dio/dio.dart';
@@ -110,10 +111,10 @@ final currentUserProvider = Provider<User?>((ref) {
   return ref.watch(authStateProvider).user;
 });
 
-// Offline mode provider - true when using offline token
+// Offline mode provider - true when using an offline session token
 final isOfflineModeProvider = Provider<bool>((ref) {
   final token = ref.watch(authStateProvider).token;
-  return token != null && token.startsWith('magicbet-admin-token');
+  return token != null && token.startsWith('offline-session-');
 });
 
 // Auth notifier
@@ -202,6 +203,7 @@ class AuthService {
   static const _tokenKey = 'auth_token';
   static const _userKey = 'auth_user';
   static const _tokenExpiryKey = 'token_expiry';
+  static const _credentialHashKey = 'offline_credential_hash';
 
   AuthService(this._apiClient);
 
@@ -295,6 +297,13 @@ class AuthService {
         );
         await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
 
+        // Cache a credential hash so offline logins can verify the password
+        // without storing the plaintext or the server token.
+        await _storage.write(
+          key: _credentialHashKey,
+          value: _hashCredential(email, password),
+        );
+
         // Update API client with token and tenant
         _apiClient.setAuthToken(token);
         final user = User.fromJson(userData);
@@ -324,48 +333,67 @@ class AuthService {
         throw Exception('Validation error');
       }
 
-      // If connection failed, try demo mode login
-      return _tryDemoLogin(email, password);
+      // Connection failed — try offline login with cached credentials
+      return _tryOfflineLogin(email, password);
     } catch (e) {
-      // If any other error, try demo mode login
-      return _tryDemoLogin(email, password);
+      // Any other error — try offline login with cached credentials
+      return _tryOfflineLogin(email, password);
     }
   }
 
-  // Offline login for MagicBet system (when API is unavailable)
-  Future<Map<String, dynamic>> _tryDemoLogin(String email, String password) async {
-    // Marion's MagicBet Admin Account (only valid offline login)
-    if (email == 'marion@magicbet.ug' && password == 'MagicBet@2026') {
-      final marionUser = {
-        'id': 100,
-        'tenant_id': 'magicbet',
-        'name': 'Marion',
-        'email': 'marion@magicbet.ug',
-        'phone': '+256 700 000000',
-        'role': 'super_admin',
-        'is_active': true,
-        'created_at': DateTime.now().toIso8601String(),
-      };
+  // Offline login: verifies the entered password against the hash stored
+  // during the last successful online login, then reuses the real cached
+  // user object (with the correct tenant UUID and user ID).
+  // Requires at least one prior successful online login on this device.
+  Future<Map<String, dynamic>> _tryOfflineLogin(String email, String password) async {
+    final storedHash = await _storage.read(key: _credentialHashKey);
+    final cachedUserJson = await _storage.read(key: _userKey);
 
-      const marionToken = 'magicbet-admin-token-marion-2026';
-
-      await _storage.write(key: _tokenKey, value: marionToken);
-      await _storage.write(key: _userKey, value: jsonEncode(marionUser));
-
-      final expiry = DateTime.now().add(const Duration(days: 365)); // 1 year
-      await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
-
-      // Set tenant on the API client even for offline mode so that once
-      // connectivity is restored the correct X-Tenant-ID header is sent.
-      _apiClient.setTenantId('magicbet');
-
-      return {
-        'token': marionToken,
-        'user': User.fromJson(marionUser),
-      };
+    if (storedHash == null || cachedUserJson == null) {
+      throw Exception(
+        'No internet connection.\n'
+        'Please connect to the internet to log in for the first time.',
+      );
     }
 
-    throw Exception('Invalid email or password');
+    if (_hashCredential(email, password) != storedHash) {
+      throw Exception('Invalid email or password');
+    }
+
+    final userData = jsonDecode(cachedUserJson) as Map<String, dynamic>;
+    final cachedEmail = userData['email'] as String?;
+    if (cachedEmail?.toLowerCase() != email.toLowerCase()) {
+      throw Exception('Invalid email or password');
+    }
+
+    // Issue a device-local offline token (not a Sanctum token).
+    // It is never sent to the server; real API calls will be retried
+    // once connectivity is restored using the refreshed Sanctum token.
+    final offlineToken = 'offline-session-${DateTime.now().millisecondsSinceEpoch}';
+
+    await _storage.write(key: _tokenKey, value: offlineToken);
+    // Extend offline expiry by 7 days from now
+    final expiry = DateTime.now().add(const Duration(days: 7));
+    await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
+
+    final user = User.fromJson(userData);
+    if (user.tenantId != null) {
+      _apiClient.setTenantId(user.tenantId);
+    }
+
+    return {
+      'token': offlineToken,
+      'user': user,
+    };
+  }
+
+  // HMAC-SHA256 of the password keyed on the email address.
+  // Not bcrypt, but the secret stays in the OS keychain (flutter_secure_storage)
+  // so casual access is prevented without needing a full KDF.
+  String _hashCredential(String email, String password) {
+    final key = utf8.encode(email.toLowerCase());
+    final hmac = Hmac(sha256, key);
+    return hmac.convert(utf8.encode(password)).toString();
   }
 
 
@@ -465,6 +493,7 @@ class AuthService {
     await _storage.delete(key: _tokenKey);
     await _storage.delete(key: _userKey);
     await _storage.delete(key: _tokenExpiryKey);
+    await _storage.delete(key: _credentialHashKey);
 
     // Clear API client token and tenant
     _apiClient.clearAuthToken();
