@@ -30,7 +30,8 @@ return new class extends Migration
             $table->enum('category', [
                 'bank', 'cash', 'accounts_receivable', 'inventory', 'fixed_asset',
                 'accounts_payable', 'credit_card', 'long_term_liability',
-                'equity', 'income', 'cost_of_goods_sold', 'expense', 'other_income', 'other_expense'
+                'equity', 'income', 'cost_of_goods_sold', 'expense', 'other_income',
+                'other_expense', 'intangible_asset'
             ])->nullable();
 
             $table->foreignId('currency_id')->constrained();
