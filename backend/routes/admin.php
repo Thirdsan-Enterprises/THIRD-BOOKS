@@ -15,7 +15,7 @@ use App\Http\Controllers\Admin\AuditLogController;
 |
 */
 
-Route::middleware(['auth:sanctum', 'super_admin'])->prefix('admin')->name('admin.')->group(function () {
+Route::middleware(['auth:sanctum', 'super_admin'])->prefix('admin')->name('api.admin.')->group(function () {
 
     // Analytics & Dashboard
     Route::get('/analytics/dashboard', [AnalyticsController::class, 'dashboard'])->name('analytics.dashboard');
