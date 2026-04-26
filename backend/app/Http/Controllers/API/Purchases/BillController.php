@@ -7,18 +7,17 @@ use App\Models\Accounting\Account;
 use App\Models\Assets\AssetRegister;
 use App\Models\Purchases\Bill;
 use App\Services\Accounting\DoubleEntryService;
+use App\Services\Sync\EventSourceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class BillController extends Controller
 {
-    protected $doubleEntryService;
-
-    public function __construct(DoubleEntryService $doubleEntryService)
-    {
-        $this->doubleEntryService = $doubleEntryService;
-    }
+    public function __construct(
+        protected DoubleEntryService $doubleEntryService,
+        protected EventSourceService $eventSourceService,
+    ) {}
 
     public function index(Request $request)
     {
@@ -147,10 +146,10 @@ class BillController extends Controller
                 ? "Bill created successfully. {$assetCount} asset(s) added to the Asset Register."
                 : 'Bill created successfully';
 
-            return response()->json([
-                'message' => $message,
-                'bill' => $bill->fresh(['lines', 'vendor']),
-            ], 201);
+            $fresh = $bill->fresh(['lines', 'vendor']);
+            $this->emitEvent('bill.created', $bill->id, $fresh->toArray());
+
+            return response()->json(['message' => $message, 'bill' => $fresh], 201);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -167,8 +166,10 @@ class BillController extends Controller
         }
 
         $bill->update($request->only(['date', 'due_date', 'reference', 'notes', 'vendor_invoice_number']));
+        $fresh = $bill->fresh(['lines', 'vendor']);
+        $this->emitEvent('bill.updated', $bill->id, $fresh->toArray());
 
-        return response()->json(['message' => 'Bill updated successfully', 'bill' => $bill->fresh(['lines', 'vendor'])]);
+        return response()->json(['message' => 'Bill updated successfully', 'bill' => $fresh]);
     }
 
     public function destroy($id)
@@ -179,6 +180,7 @@ class BillController extends Controller
             return response()->json(['message' => 'Only draft bills can be deleted'], 403);
         }
 
+        $this->emitEvent('bill.deleted', $bill->id, ['id' => $bill->id]);
         $bill->delete();
 
         return response()->json(['message' => 'Bill deleted successfully']);
@@ -231,6 +233,10 @@ class BillController extends Controller
 
             DB::commit();
 
+            $this->emitEvent('payment.created', $payment->id, array_merge(
+                $payment->toArray(), ['bill_id' => $bill->id]
+            ));
+
             return response()->json([
                 'message' => 'Payment recorded successfully',
                 'payment' => $payment,
@@ -247,8 +253,16 @@ class BillController extends Controller
     {
         $bill = Bill::with(['vendor', 'lines.account', 'company'])->findOrFail($id);
 
-        // TODO: Generate PDF
-
         return response()->json(['message' => 'PDF generation not yet implemented', 'bill' => $bill]);
+    }
+
+    private function emitEvent(string $eventType, string $aggregateId, array $data): void
+    {
+        try {
+            [$aggregate] = explode('.', $eventType);
+            $this->eventSourceService->createEvent($aggregate, $aggregateId, $eventType, $data);
+        } catch (\Throwable) {
+            // Non-critical: never fail a REST response because of a sync event failure.
+        }
     }
 }
