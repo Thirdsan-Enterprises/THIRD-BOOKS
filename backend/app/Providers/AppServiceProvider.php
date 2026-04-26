@@ -8,11 +8,13 @@ use App\Models\Sales\Customer;
 use App\Models\Purchases\Bill;
 use App\Models\Purchases\Vendor;
 use App\Models\Sales\Payment;
+use App\Models\Accounting\JournalEntry;
 use App\Observers\InvoiceObserver;
 use App\Observers\CustomerObserver;
 use App\Observers\BillObserver;
 use App\Observers\VendorObserver;
 use App\Observers\PaymentObserver;
+use App\Observers\JournalEntryObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -46,5 +48,6 @@ class AppServiceProvider extends ServiceProvider
         Bill::observe(BillObserver::class);
         Vendor::observe(VendorObserver::class);
         Payment::observe(PaymentObserver::class);
+        JournalEntry::observe(JournalEntryObserver::class);
     }
 }
