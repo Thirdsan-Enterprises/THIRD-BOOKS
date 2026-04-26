@@ -114,14 +114,15 @@ it('rejects login for expired trial', function () {
 it('logs out and invalidates the token', function () {
     $ctx = $this->createTenantWithUser();
 
-    $this->withHeader('Authorization', "Bearer {$ctx['token']}")
-         ->postJson('/api/auth/logout')
-         ->assertStatus(200);
+    expect(\Laravel\Sanctum\PersonalAccessToken::count())->toBe(1);
 
-    // Token should now be invalid
-    $this->withHeader('Authorization', "Bearer {$ctx['token']}")
-         ->getJson('/api/auth/user')
-         ->assertStatus(401);
+    $this->withHeaders($this->tenantHeaders($ctx['token'], $ctx['tenant']->id))
+         ->postJson('/api/auth/logout')
+         ->assertStatus(200)
+         ->assertJson(['message' => 'Logged out successfully']);
+
+    // Token must be deleted from the DB — any subsequent bearer request fails
+    expect(\Laravel\Sanctum\PersonalAccessToken::count())->toBe(0);
 });
 
 // ── Get current user ──────────────────────────────────────────────────────────

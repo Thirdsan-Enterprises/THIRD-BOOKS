@@ -23,7 +23,7 @@ abstract class TestCase extends BaseTestCase
             'id'                   => $tenantId,
             'name'                 => 'Test Company',
             'company_name'         => 'Test Company Ltd',
-            'email'                => 'test@testcompany.com',
+            'email'                => 'tenant-' . substr($tenantId, 0, 8) . '@testcompany.com',
             'country'              => 'UG',
             'base_currency'        => 'UGX',
             'plan'                 => 'trial',

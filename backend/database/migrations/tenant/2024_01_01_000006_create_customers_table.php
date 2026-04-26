@@ -27,7 +27,7 @@ return new class extends Migration
             $table->string('postal_code')->nullable();
             $table->string('country', 2)->default('UG');
             $table->string('tax_id')->nullable(); // TIN
-            $table->foreignId('currency_id')->constrained();
+            $table->foreignId('currency_id')->nullable()->constrained()->nullOnDelete();
             $table->decimal('credit_limit', 20, 4)->default(0);
             $table->integer('payment_terms_days')->default(30); // Net 30
             $table->enum('status', ['active', 'inactive'])->default('active');

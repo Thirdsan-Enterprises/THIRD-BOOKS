@@ -29,12 +29,15 @@ return new class extends Migration
             // Account Category Detail
             $table->enum('category', [
                 'bank', 'cash', 'accounts_receivable', 'inventory', 'fixed_asset',
+                'other_current_asset',
                 'accounts_payable', 'credit_card', 'long_term_liability',
-                'equity', 'income', 'cost_of_goods_sold', 'expense', 'other_income',
+                'other_current_liability',
+                'equity', 'retained_earnings',
+                'income', 'cost_of_goods_sold', 'expense', 'other_income',
                 'other_expense', 'intangible_asset'
             ])->nullable();
 
-            $table->foreignId('currency_id')->constrained();
+            $table->foreignId('currency_id')->nullable()->constrained()->nullOnDelete();
             $table->decimal('opening_balance', 20, 4)->default(0);
             $table->decimal('current_balance', 20, 4)->default(0);
             $table->boolean('is_active')->default(true);

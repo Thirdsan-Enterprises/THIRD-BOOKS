@@ -11,6 +11,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return; // SQLite has no ENUM type; category is stored as varchar
+        }
+
         DB::statement("ALTER TABLE `accounts` MODIFY COLUMN `category` ENUM(
             'bank', 'cash', 'accounts_receivable', 'inventory', 'fixed_asset',
             'accounts_payable', 'credit_card', 'long_term_liability',
@@ -21,6 +25,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         DB::statement("ALTER TABLE `accounts` MODIFY COLUMN `category` ENUM(
             'bank', 'cash', 'accounts_receivable', 'inventory', 'fixed_asset',
             'accounts_payable', 'credit_card', 'long_term_liability',

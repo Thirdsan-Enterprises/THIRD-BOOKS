@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class AuditLog extends Model
 {
+    protected $table = 'admin_audit_logs';
+
     protected $fillable = [
         'user_id',
         'tenant_id',
