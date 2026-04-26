@@ -5,6 +5,15 @@ namespace App\Services\Sync;
 use App\Models\Sync\Event;
 use App\Models\Sync\DeviceSyncState;
 use App\Models\Sync\Conflict;
+use App\Models\Accounting\Account;
+use App\Models\Accounting\JournalEntry;
+use App\Models\Accounting\JournalLine;
+use App\Models\Sales\Customer;
+use App\Models\Sales\Invoice;
+use App\Models\Sales\InvoiceLine;
+use App\Models\Purchases\Vendor;
+use App\Models\Purchases\Bill;
+use App\Models\Purchases\BillLine;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -132,9 +141,10 @@ class EventSourceService
                             'resolution' => $resolutionStrategy,
                         ];
 
-                        // If client wins or manual, create the event
+                        // If client wins or manual, create the event and materialize it
                         if ($resolutionStrategy === 'client_wins' || $resolutionStrategy === 'manual') {
                             $event = $this->createEventFromData($tenantId, $eventData, $deviceId);
+                            $this->materializeEvent($event);
                             $uploadedEvents[] = $event;
                         }
 
@@ -143,6 +153,7 @@ class EventSourceService
 
                     // No conflict, create event normally
                     $event = $this->createEventFromData($tenantId, $eventData, $deviceId);
+                    $this->materializeEvent($event);
                     $uploadedEvents[] = $event;
 
                 } catch (\Exception $e) {
@@ -366,6 +377,249 @@ class EventSourceService
         }
 
         return $state;
+    }
+
+    /**
+     * Apply a stored event to the actual database tables (materialization).
+     * Called immediately after an event is persisted so that other devices
+     * can query the entity tables directly and see up-to-date data.
+     */
+    public function materializeEvent(Event $event): void
+    {
+        try {
+            $data        = $event->event_data ?? [];
+            $eventType   = $event->event_type;          // e.g. "invoice.created"
+            $aggregateId = $event->aggregate_id;
+
+            // Extract the action suffix: "invoice.created" → "created"
+            $parts  = explode('.', $eventType);
+            $action = end($parts);
+
+            match ($event->aggregate_type) {
+                'account'       => $this->materializeAccount($action, $aggregateId, $data),
+                'customer'      => $this->materializeCustomer($action, $aggregateId, $data),
+                'vendor'        => $this->materializeVendor($action, $aggregateId, $data),
+                'invoice'       => $this->materializeInvoice($action, $aggregateId, $data),
+                'bill'          => $this->materializeBill($action, $aggregateId, $data),
+                'journal_entry' => $this->materializeJournalEntry($action, $aggregateId, $data),
+                default         => null,
+            };
+        } catch (\Throwable $e) {
+            Log::warning('[SYNC MATERIALIZE] Failed to materialize event', [
+                'event_id'       => $event->id,
+                'aggregate_type' => $event->aggregate_type,
+                'event_type'     => $event->event_type,
+                'error'          => $e->getMessage(),
+            ]);
+        }
+    }
+
+    protected function materializeAccount(string $action, string $id, array $data): void
+    {
+        if ($action === 'deleted') {
+            Account::where('id', $id)->delete();
+            return;
+        }
+
+        $companyId = $data['company_id'] ?? $this->resolveDefaultCompanyId();
+        if (!$companyId) return;
+
+        Account::updateOrCreate(['id' => $id], array_filter([
+            'company_id'      => $companyId,
+            'code'            => $data['code'] ?? null,
+            'name'            => $data['name'] ?? null,
+            'type'            => $data['type'] ?? 'asset',
+            'category'        => $data['category'] ?? null,
+            'description'     => $data['description'] ?? null,
+            'parent_id'       => $data['parent_id'] ?? null,
+            'is_active'       => $data['is_active'] ?? true,
+        ], fn($v) => $v !== null));
+    }
+
+    protected function materializeCustomer(string $action, string $id, array $data): void
+    {
+        if ($action === 'deleted') {
+            Customer::where('id', $id)->delete();
+            return;
+        }
+
+        $companyId = $data['company_id'] ?? $this->resolveDefaultCompanyId();
+        if (!$companyId) return;
+
+        Customer::updateOrCreate(['id' => $id], array_filter([
+            'company_id'        => $companyId,
+            'name'              => $data['name'] ?? null,
+            'email'             => $data['email'] ?? null,
+            'phone'             => $data['phone'] ?? null,
+            'billing_address'   => $data['billing_address'] ?? $data['address'] ?? null,
+            'city'              => $data['city'] ?? null,
+            'country'           => $data['country'] ?? 'UG',
+            'tax_id'            => $data['tax_id'] ?? null,
+            'notes'             => $data['notes'] ?? null,
+            'status'            => $data['status'] ?? 'active',
+        ], fn($v) => $v !== null));
+    }
+
+    protected function materializeVendor(string $action, string $id, array $data): void
+    {
+        if ($action === 'deleted') {
+            Vendor::where('id', $id)->delete();
+            return;
+        }
+
+        $companyId = $data['company_id'] ?? $this->resolveDefaultCompanyId();
+        if (!$companyId) return;
+
+        Vendor::updateOrCreate(['id' => $id], array_filter([
+            'company_id'      => $companyId,
+            'name'            => $data['name'] ?? null,
+            'email'           => $data['email'] ?? null,
+            'phone'           => $data['phone'] ?? null,
+            'address'         => $data['address'] ?? null,
+            'city'            => $data['city'] ?? null,
+            'country'         => $data['country'] ?? 'UG',
+            'tax_id'          => $data['tax_id'] ?? null,
+            'notes'           => $data['notes'] ?? null,
+            'status'          => $data['status'] ?? 'active',
+        ], fn($v) => $v !== null));
+    }
+
+    protected function materializeInvoice(string $action, string $id, array $data): void
+    {
+        if ($action === 'deleted') {
+            Invoice::where('id', $id)->delete();
+            return;
+        }
+
+        $companyId = $data['company_id'] ?? $this->resolveDefaultCompanyId();
+        if (!$companyId || empty($data['customer_id'])) return;
+
+        $invoice = Invoice::updateOrCreate(['id' => $id], array_filter([
+            'company_id'     => $companyId,
+            'customer_id'    => $data['customer_id'],
+            'invoice_number' => $data['invoice_number'] ?? null,
+            'date'           => $data['date'] ?? null,
+            'due_date'       => $data['due_date'] ?? null,
+            'reference'      => $data['reference'] ?? null,
+            'notes'          => $data['notes'] ?? null,
+            'terms'          => $data['terms'] ?? null,
+            'subtotal'       => $data['subtotal'] ?? 0,
+            'tax_amount'     => $data['tax_amount'] ?? 0,
+            'total'          => $data['total'] ?? 0,
+            'paid_amount'    => $data['paid_amount'] ?? $data['amount_paid'] ?? 0,
+            'balance'        => ($data['total'] ?? 0) - ($data['paid_amount'] ?? $data['amount_paid'] ?? 0),
+            'status'         => $data['status'] ?? 'draft',
+        ], fn($v) => $v !== null));
+
+        // Sync lines when present
+        if (!empty($data['lines'])) {
+            $invoice->lines()->delete();
+            foreach ($data['lines'] as $line) {
+                InvoiceLine::create(array_filter([
+                    'invoice_id'  => $invoice->id,
+                    'account_id'  => $line['account_id'] ?? null,
+                    'description' => $line['description'] ?? '',
+                    'quantity'    => $line['quantity'] ?? 1,
+                    'unit_price'  => $line['unit_price'] ?? 0,
+                    'tax_rate'    => $line['tax_rate'] ?? 0,
+                    'tax_amount'  => $line['tax_amount'] ?? 0,
+                    'amount'      => $line['amount'] ?? 0,
+                ], fn($v) => $v !== null));
+            }
+        }
+    }
+
+    protected function materializeBill(string $action, string $id, array $data): void
+    {
+        if ($action === 'deleted') {
+            Bill::where('id', $id)->delete();
+            return;
+        }
+
+        $companyId = $data['company_id'] ?? $this->resolveDefaultCompanyId();
+        if (!$companyId || empty($data['vendor_id'])) return;
+
+        $bill = Bill::updateOrCreate(['id' => $id], array_filter([
+            'company_id'  => $companyId,
+            'vendor_id'   => $data['vendor_id'],
+            'bill_number' => $data['bill_number'] ?? null,
+            'date'        => $data['date'] ?? null,
+            'due_date'    => $data['due_date'] ?? null,
+            'reference'   => $data['reference'] ?? null,
+            'notes'       => $data['notes'] ?? null,
+            'subtotal'    => $data['subtotal'] ?? 0,
+            'tax_amount'  => $data['tax_amount'] ?? 0,
+            'total'       => $data['total'] ?? 0,
+            'paid_amount' => $data['paid_amount'] ?? $data['amount_paid'] ?? 0,
+            'balance'     => ($data['total'] ?? 0) - ($data['paid_amount'] ?? $data['amount_paid'] ?? 0),
+            'status'      => $data['status'] ?? 'draft',
+        ], fn($v) => $v !== null));
+
+        if (!empty($data['lines'])) {
+            $bill->lines()->delete();
+            foreach ($data['lines'] as $line) {
+                if (empty($line['account_id'])) continue;
+                BillLine::create(array_filter([
+                    'bill_id'     => $bill->id,
+                    'account_id'  => $line['account_id'],
+                    'description' => $line['description'] ?? '',
+                    'quantity'    => $line['quantity'] ?? 1,
+                    'unit_price'  => $line['unit_price'] ?? 0,
+                    'tax_rate'    => $line['tax_rate'] ?? 0,
+                    'tax_amount'  => $line['tax_amount'] ?? 0,
+                    'amount'      => $line['amount'] ?? 0,
+                ], fn($v) => $v !== null));
+            }
+        }
+    }
+
+    protected function materializeJournalEntry(string $action, string $id, array $data): void
+    {
+        if ($action === 'deleted') {
+            JournalEntry::where('id', $id)->delete();
+            return;
+        }
+
+        $companyId = $data['company_id'] ?? $this->resolveDefaultCompanyId();
+        if (!$companyId) return;
+
+        $entry = JournalEntry::updateOrCreate(['id' => $id], array_filter([
+            'company_id'   => $companyId,
+            'entry_number' => $data['entry_number'] ?? null,
+            'date'         => $data['date'] ?? null,
+            'description'  => $data['description'] ?? '',
+            'reference'    => $data['reference'] ?? null,
+            'status'       => $data['status'] ?? 'draft',
+            'type'         => $data['type'] ?? 'manual',
+            'created_by'   => $data['created_by'] ?? Auth::id(),
+        ], fn($v) => $v !== null));
+
+        if (!empty($data['lines'])) {
+            $entry->lines()->delete();
+            foreach ($data['lines'] as $line) {
+                if (empty($line['account_id'])) continue;
+                JournalLine::create([
+                    'journal_entry_id' => $entry->id,
+                    'account_id'       => $line['account_id'],
+                    'description'      => $line['description'] ?? null,
+                    'debit'            => $line['debit'] ?? 0,
+                    'credit'           => $line['credit'] ?? 0,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Resolve a fallback company_id from the current tenant context.
+     * Used when a client-pushed event omits company_id.
+     */
+    protected function resolveDefaultCompanyId(): ?int
+    {
+        try {
+            return \App\Models\Company::first()?->id;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

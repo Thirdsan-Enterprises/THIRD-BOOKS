@@ -115,23 +115,32 @@ class ApiClient {
 
   // Sync endpoints
   Future<Map<String, dynamic>> sync({
-    required int lastSequence,
+    required String deviceId,
+    required int afterSequence,
     required List<Map<String, dynamic>> events,
+    String deviceName = 'Desktop',
+    String deviceType = 'desktop',
   }) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/sync'),
       headers: _headers,
       body: jsonEncode({
-        'last_sequence': lastSequence,
+        'device_id': deviceId,
+        'device_name': deviceName,
+        'device_type': deviceType,
+        'after_sequence': afterSequence,
         'events': events,
       }),
     );
     return _handleResponse(response);
   }
 
-  Future<Map<String, dynamic>> getChanges(int sinceSequence) async {
+  Future<Map<String, dynamic>> pullEvents({
+    required String deviceId,
+    required int afterSequence,
+  }) async {
     final response = await _client.get(
-      Uri.parse('$baseUrl/sync/changes?since=$sinceSequence'),
+      Uri.parse('$baseUrl/sync/pull?device_id=${Uri.encodeComponent(deviceId)}&after_sequence=$afterSequence'),
       headers: _headers,
     );
     return _handleResponse(response);
