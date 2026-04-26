@@ -70,85 +70,68 @@ class AccountDataController extends Controller
 
         try {
             DB::transaction(function () use ($tenantId) {
-                // Resolve all company IDs that belong to this tenant.
-                // Many tables scope by company_id rather than tenant_id directly.
                 $companyIds = DB::table('companies')
                     ->where('tenant_id', $tenantId)
                     ->pluck('id');
 
-                // Sync / events tables
+                // Sync / event tables (scoped by tenant_id)
                 DB::table('sync_queue')->where('tenant_id', $tenantId)->delete();
                 DB::table('device_sync_state')->where('tenant_id', $tenantId)->delete();
                 DB::table('conflicts')->where('tenant_id', $tenantId)->delete();
                 DB::table('events')->where('tenant_id', $tenantId)->delete();
 
-                if ($companyIds->isNotEmpty()) {
-                    // ── Banking ─────────────────────────────────────────────────────
-                    // Deleting bank_statements cascades → bank_statement_lines
-                    //   → reconciliation_items (both have cascadeOnDelete FKs).
-                    // Must come BEFORE accounts because bank_account_id has restrictOnDelete.
-                    DB::table('bank_statements')
-                        ->whereIn('company_id', $companyIds)
-                        ->delete();
-
-                    // ── Asset Register ───────────────────────────────────────────────
-                    // Deleting asset_registers cascades → depreciation_entries.
-                    DB::table('asset_registers')
-                        ->whereIn('company_id', $companyIds)
-                        ->delete();
-
-                    // ── Credit / Debit Notes ─────────────────────────────────────────
-                    // customer_id / vendor_id use restrictOnDelete, so notes must be
-                    // removed BEFORE customers and vendors are deleted below.
-                    DB::table('credit_notes')
-                        ->whereIn('company_id', $companyIds)
-                        ->delete();
-                    DB::table('debit_notes')
-                        ->whereIn('company_id', $companyIds)
-                        ->delete();
-
-                    // ── Attachments ──────────────────────────────────────────────────
-                    // Polymorphic — no automatic cascade from parent models.
-                    DB::table('attachments')
-                        ->whereIn('company_id', $companyIds)
-                        ->delete();
-
-                    // ── Audit Logs ───────────────────────────────────────────────────
-                    DB::table('audit_logs')
-                        ->whereIn('company_id', $companyIds)
-                        ->delete();
+                if ($companyIds->isEmpty()) {
+                    return;
                 }
 
-                // Financial transaction data
+                // Blob store — outlet revenues, bank transactions, asset drafts, etc.
+                DB::table('client_sync_data')->whereIn('company_id', $companyIds)->delete();
+
+                // Banking (cascades → bank_statement_lines → reconciliation_items)
+                DB::table('bank_statements')->whereIn('company_id', $companyIds)->delete();
+
+                // Assets (cascades → depreciation_entries)
+                DB::table('asset_registers')->whereIn('company_id', $companyIds)->delete();
+
+                // Notes (must be before customers/vendors due to restrictOnDelete FKs)
+                DB::table('credit_notes')->whereIn('company_id', $companyIds)->delete();
+                DB::table('debit_notes')->whereIn('company_id', $companyIds)->delete();
+
+                // Attachments & audit trail
+                DB::table('attachments')->whereIn('company_id', $companyIds)->delete();
+                DB::table('audit_logs')->whereIn('company_id', $companyIds)->delete();
+
+                // Invoice lines → invoices
                 DB::table('invoice_lines')
-                    ->whereIn('invoice_id', function ($q) use ($tenantId) {
-                        $q->select('id')->from('invoices')->where('tenant_id', $tenantId);
+                    ->whereIn('invoice_id', function ($q) use ($companyIds) {
+                        $q->select('id')->from('invoices')->whereIn('company_id', $companyIds);
                     })->delete();
-                DB::table('invoices')->where('tenant_id', $tenantId)->forceDelete();
+                DB::table('invoices')->whereIn('company_id', $companyIds)->delete();
 
+                // Bill lines → bills
                 DB::table('bill_lines')
-                    ->whereIn('bill_id', function ($q) use ($tenantId) {
-                        $q->select('id')->from('bills')->where('tenant_id', $tenantId);
+                    ->whereIn('bill_id', function ($q) use ($companyIds) {
+                        $q->select('id')->from('bills')->whereIn('company_id', $companyIds);
                     })->delete();
-                DB::table('bills')->where('tenant_id', $tenantId)->forceDelete();
+                DB::table('bills')->whereIn('company_id', $companyIds)->delete();
 
+                // Journal lines → journal entries
                 DB::table('journal_lines')
-                    ->whereIn('journal_entry_id', function ($q) use ($tenantId) {
-                        $q->select('id')->from('journal_entries')->where('tenant_id', $tenantId);
+                    ->whereIn('journal_entry_id', function ($q) use ($companyIds) {
+                        $q->select('id')->from('journal_entries')->whereIn('company_id', $companyIds);
                     })->delete();
-                DB::table('journal_entries')->where('tenant_id', $tenantId)->forceDelete();
+                DB::table('journal_entries')->whereIn('company_id', $companyIds)->delete();
 
-                DB::table('payments')->where('tenant_id', $tenantId)->forceDelete();
+                // Payments, customers, vendors
+                DB::table('payments')->whereIn('company_id', $companyIds)->delete();
+                DB::table('customers')->whereIn('company_id', $companyIds)->delete();
+                DB::table('vendors')->whereIn('company_id', $companyIds)->delete();
 
-                // Master data
-                DB::table('customers')->where('tenant_id', $tenantId)->forceDelete();
-                DB::table('vendors')->where('tenant_id', $tenantId)->forceDelete();
-
-                // Only delete user-created accounts, keep system defaults
+                // User-created accounts only — preserve system defaults
                 DB::table('accounts')
-                    ->where('tenant_id', $tenantId)
-                    ->where('is_system_account', false)
-                    ->forceDelete();
+                    ->whereIn('company_id', $companyIds)
+                    ->where('is_system', false)
+                    ->delete();
             });
 
             Log::info('AccountDataController: deleteAllData completed', [
