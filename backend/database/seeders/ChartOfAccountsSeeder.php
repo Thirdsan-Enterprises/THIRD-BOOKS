@@ -31,11 +31,11 @@ class ChartOfAccountsSeeder extends Seeder
         };
 
         foreach ($accounts as $accountData) {
-            Account::create([
-                'company_id' => $company->id,
-                'currency_id' => $baseCurrency->id,
-                ...$accountData,
-            ]);
+            // firstOrCreate keyed on (company_id, code) so re-seeding is idempotent.
+            Account::firstOrCreate(
+                ['company_id' => $company->id, 'code' => $accountData['code']],
+                ['currency_id' => $baseCurrency->id, ...$accountData]
+            );
         }
     }
 
