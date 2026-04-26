@@ -4,6 +4,7 @@ namespace App\Observers;
 
 use App\Models\Accounting\JournalEntry;
 use App\Services\Sync\EventSourceService;
+use Illuminate\Support\Facades\DB;
 
 class JournalEntryObserver
 {
@@ -13,28 +14,33 @@ class JournalEntryObserver
 
     public function created(JournalEntry $entry): void
     {
-        $lines = $entry->lines->map(fn($l) => [
-            'account_id'  => $l->account_id,
-            'description' => $l->description,
-            'debit'       => $l->debit,
-            'credit'      => $l->credit,
-        ])->toArray();
+        // Fire AFTER the surrounding transaction commits so that journal lines
+        // (created separately after the entry) are already persisted and loadable.
+        DB::afterCommit(function () use ($entry) {
+            $entry->refresh();
+            $lines = $entry->lines->map(fn($l) => [
+                'account_id'  => $l->account_id,
+                'description' => $l->description,
+                'debit'       => $l->debit,
+                'credit'      => $l->credit,
+            ])->toArray();
 
-        $this->eventSourceService->createEvent(
-            aggregateType: 'journal_entry',
-            aggregateId:   (string) $entry->id,
-            eventType:     'journal_entry.created',
-            eventData: [
-                'company_id'   => $entry->company_id,
-                'entry_number' => $entry->entry_number,
-                'date'         => $entry->date,
-                'description'  => $entry->description,
-                'reference'    => $entry->reference,
-                'status'       => $entry->status,
-                'type'         => $entry->type,
-                'lines'        => $lines,
-            ]
-        );
+            $this->eventSourceService->createEvent(
+                aggregateType: 'journal_entry',
+                aggregateId:   (string) $entry->id,
+                eventType:     'journal_entry.created',
+                eventData: [
+                    'company_id'   => $entry->company_id,
+                    'entry_number' => $entry->entry_number,
+                    'date'         => $entry->date,
+                    'description'  => $entry->description,
+                    'reference'    => $entry->reference,
+                    'status'       => $entry->status,
+                    'type'         => $entry->type,
+                    'lines'        => $lines,
+                ]
+            );
+        });
     }
 
     public function updated(JournalEntry $entry): void
@@ -44,16 +50,18 @@ class JournalEntryObserver
             return;
         }
 
-        $this->eventSourceService->createEvent(
-            aggregateType: 'journal_entry',
-            aggregateId:   (string) $entry->id,
-            eventType:     'journal_entry.updated',
-            eventData: [
-                'company_id' => $entry->company_id,
-                'changes'    => $changes,
-                'status'     => $entry->status,
-            ]
-        );
+        DB::afterCommit(function () use ($entry, $changes) {
+            $this->eventSourceService->createEvent(
+                aggregateType: 'journal_entry',
+                aggregateId:   (string) $entry->id,
+                eventType:     'journal_entry.updated',
+                eventData: [
+                    'company_id' => $entry->company_id,
+                    'changes'    => $changes,
+                    'status'     => $entry->status,
+                ]
+            );
+        });
     }
 
     public function deleted(JournalEntry $entry): void
