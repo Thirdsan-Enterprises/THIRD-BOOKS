@@ -9,7 +9,6 @@ use Illuminate\Support\Str;
 use App\Models\User;
 use App\Models\Tenant\Tenant;
 use App\Models\Tenant\Domain;
-use App\Models\Company;
 
 /**
  * One-shot setup command: creates the MagicBet tenant, company, and
@@ -136,15 +135,16 @@ class SetupMagicBet extends Command
         return $tenant;
     }
 
-    private function ensureCompany(Tenant $tenant): Company
+    private function ensureCompany(Tenant $tenant): object
     {
-        $existing = Company::where('tenant_id', $tenant->id)->first();
+        $existing = DB::table('companies')->where('tenant_id', $tenant->id)->first();
         if ($existing) {
             $this->info("  ↩  Company already exists: {$existing->name} (id={$existing->id})");
             return $existing;
         }
 
-        $company = Company::create([
+        $now = now();
+        $id  = DB::table('companies')->insertGetId([
             'tenant_id'           => $tenant->id,
             'name'                => 'Magic Bet Ltd',
             'legal_name'          => 'Magic Bet Limited',
@@ -158,8 +158,11 @@ class SetupMagicBet extends Command
             'base_currency'       => 'UGX',
             'fiscal_year_start'   => '07-01',
             'fiscal_year_end'     => '06-30',
+            'created_at'          => $now,
+            'updated_at'          => $now,
         ]);
 
+        $company = DB::table('companies')->find($id);
         $this->info("  ✓  Company created: {$company->name} (id={$company->id})");
         return $company;
     }
@@ -232,7 +235,7 @@ class SetupMagicBet extends Command
             : $this->info("  ↩  Currencies already exist ($total total)");
     }
 
-    private function seedChartOfAccounts(Tenant $tenant, Company $company): void
+    private function seedChartOfAccounts(Tenant $tenant, object $company): void
     {
         $existing = DB::table('accounts')->where('company_id', $company->id)->count();
         if ($existing > 0) {
