@@ -21,8 +21,10 @@ use Illuminate\Support\Facades\Log;
 
 class EventSourceService
 {
-    // Prevents observer → createEvent → observer feedback loop during materialization
-    private bool $materializing = false;
+    // Static so it is shared across ALL instances in the same request.
+    // SyncController and each Observer get their own EventSourceService instance
+    // via DI — a static flag ensures the materializing guard works across all of them.
+    private static bool $materializing = false;
 
     /**
      * Create a new event
@@ -36,7 +38,7 @@ class EventSourceService
         ?array $metadata = null
     ): ?Event {
         // Skip if we're inside materializeEvent to break the observer loop
-        if ($this->materializing) {
+        if (self::$materializing) {
             return null;
         }
 
@@ -396,7 +398,7 @@ class EventSourceService
      */
     public function materializeEvent(Event $event): void
     {
-        $this->materializing = true;
+        self::$materializing = true;
         try {
             $data        = $event->event_data ?? [];
             $eventType   = $event->event_type;
@@ -422,7 +424,7 @@ class EventSourceService
                 'error'          => $e->getMessage(),
             ]);
         } finally {
-            $this->materializing = false;
+            self::$materializing = false;
         }
     }
 
