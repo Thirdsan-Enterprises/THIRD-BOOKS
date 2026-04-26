@@ -21,6 +21,9 @@ use Illuminate\Support\Facades\Log;
 
 class EventSourceService
 {
+    // Prevents observer → createEvent → observer feedback loop during materialization
+    private bool $materializing = false;
+
     /**
      * Create a new event
      */
@@ -32,6 +35,11 @@ class EventSourceService
         ?string $deviceId = null,
         ?array $metadata = null
     ): ?Event {
+        // Skip if we're inside materializeEvent to break the observer loop
+        if ($this->materializing) {
+            return null;
+        }
+
         $tenantId = tenant('id') ?? Auth::user()?->tenant_id;
 
         // No tenant context (e.g. direct DB writes from scripts) — skip silently
@@ -388,12 +396,12 @@ class EventSourceService
      */
     public function materializeEvent(Event $event): void
     {
+        $this->materializing = true;
         try {
             $data        = $event->event_data ?? [];
-            $eventType   = $event->event_type;          // e.g. "invoice.created"
+            $eventType   = $event->event_type;
             $aggregateId = $event->aggregate_id;
 
-            // Extract the action suffix: "invoice.created" → "created"
             $parts  = explode('.', $eventType);
             $action = end($parts);
 
@@ -413,6 +421,8 @@ class EventSourceService
                 'event_type'     => $event->event_type,
                 'error'          => $e->getMessage(),
             ]);
+        } finally {
+            $this->materializing = false;
         }
     }
 
