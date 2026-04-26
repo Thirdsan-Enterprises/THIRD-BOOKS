@@ -87,7 +87,7 @@ class DiagnoseSystem extends Command
 
         $tables = [
             'users', 'tenants', 'domains', 'companies', 'currencies', 'exchange_rates',
-            'accounts', 'journal_entries', 'journal_lines', 'general_ledger', 'audit_logs',
+            'accounts', 'journal_entries', 'journal_lines', 'general_ledger', 'admin_audit_logs',
             'customers', 'invoices', 'invoice_lines', 'payments', 'credit_notes',
             'vendors', 'bills', 'bill_lines', 'bill_payments', 'debit_notes',
             'bank_statements', 'bank_statement_lines', 'reconciliation_items',
