@@ -32,6 +32,12 @@ class ClientDataSyncController extends Controller
         'outlet-expenditures',
         'outlet-settlements',
         'commission-payments',
+        'vendors',
+        'bills',
+        'journal-entries',
+        'customers',
+        'invoices',
+        'payments',
     ];
 
     public function index(Request $request, string $type)
