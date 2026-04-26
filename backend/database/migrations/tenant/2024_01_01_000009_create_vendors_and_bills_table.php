@@ -26,7 +26,7 @@ return new class extends Migration
             $table->string('postal_code')->nullable();
             $table->string('country', 2)->default('UG');
             $table->string('tax_id')->nullable();
-            $table->foreignId('currency_id')->constrained();
+            $table->foreignId('currency_id')->nullable()->constrained()->nullOnDelete();
             $table->integer('payment_terms_days')->default(30);
             $table->enum('status', ['active', 'inactive'])->default('active');
             $table->text('notes')->nullable();
@@ -50,7 +50,7 @@ return new class extends Migration
             $table->string('reference')->nullable();
             $table->text('notes')->nullable();
 
-            $table->foreignId('currency_id')->constrained();
+            $table->foreignId('currency_id')->nullable()->constrained()->nullOnDelete();
             $table->decimal('exchange_rate', 20, 10)->default(1);
             $table->decimal('subtotal', 20, 4)->default(0);
             $table->decimal('tax_amount', 20, 4)->default(0);
@@ -102,7 +102,7 @@ return new class extends Migration
             $table->string('payment_number')->unique();
             $table->date('date');
             $table->decimal('amount', 20, 4);
-            $table->foreignId('currency_id')->constrained();
+            $table->foreignId('currency_id')->nullable()->constrained()->nullOnDelete();
             $table->decimal('exchange_rate', 20, 10)->default(1);
 
             $table->enum('method', ['cash', 'bank_transfer', 'cheque', 'mobile_money', 'credit_card', 'other'])->default('cash');

@@ -31,16 +31,23 @@ class EventSourceService
         array $eventData,
         ?string $deviceId = null,
         ?array $metadata = null
-    ): Event {
+    ): ?Event {
+        $tenantId = tenant('id') ?? Auth::user()?->tenant_id;
+
+        // No tenant context (e.g. direct DB writes from scripts) — skip silently
+        if (! $tenantId) {
+            return null;
+        }
+
         return DB::transaction(function () use (
             $aggregateType,
             $aggregateId,
             $eventType,
             $eventData,
             $deviceId,
-            $metadata
+            $metadata,
+            $tenantId
         ) {
-            $tenantId = tenant('id');
             $sequenceNumber = Event::getNextSequenceNumber($tenantId);
 
             $event = Event::create([

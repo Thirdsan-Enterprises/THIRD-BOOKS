@@ -2,7 +2,6 @@
 
 namespace App\Models\Tenant;
 
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -14,7 +13,27 @@ use Stancl\Tenancy\Database\Concerns\HasDomains;
 
 class Tenant extends BaseTenant implements TenantWithDatabase
 {
-    use HasDatabase, HasDomains, HasFactory, HasUuids, SoftDeletes;
+    use HasDatabase, HasDomains, HasFactory, SoftDeletes;
+
+    public static function getCustomColumns(): array
+    {
+        return [
+            'id',
+            'name',
+            'company_name',
+            'email',
+            'phone',
+            'address',
+            'country',
+            'base_currency',
+            'fiscal_year_start',
+            'plan',
+            'trial_ends_at',
+            'subscription_ends_at',
+            'status',
+            'settings',
+        ];
+    }
 
     protected $fillable = [
         'id',
@@ -97,8 +116,16 @@ class Tenant extends BaseTenant implements TenantWithDatabase
      */
     public function canAccess(): bool
     {
-        return $this->status === 'active' &&
-               ($this->isOnTrial() || $this->isSubscriptionActive());
+        if ($this->status !== 'active') {
+            return false;
+        }
+
+        // Trial accounts must have an active (non-expired) trial period
+        if ($this->plan === 'trial') {
+            return $this->isOnTrial();
+        }
+
+        return $this->isSubscriptionActive();
     }
 
     /**
