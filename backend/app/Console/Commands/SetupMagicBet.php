@@ -284,8 +284,15 @@ class SetupMagicBet extends Command
             ['code' => '160', 'name' => 'Computer Equipment',      'type' => 'asset',     'category' => 'fixed_asset'],
             ['code' => '161', 'name' => 'Furniture & Fittings',    'type' => 'asset',     'category' => 'fixed_asset'],
             ['code' => '162', 'name' => 'Motor Vehicles',          'type' => 'asset',     'category' => 'fixed_asset'],
-            ['code' => '170', 'name' => 'Accum. Depreciation',     'type' => 'asset',     'category' => 'fixed_asset'],
-            ['code' => '180', 'name' => 'Software Licences',       'type' => 'asset',     'category' => 'fixed_asset'],
+            ['code' => '170', 'name' => 'Accum. Depreciation',               'type' => 'asset',     'category' => 'fixed_asset'],
+            ['code' => '180', 'name' => 'Software Licences',                 'type' => 'asset',     'category' => 'fixed_asset'],
+            ['code' => '1700', 'name' => 'Intangible Assets',                'type' => 'asset',     'category' => 'intangible_asset'],
+            ['code' => '1710', 'name' => 'Software & Licenses',              'type' => 'asset',     'category' => 'intangible_asset'],
+            ['code' => '1720', 'name' => 'Patents & Trademarks',             'type' => 'asset',     'category' => 'intangible_asset'],
+            ['code' => '1730', 'name' => 'Goodwill',                         'type' => 'asset',     'category' => 'intangible_asset'],
+            ['code' => '1800', 'name' => 'Accumulated Amortization',         'type' => 'asset',     'category' => 'intangible_asset'],
+            ['code' => '1810', 'name' => 'Accumulated Amortization - Software', 'type' => 'asset',  'category' => 'intangible_asset'],
+            ['code' => '1820', 'name' => 'Accumulated Amortization - Patents',  'type' => 'asset',  'category' => 'intangible_asset'],
             ['code' => '200', 'name' => 'Accounts Payable',        'type' => 'liability', 'category' => 'accounts_payable'],
             ['code' => '201', 'name' => 'VAT Payable',             'type' => 'liability', 'category' => null],
             ['code' => '202', 'name' => 'PAYE Payable',            'type' => 'liability', 'category' => null],
@@ -313,6 +320,7 @@ class SetupMagicBet extends Command
             ['code' => '511', 'name' => 'Staff Training',          'type' => 'expense',   'category' => 'expense'],
             ['code' => '512', 'name' => 'NSSF Contribution',       'type' => 'expense',   'category' => 'expense'],
             ['code' => '513', 'name' => 'Miscellaneous Expense',   'type' => 'expense',   'category' => 'expense'],
+            ['code' => '6910', 'name' => 'Amortization Expense',   'type' => 'expense',   'category' => 'expense'],
         ]);
     }
 
