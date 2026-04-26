@@ -2,7 +2,10 @@
 ; Generates a single .exe installer for Windows
 
 #define MyAppName "ThirdBooks"
-#define MyAppVersion "1.0.1"
+; Allow CI to override via /DMyAppVersion="x.y.z" on the ISCC command line.
+#ifndef MyAppVersion
+  #define MyAppVersion "1.0.2"
+#endif
 #define MyAppPublisher "ThirdBooks"
 #define MyAppURL "https://thirdbooks.digital"
 #define MyAppExeName "thirdbooks.exe"
