@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart' show Dio, DioException, DioExceptionType, MultipartFile, FormData, DioMediaType, Response;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:path/path.dart' as p;
 
@@ -108,15 +109,14 @@ class ConnectivityNotifier extends StateNotifier<ConnectivityState> {
 
   Future<void> checkConnectivity() async {
     try {
-      // Try to reach the server with a health check.
-      // 10 s gives enough headroom so this doesn't race with concurrent API
-      // calls (e.g. loading the Users screen) and falsely flip the status.
-      final response = await _apiClient.get('/health').timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Connection timeout'),
-      );
+      // Check actual device internet connectivity via DNS lookup.
+      // This is fast (<1 s) and does NOT depend on our server's response time,
+      // which prevents false "offline" when the server is slow but the device
+      // has a working internet connection.
+      final results = await InternetAddress.lookup('google.com')
+          .timeout(const Duration(seconds: 5));
 
-      if (response.statusCode == 200) {
+      if (results.isNotEmpty && results[0].rawAddress.isNotEmpty) {
         state = state.copyWith(
           status: ConnectivityStatus.online,
           lastChecked: DateTime.now(),
@@ -126,7 +126,7 @@ class ConnectivityNotifier extends StateNotifier<ConnectivityState> {
         state = state.copyWith(
           status: ConnectivityStatus.offline,
           lastChecked: DateTime.now(),
-          lastError: 'Server returned ${response.statusCode}',
+          lastError: 'No internet connection',
         );
       }
     } on SocketException {
@@ -139,38 +139,14 @@ class ConnectivityNotifier extends StateNotifier<ConnectivityState> {
       state = state.copyWith(
         status: ConnectivityStatus.offline,
         lastChecked: DateTime.now(),
-        lastError: 'Connection timed out',
-      );
-    } on DioException catch (e) {
-      // Translate Dio errors into user-friendly messages
-      final String friendlyError;
-      switch (e.type) {
-        case DioExceptionType.connectionTimeout:
-        case DioExceptionType.sendTimeout:
-        case DioExceptionType.receiveTimeout:
-          friendlyError = 'Connection timed out';
-          break;
-        case DioExceptionType.connectionError:
-          friendlyError = 'Unable to reach server';
-          break;
-        case DioExceptionType.badResponse:
-          friendlyError = 'Server unavailable (${e.response?.statusCode ?? 'unknown'})';
-          break;
-        default:
-          friendlyError = 'Unable to reach server';
-      }
-      debugPrint('Connectivity check failed: $e');
-      state = state.copyWith(
-        status: ConnectivityStatus.offline,
-        lastChecked: DateTime.now(),
-        lastError: friendlyError,
+        lastError: 'Connection check timed out',
       );
     } catch (e) {
       debugPrint('Connectivity check error: $e');
       state = state.copyWith(
         status: ConnectivityStatus.offline,
         lastChecked: DateTime.now(),
-        lastError: 'Unable to reach server',
+        lastError: 'No internet connection',
       );
     }
   }
@@ -191,10 +167,45 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
   final ApiClient _apiClient;
   final LocalStorageService _localStorage;
   Timer? _autoSyncTimer;
+  String? _cachedDeviceId;
 
   SyncServiceNotifier(this._ref, this._apiClient, this._localStorage)
       : super(SyncState()) {
     _initialize();
+  }
+
+  // Returns a stable UUID for this installation, creating one on first run.
+  Future<String> _getOrCreateDeviceId() async {
+    if (_cachedDeviceId != null) return _cachedDeviceId!;
+    final appDir = await getApplicationDocumentsDirectory();
+    final idFile = File(p.join(appDir.path, 'thirdbooks', 'device_id.txt'));
+    if (await idFile.exists()) {
+      final saved = (await idFile.readAsString()).trim();
+      if (saved.isNotEmpty) {
+        _cachedDeviceId = saved;
+        return _cachedDeviceId!;
+      }
+    }
+    _cachedDeviceId = const Uuid().v4();
+    await idFile.parent.create(recursive: true);
+    await idFile.writeAsString(_cachedDeviceId!);
+    return _cachedDeviceId!;
+  }
+
+  // Registers this device in the server's device_sync_state table.
+  // Idempotent — safe to call on every sync.
+  Future<void> _registerDevice() async {
+    try {
+      final deviceId = await _getOrCreateDeviceId();
+      await _apiClient.post('/sync/device', data: {
+        'device_id': deviceId,
+        'device_name': 'ThirdBooks Desktop',
+        'device_type': 'desktop',
+        'last_sequence': 0,
+      });
+    } catch (e) {
+      debugPrint('Device registration failed (non-fatal): $e');
+    }
   }
 
   Future<void> _initialize() async {
@@ -281,6 +292,10 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
     }
 
     state = state.copyWith(isSyncing: true, error: null, progress: 0);
+
+    // Register this device on the server so it appears in device_sync_state
+    // immediately on first login without waiting for a full event-sourcing sync.
+    unawaited(_registerDevice());
 
     try {
       final queue = await _localStorage.loadSyncQueue();
