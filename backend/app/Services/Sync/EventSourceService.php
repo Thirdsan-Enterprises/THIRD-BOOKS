@@ -77,7 +77,7 @@ class EventSourceService
      */
     public function getEventsForSync(string $deviceId, ?int $afterSequence = null): array
     {
-        $tenantId = tenant('id');
+        $tenantId = tenant('id') ?? Auth::user()?->tenant_id;
 
         // Get or create device sync state
         $deviceState = DeviceSyncState::where('tenant_id', $tenantId)
@@ -108,7 +108,13 @@ class EventSourceService
      */
     public function uploadEvents(array $events, string $deviceId, string $resolutionStrategy = 'server_wins'): array
     {
-        $tenantId = tenant('id');
+        $tenantId = tenant('id') ?? Auth::user()?->tenant_id;
+
+        if (! $tenantId) {
+            Log::error('[SYNC PUSH] No tenant context — aborting upload', ['device_id' => $deviceId]);
+            throw new \RuntimeException('No tenant context for sync upload.');
+        }
+
         $uploadedEvents = [];
         $conflicts = [];
 
@@ -121,54 +127,43 @@ class EventSourceService
             &$conflicts
         ) {
             foreach ($events as $eventData) {
-                try {
-                    // Detect concurrent modifications
-                    $conflict = $this->detectConflict($tenantId, $eventData, $deviceId);
+                // Detect concurrent modifications
+                $conflict = $this->detectConflict($tenantId, $eventData, $deviceId);
 
-                    if ($conflict) {
-                        // Create conflict record for resolution
-                        $conflictRecord = $this->createConflictRecord(
-                            $conflict['server_event'],
-                            $eventData,
-                            $deviceId,
-                            $conflict['type']
-                        );
+                if ($conflict) {
+                    $conflictRecord = $this->createConflictRecord(
+                        $conflict['server_event'],
+                        $eventData,
+                        $deviceId,
+                        $conflict['type']
+                    );
 
-                        // Auto-resolve based on strategy
-                        if ($resolutionStrategy !== 'manual') {
-                            $conflictRecord->autoResolve($resolutionStrategy);
-                        }
-
-                        $conflicts[] = [
-                            'conflict_id' => $conflictRecord->id,
-                            'type' => $conflict['type'],
-                            'aggregate_id' => $eventData['aggregate_id'],
-                            'local_event' => $eventData,
-                            'server_event' => $conflict['server_event'],
-                            'resolution' => $resolutionStrategy,
-                        ];
-
-                        // If client wins or manual, create the event and materialize it
-                        if ($resolutionStrategy === 'client_wins' || $resolutionStrategy === 'manual') {
-                            $event = $this->createEventFromData($tenantId, $eventData, $deviceId);
-                            $this->materializeEvent($event);
-                            $uploadedEvents[] = $event;
-                        }
-
-                        continue;
+                    if ($resolutionStrategy !== 'manual') {
+                        $conflictRecord->autoResolve($resolutionStrategy);
                     }
 
-                    // No conflict, create event normally
-                    $event = $this->createEventFromData($tenantId, $eventData, $deviceId);
-                    $this->materializeEvent($event);
-                    $uploadedEvents[] = $event;
+                    $conflicts[] = [
+                        'conflict_id' => $conflictRecord->id,
+                        'type' => $conflict['type'],
+                        'aggregate_id' => $eventData['aggregate_id'],
+                        'local_event' => $eventData,
+                        'server_event' => $conflict['server_event'],
+                        'resolution' => $resolutionStrategy,
+                    ];
 
-                } catch (\Exception $e) {
-                    Log::error('Failed to upload event', [
-                        'event' => $eventData,
-                        'error' => $e->getMessage(),
-                    ]);
+                    if ($resolutionStrategy === 'client_wins' || $resolutionStrategy === 'manual') {
+                        $event = $this->createEventFromData($tenantId, $eventData, $deviceId);
+                        $this->materializeEvent($event);
+                        $uploadedEvents[] = $event;
+                    }
+
+                    continue;
                 }
+
+                // No conflict — store and materialize
+                $event = $this->createEventFromData($tenantId, $eventData, $deviceId);
+                $this->materializeEvent($event);
+                $uploadedEvents[] = $event;
             }
         });
 
@@ -334,7 +329,7 @@ class EventSourceService
      */
     public function replayEventsForAggregate(string $aggregateType, string $aggregateId): array
     {
-        $tenantId = tenant('id');
+        $tenantId = tenant('id') ?? Auth::user()?->tenant_id;
 
         $events = Event::where('tenant_id', $tenantId)
             ->forAggregate($aggregateType, $aggregateId)
@@ -638,7 +633,7 @@ class EventSourceService
         ?string $deviceName = null,
         ?string $deviceType = null
     ): DeviceSyncState {
-        $tenantId = tenant('id');
+        $tenantId = tenant('id') ?? Auth::user()?->tenant_id;
 
         $deviceState = DeviceSyncState::getOrCreateDevice(
             $tenantId,
@@ -657,7 +652,7 @@ class EventSourceService
      */
     public function getSyncStatistics(string $deviceId): array
     {
-        $tenantId = tenant('id');
+        $tenantId = tenant('id') ?? Auth::user()?->tenant_id;
 
         $deviceState = DeviceSyncState::where('tenant_id', $tenantId)
             ->where('device_id', $deviceId)
