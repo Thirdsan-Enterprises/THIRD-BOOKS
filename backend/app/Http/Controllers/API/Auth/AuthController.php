@@ -140,14 +140,17 @@ class AuthController extends Controller
             ], 403);
         }
 
-        // Check tenant access
-        if (!$user->tenant->canAccess()) {
-            return response()->json([
-                'message' => 'Your subscription has expired or account is suspended',
-                'tenant_status' => $user->tenant->status,
-                'trial_ends_at' => $user->tenant->trial_ends_at,
-                'subscription_ends_at' => $user->tenant->subscription_ends_at,
-            ], 403);
+        // Superadmin has no tenant — skip tenant access check
+        $tenant = $user->tenant;
+        if (!$user->isSuperAdmin()) {
+            if (!$tenant || !$tenant->canAccess()) {
+                return response()->json([
+                    'message' => 'Your subscription has expired or account is suspended',
+                    'tenant_status' => $tenant?->status,
+                    'trial_ends_at' => $tenant?->trial_ends_at,
+                    'subscription_ends_at' => $tenant?->subscription_ends_at,
+                ], 403);
+            }
         }
 
         // Create token
@@ -155,7 +158,9 @@ class AuthController extends Controller
         $token = $user->createToken($deviceName)->plainTextToken;
 
         // Get user's default company (first company in the tenant)
-        $company = \App\Models\Company::where('tenant_id', $user->tenant_id)->first();
+        $company = $user->tenant_id
+            ? \App\Models\Company::where('tenant_id', $user->tenant_id)->first()
+            : null;
 
         return response()->json([
             'message' => 'Login successful',
@@ -168,15 +173,15 @@ class AuthController extends Controller
                 'role' => $user->role,
                 'tenant_id' => $user->tenant_id,
             ],
-            'tenant' => [
-                'id' => $user->tenant->id,
-                'name' => $user->tenant->name,
-                'company_name' => $user->tenant->company_name,
-                'plan' => $user->tenant->plan,
-                'status' => $user->tenant->status,
-                'trial_ends_at' => $user->tenant->trial_ends_at,
-                'subscription_ends_at' => $user->tenant->subscription_ends_at,
-            ],
+            'tenant' => $tenant ? [
+                'id' => $tenant->id,
+                'name' => $tenant->name,
+                'company_name' => $tenant->company_name,
+                'plan' => $tenant->plan,
+                'status' => $tenant->status,
+                'trial_ends_at' => $tenant->trial_ends_at,
+                'subscription_ends_at' => $tenant->subscription_ends_at,
+            ] : null,
             'company' => $company ? [
                 'id' => $company->id,
                 'name' => $company->name,
@@ -205,6 +210,7 @@ class AuthController extends Controller
     public function user(Request $request)
     {
         $user = $request->user();
+        $tenant = $user->tenant;
 
         return response()->json([
             'user' => [
@@ -217,15 +223,15 @@ class AuthController extends Controller
                 'email_verified_at' => $user->email_verified_at,
                 'tenant_id' => $user->tenant_id,
             ],
-            'tenant' => [
-                'id' => $user->tenant->id,
-                'name' => $user->tenant->name,
-                'company_name' => $user->tenant->company_name,
-                'plan' => $user->tenant->plan,
-                'status' => $user->tenant->status,
-                'trial_ends_at' => $user->tenant->trial_ends_at,
-                'subscription_ends_at' => $user->tenant->subscription_ends_at,
-            ],
+            'tenant' => $tenant ? [
+                'id' => $tenant->id,
+                'name' => $tenant->name,
+                'company_name' => $tenant->company_name,
+                'plan' => $tenant->plan,
+                'status' => $tenant->status,
+                'trial_ends_at' => $tenant->trial_ends_at,
+                'subscription_ends_at' => $tenant->subscription_ends_at,
+            ] : null,
         ]);
     }
 
