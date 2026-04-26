@@ -74,8 +74,6 @@ class SetupMagicBet extends Command
         return 0;
     }
 
-    // ─── Tenant ───────────────────────────────────────────────────────────────
-
     private function ensureTenant(): Tenant
     {
         $existing = Tenant::where('email', 'marion@magicbet.ug')
@@ -85,8 +83,6 @@ class SetupMagicBet extends Command
 
         if ($existing) {
             $this->info("  ↩  Tenant already exists: {$existing->name} (id={$existing->id})");
-
-            // Ensure it is active with a valid trial
             if ($existing->status !== 'active') {
                 $existing->update(['status' => 'active']);
                 $this->line('     <fg=yellow>↳ Status was not active — corrected to active.</>');
@@ -95,36 +91,32 @@ class SetupMagicBet extends Command
                 $existing->update(['trial_ends_at' => now()->addYear()]);
                 $this->line('     <fg=yellow>↳ Trial expired — extended by 1 year.</>');
             }
-
             return $existing;
         }
 
         $tenant = Tenant::create([
-            'id'                  => Str::uuid()->toString(),
-            'name'                => 'Magic Bet Ltd',
-            'company_name'        => 'Magic Bet Ltd',
-            'email'               => 'marion@magicbet.ug',
-            'phone'               => '',
-            'address'             => 'Kampala, Uganda',
-            'country'             => 'UG',
-            'base_currency'       => 'UGX',
-            'fiscal_year_start'   => '07-01',   // Uganda FY: July – June
-            'plan'                => 'trial',
-            'trial_ends_at'       => now()->addYear(),
-            'subscription_ends_at'=> null,
-            'status'              => 'active',
+            'id'                   => Str::uuid()->toString(),
+            'name'                 => 'Magic Bet Ltd',
+            'company_name'         => 'Magic Bet Ltd',
+            'email'                => 'marion@magicbet.ug',
+            'phone'                => '',
+            'address'              => 'Kampala, Uganda',
+            'country'              => 'UG',
+            'base_currency'        => 'UGX',
+            'fiscal_year_start'    => '07-01',
+            'plan'                 => 'trial',
+            'trial_ends_at'        => now()->addYear(),
+            'subscription_ends_at' => null,
+            'status'               => 'active',
         ]);
 
         $this->info("  ✓  Tenant created: {$tenant->name} (id={$tenant->id})");
         return $tenant;
     }
 
-    // ─── Company ──────────────────────────────────────────────────────────────
-
     private function ensureCompany(Tenant $tenant): Company
     {
         $existing = Company::where('tenant_id', $tenant->id)->first();
-
         if ($existing) {
             $this->info("  ↩  Company already exists: {$existing->name} (id={$existing->id})");
             return $existing;
@@ -150,17 +142,13 @@ class SetupMagicBet extends Command
         return $company;
     }
 
-    // ─── User ─────────────────────────────────────────────────────────────────
-
     private function ensureUser(Tenant $tenant, string $password): User
     {
         $existing = User::where('email', 'marion@magicbet.ug')->first();
 
         if ($existing) {
             $this->info("  ↩  User already exists: {$existing->email} (role={$existing->role})");
-
             $updates = [];
-
             if ($existing->tenant_id !== $tenant->id) {
                 $updates['tenant_id'] = $tenant->id;
                 $this->line('     <fg=yellow>↳ tenant_id corrected.</>');
@@ -177,11 +165,9 @@ class SetupMagicBet extends Command
                 $updates['password'] = Hash::make($password);
                 $this->line('     <fg=yellow>↳ Password updated.</>');
             }
-
             if (!empty($updates)) {
                 $existing->update($updates);
             }
-
             return $existing;
         }
 
@@ -199,11 +185,8 @@ class SetupMagicBet extends Command
         return $user;
     }
 
-    // ─── Seed Currencies ──────────────────────────────────────────────────────
-
     private function seedCurrencies(Tenant $tenant): void
     {
-        // currencies table is global (no tenant_id) — shared across all tenants
         $currencies = [
             ['code' => 'UGX', 'name' => 'Ugandan Shilling',  'symbol' => 'UGX', 'decimal_places' => 0],
             ['code' => 'USD', 'name' => 'US Dollar',          'symbol' => '$',   'decimal_places' => 2],
@@ -214,59 +197,43 @@ class SetupMagicBet extends Command
 
         $seeded = 0;
         foreach ($currencies as $currency) {
-            $rows = DB::table('currencies')->insertOrIgnore(array_merge($currency, [
+            $seeded += DB::table('currencies')->insertOrIgnore(array_merge($currency, [
                 'is_active'  => true,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]));
-            $seeded += $rows;
         }
 
-        $existing = DB::table('currencies')->count();
-        if ($seeded > 0) {
-            $this->info("  ✓  Currencies seeded ($seeded new, $existing total)");
-        } else {
-            $this->info("  ↩  Currencies already exist ($existing total)");
-        }
+        $total = DB::table('currencies')->count();
+        $seeded > 0
+            ? $this->info("  ✓  Currencies seeded ($seeded new, $total total)")
+            : $this->info("  ↩  Currencies already exist ($total total)");
     }
-
-    // ─── Seed Chart of Accounts ───────────────────────────────────────────────
 
     private function seedChartOfAccounts(Tenant $tenant, Company $company): void
     {
-        $existing = DB::table('accounts')
-            ->where('company_id', $company->id)
-            ->count();
-
+        $existing = DB::table('accounts')->where('company_id', $company->id)->count();
         if ($existing > 0) {
-            $this->info("  ↩  Chart of accounts already seeded ($existing accounts for this company)");
+            $this->info("  ↩  Chart of accounts already seeded ($existing accounts)");
             return;
         }
 
-        // Resolve UGX currency id (currencies are global, no tenant scope)
         $ugxId = DB::table('currencies')->where('code', 'UGX')->value('id');
         if (!$ugxId) {
-            $this->warn('  ⚠  UGX currency not found — skipping chart of accounts seeding');
+            $this->warn('UGX currency not found — skipping chart of accounts seeding');
             return;
         }
 
         $accounts = $this->defaultChartOfAccounts($company->id, $ugxId);
-
-        // insertOrIgnore handles the global unique constraint on `code`
         foreach (array_chunk($accounts, 50) as $chunk) {
             DB::table('accounts')->insertOrIgnore($chunk);
         }
-
         $this->info('  ✓  Chart of accounts seeded (' . count($accounts) . ' accounts)');
     }
 
     private function defaultChartOfAccounts(int $companyId, int $currencyId): array
     {
-        // Valid category enum values from migration:
-        // bank, cash, accounts_receivable, inventory, fixed_asset, accounts_payable,
-        // credit_card, long_term_liability, equity, income, cost_of_goods_sold,
-        // expense, other_income, other_expense
-        $now = now();
+        $now  = now();
         $base = [
             'company_id'      => $companyId,
             'currency_id'     => $currencyId,
@@ -281,55 +248,48 @@ class SetupMagicBet extends Command
         ];
 
         return array_map(fn($a) => array_merge($base, $a), [
-            // Assets
-            ['code' => '100', 'name' => 'Petty Cash',             'type' => 'asset',     'category' => 'cash'],
-            ['code' => '101', 'name' => 'ABSA UGX Account',       'type' => 'asset',     'category' => 'bank'],
-            ['code' => '102', 'name' => 'MTN Momopay',            'type' => 'asset',     'category' => 'bank'],
-            ['code' => '110', 'name' => 'Airtel Money',           'type' => 'asset',     'category' => 'bank'],
-            ['code' => '150', 'name' => 'Accounts Receivable',    'type' => 'asset',     'category' => 'accounts_receivable'],
-            ['code' => '151', 'name' => 'Deposits — Rent',        'type' => 'asset',     'category' => null],
-            ['code' => '152', 'name' => 'Prepayments',            'type' => 'asset',     'category' => null],
-            ['code' => '153', 'name' => 'Accrued Income',         'type' => 'asset',     'category' => null],
-            ['code' => '160', 'name' => 'Computer Equipment',     'type' => 'asset',     'category' => 'fixed_asset'],
-            ['code' => '161', 'name' => 'Furniture & Fittings',   'type' => 'asset',     'category' => 'fixed_asset'],
-            ['code' => '162', 'name' => 'Motor Vehicles',         'type' => 'asset',     'category' => 'fixed_asset'],
-            ['code' => '170', 'name' => 'Accum. Depreciation',    'type' => 'asset',     'category' => 'fixed_asset'],
-            ['code' => '180', 'name' => 'Software Licences',      'type' => 'asset',     'category' => 'fixed_asset'],
-            // Liabilities
-            ['code' => '200', 'name' => 'Accounts Payable',       'type' => 'liability', 'category' => 'accounts_payable'],
-            ['code' => '201', 'name' => 'VAT Payable',            'type' => 'liability', 'category' => null],
-            ['code' => '202', 'name' => 'PAYE Payable',           'type' => 'liability', 'category' => null],
-            ['code' => '210', 'name' => 'NSSF Payable',           'type' => 'liability', 'category' => null],
-            ['code' => '220', 'name' => 'Accrued Expenses',       'type' => 'liability', 'category' => null],
-            ['code' => '230', 'name' => 'Directors Loan',         'type' => 'liability', 'category' => 'long_term_liability'],
-            // Equity
-            ['code' => '300', 'name' => 'Share Capital',          'type' => 'equity',    'category' => 'equity'],
-            ['code' => '310', 'name' => 'Retained Earnings',      'type' => 'equity',    'category' => 'equity'],
-            ['code' => '320', 'name' => 'Current Year Profit',    'type' => 'equity',    'category' => 'equity'],
-            // Revenue
-            ['code' => '400', 'name' => 'Betting Revenue',        'type' => 'income',    'category' => 'income'],
-            ['code' => '401', 'name' => 'Commission Income',      'type' => 'income',    'category' => 'income'],
-            ['code' => '402', 'name' => 'Other Income',           'type' => 'income',    'category' => 'other_income'],
-            ['code' => '403', 'name' => 'Interest Income',        'type' => 'income',    'category' => 'other_income'],
-            // Expenses
-            ['code' => '500', 'name' => 'Salaries & Wages',       'type' => 'expense',   'category' => 'expense'],
-            ['code' => '501', 'name' => 'Rent Expense',           'type' => 'expense',   'category' => 'expense'],
-            ['code' => '502', 'name' => 'Utilities',              'type' => 'expense',   'category' => 'expense'],
-            ['code' => '503', 'name' => 'Internet & Telecoms',    'type' => 'expense',   'category' => 'expense'],
-            ['code' => '504', 'name' => 'Marketing & Advertising','type' => 'expense',   'category' => 'expense'],
-            ['code' => '505', 'name' => 'Bank Charges',           'type' => 'expense',   'category' => 'expense'],
-            ['code' => '506', 'name' => 'Depreciation Expense',   'type' => 'expense',   'category' => 'expense'],
-            ['code' => '507', 'name' => 'Insurance',              'type' => 'expense',   'category' => 'expense'],
-            ['code' => '508', 'name' => 'Legal & Professional',   'type' => 'expense',   'category' => 'expense'],
-            ['code' => '509', 'name' => 'Stationery & Supplies',  'type' => 'expense',   'category' => 'expense'],
-            ['code' => '510', 'name' => 'Transport & Travel',     'type' => 'expense',   'category' => 'expense'],
-            ['code' => '511', 'name' => 'Staff Training',         'type' => 'expense',   'category' => 'expense'],
-            ['code' => '512', 'name' => 'NSSF Contribution',      'type' => 'expense',   'category' => 'expense'],
-            ['code' => '513', 'name' => 'Miscellaneous Expense',  'type' => 'expense',   'category' => 'expense'],
+            ['code' => '100', 'name' => 'Petty Cash',              'type' => 'asset',     'category' => 'cash'],
+            ['code' => '101', 'name' => 'ABSA UGX Account',        'type' => 'asset',     'category' => 'bank'],
+            ['code' => '102', 'name' => 'MTN Momopay',             'type' => 'asset',     'category' => 'bank'],
+            ['code' => '110', 'name' => 'Airtel Money',            'type' => 'asset',     'category' => 'bank'],
+            ['code' => '150', 'name' => 'Accounts Receivable',     'type' => 'asset',     'category' => 'accounts_receivable'],
+            ['code' => '151', 'name' => 'Deposits — Rent',         'type' => 'asset',     'category' => null],
+            ['code' => '152', 'name' => 'Prepayments',             'type' => 'asset',     'category' => null],
+            ['code' => '153', 'name' => 'Accrued Income',          'type' => 'asset',     'category' => null],
+            ['code' => '160', 'name' => 'Computer Equipment',      'type' => 'asset',     'category' => 'fixed_asset'],
+            ['code' => '161', 'name' => 'Furniture & Fittings',    'type' => 'asset',     'category' => 'fixed_asset'],
+            ['code' => '162', 'name' => 'Motor Vehicles',          'type' => 'asset',     'category' => 'fixed_asset'],
+            ['code' => '170', 'name' => 'Accum. Depreciation',     'type' => 'asset',     'category' => 'fixed_asset'],
+            ['code' => '180', 'name' => 'Software Licences',       'type' => 'asset',     'category' => 'fixed_asset'],
+            ['code' => '200', 'name' => 'Accounts Payable',        'type' => 'liability', 'category' => 'accounts_payable'],
+            ['code' => '201', 'name' => 'VAT Payable',             'type' => 'liability', 'category' => null],
+            ['code' => '202', 'name' => 'PAYE Payable',            'type' => 'liability', 'category' => null],
+            ['code' => '210', 'name' => 'NSSF Payable',            'type' => 'liability', 'category' => null],
+            ['code' => '220', 'name' => 'Accrued Expenses',        'type' => 'liability', 'category' => null],
+            ['code' => '230', 'name' => 'Directors Loan',          'type' => 'liability', 'category' => 'long_term_liability'],
+            ['code' => '300', 'name' => 'Share Capital',           'type' => 'equity',    'category' => 'equity'],
+            ['code' => '310', 'name' => 'Retained Earnings',       'type' => 'equity',    'category' => 'equity'],
+            ['code' => '320', 'name' => 'Current Year Profit',     'type' => 'equity',    'category' => 'equity'],
+            ['code' => '400', 'name' => 'Betting Revenue',         'type' => 'income',    'category' => 'income'],
+            ['code' => '401', 'name' => 'Commission Income',       'type' => 'income',    'category' => 'income'],
+            ['code' => '402', 'name' => 'Other Income',            'type' => 'income',    'category' => 'other_income'],
+            ['code' => '403', 'name' => 'Interest Income',         'type' => 'income',    'category' => 'other_income'],
+            ['code' => '500', 'name' => 'Salaries & Wages',        'type' => 'expense',   'category' => 'expense'],
+            ['code' => '501', 'name' => 'Rent Expense',            'type' => 'expense',   'category' => 'expense'],
+            ['code' => '502', 'name' => 'Utilities',               'type' => 'expense',   'category' => 'expense'],
+            ['code' => '503', 'name' => 'Internet & Telecoms',     'type' => 'expense',   'category' => 'expense'],
+            ['code' => '504', 'name' => 'Marketing & Advertising', 'type' => 'expense',   'category' => 'expense'],
+            ['code' => '505', 'name' => 'Bank Charges',            'type' => 'expense',   'category' => 'expense'],
+            ['code' => '506', 'name' => 'Depreciation Expense',    'type' => 'expense',   'category' => 'expense'],
+            ['code' => '507', 'name' => 'Insurance',               'type' => 'expense',   'category' => 'expense'],
+            ['code' => '508', 'name' => 'Legal & Professional',    'type' => 'expense',   'category' => 'expense'],
+            ['code' => '509', 'name' => 'Stationery & Supplies',   'type' => 'expense',   'category' => 'expense'],
+            ['code' => '510', 'name' => 'Transport & Travel',      'type' => 'expense',   'category' => 'expense'],
+            ['code' => '511', 'name' => 'Staff Training',          'type' => 'expense',   'category' => 'expense'],
+            ['code' => '512', 'name' => 'NSSF Contribution',       'type' => 'expense',   'category' => 'expense'],
+            ['code' => '513', 'name' => 'Miscellaneous Expense',   'type' => 'expense',   'category' => 'expense'],
         ]);
     }
-
-    // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private function resolvePassword(): string
     {
