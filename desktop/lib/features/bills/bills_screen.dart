@@ -545,7 +545,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                               'Utilities',
                               'Raw Materials',
                               'Services',
-                              // Asset categories (match kAssetCategories)
+                              // Tangible asset categories (IAS 16 / PP&E)
                               'Equipment',
                               'Vehicle',
                               'Furniture',
@@ -553,6 +553,13 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                               'Machinery',
                               'Building',
                               'Land',
+                              // Intangible asset categories (IAS 38)
+                              'Software',
+                              'License',
+                              'Patent',
+                              'Trademark',
+                              'Goodwill',
+                              'Intangible',
                             ]
                                 .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                                 .toList(),
@@ -837,6 +844,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                       return acct != null &&
                           acct.type == AccountType.asset &&
                           (acct.subType == AccountSubType.fixedAsset ||
+                              acct.subType == AccountSubType.intangibleAsset ||
                               acct.subType == AccountSubType.otherAsset ||
                               acct.subType ==
                                   AccountSubType.otherCurrentAsset);
@@ -1042,6 +1050,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                               'Inventory', 'Office Supplies', 'Utilities', 'Raw Materials',
                               'Services', 'Equipment', 'Vehicle', 'Furniture',
                               'Electronics', 'Machinery', 'Building', 'Land',
+                              // Intangible asset categories (IAS 38)
+                              'Software', 'License', 'Patent', 'Trademark', 'Goodwill', 'Intangible',
                             ].map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
                             onChanged: (v) => setDialogState(() => selectedCategory = v),
                           ),
@@ -1891,6 +1901,15 @@ String _inferAssetCategory(Account acct) {
       name.contains('plant')) {
     return 'Machinery';
   }
+  // Intangible assets (IAS 38)
+  if (name.contains('software') || name.contains('license') || name.contains('licence')) {
+    return 'Software';
+  }
+  if (name.contains('patent') || name.contains('trademark') || name.contains('ip ')) {
+    return 'Patent';
+  }
+  if (name.contains('goodwill')) return 'Goodwill';
+  if (name.contains('intangible')) return 'Intangible';
   // Default for generic fixed-asset accounts
   return 'Equipment';
 }

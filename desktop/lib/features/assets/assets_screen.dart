@@ -39,6 +39,13 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
     'Machinery',
     'Building',
     'Land',
+    // Intangible asset categories (IAS 38)
+    'Software',
+    'License',
+    'Patent',
+    'Trademark',
+    'Goodwill',
+    'Intangible',
   ];
 
   @override
