@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * AccountDataController
@@ -99,7 +100,9 @@ class AccountDataController extends Controller
 
                 // Attachments & audit trail
                 DB::table('attachments')->whereIn('company_id', $companyIds)->delete();
-                DB::table('audit_logs')->whereIn('company_id', $companyIds)->delete();
+                if (Schema::hasTable('audit_logs')) {
+                    DB::table('audit_logs')->whereIn('company_id', $companyIds)->delete();
+                }
 
                 // Invoice lines → invoices
                 DB::table('invoice_lines')

@@ -75,9 +75,17 @@ class AttachmentController extends Controller
             return response()->json(['message' => 'Parent record not found'], 404);
         }
 
-        $companyId = $request->user()->company_id ?? $request->input('company_id');
-        $disk      = config('filesystems.default', 'local');
-        $created   = [];
+        // Resolve company_id from the authenticated user's tenant
+        $companyId = \App\Models\Company::where('tenant_id', $request->user()->tenant_id)
+            ->value('id')
+            ?? $request->input('company_id');
+
+        if (!$companyId) {
+            return response()->json(['message' => 'Company not found for this account'], 422);
+        }
+
+        $disk    = 'local';
+        $created = [];
 
         foreach ($request->file('files') as $index => $file) {
             $originalName = $file->getClientOriginalName();
