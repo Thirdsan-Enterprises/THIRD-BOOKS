@@ -21,3 +21,8 @@ yarn-error.log
 /.phpstorm.meta.php
 /_ide_helper.php
 /.phpunit.cache
+/bootstrap/cache/*.php
+/storage/logs/
+/storage/framework/cache/
+/storage/framework/sessions/
+/storage/framework/views/
