@@ -767,7 +767,7 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
                 ),
               )),
             const SizedBox(height: 12),
-            const Text('Each entry: DR Depreciation Expense / CR Accumulated Depreciation',
+            const Text('Each entry: DR Depreciation/Amortization Expense / CR Accumulated Depreciation/Amortization',
                 style: TextStyle(fontSize: 12, color: Colors.grey)),
           ],
         ),
@@ -790,10 +790,32 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
     );
   }
 
-  // Maps asset category keywords to accumulated depreciation contra-accounts.
-  // DR always goes to acct-143 (Depreciation Expense).
-  // CR goes to the matching contra-asset account.
+  // Returns true for IAS 38 intangible categories (amortized, not depreciated).
+  bool _isIntangibleCategory(String category) {
+    final c = category.toLowerCase();
+    return c == 'software' || c == 'license' || c == 'licence' ||
+           c == 'patent' || c == 'trademark' || c == 'goodwill' ||
+           c == 'intangible';
+  }
+
+  // Expense account for the DR leg: Depreciation (143) for tangibles,
+  // Amortization Expense (180) for intangibles.
+  String _expenseAccountId(String category) =>
+      _isIntangibleCategory(category) ? 'acct-180' : 'acct-143';
+  String _expenseAccountCode(String category) =>
+      _isIntangibleCategory(category) ? '180' : '143';
+  String _expenseAccountName(String category) =>
+      _isIntangibleCategory(category) ? 'Amortization Expense' : 'Depreciation';
+
+  // Maps asset category to the accumulated contra-asset account for the CR leg.
+  // Intangibles → 1800/1810/1820; tangibles → 155/157/159.
   String _accumDeprecAccountId(String category) {
+    if (_isIntangibleCategory(category)) {
+      final c = category.toLowerCase();
+      if (c == 'software' || c == 'license' || c == 'licence') return 'acct-1810';
+      if (c == 'patent' || c == 'trademark') return 'acct-1820';
+      return 'acct-1800'; // Goodwill / Intangible default
+    }
     final c = category.toLowerCase();
     if (c.contains('computer') || c.contains('hardware') ||
         c.contains('electronic')) {
@@ -806,6 +828,12 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
   }
 
   String _accumDeprecAccountCode(String category) {
+    if (_isIntangibleCategory(category)) {
+      final c = category.toLowerCase();
+      if (c == 'software' || c == 'license' || c == 'licence') return '1810';
+      if (c == 'patent' || c == 'trademark') return '1820';
+      return '1800';
+    }
     final c = category.toLowerCase();
     if (c.contains('computer') || c.contains('hardware') ||
         c.contains('electronic')) return '157';
@@ -814,6 +842,16 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
   }
 
   String _accumDeprecAccountName(String category) {
+    if (_isIntangibleCategory(category)) {
+      final c = category.toLowerCase();
+      if (c == 'software' || c == 'license' || c == 'licence') {
+        return 'Accumulated Amortization - Software';
+      }
+      if (c == 'patent' || c == 'trademark') {
+        return 'Accumulated Amortization - Patents';
+      }
+      return 'Accumulated Amortization';
+    }
     final c = category.toLowerCase();
     if (c.contains('computer') || c.contains('hardware') ||
         c.contains('electronic')) {
@@ -845,20 +883,21 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
         final jeId = const Uuid().v4();
         final periodLabel = DateFormat('MMM yyyy').format(periodDate);
 
+        final isIntangible = _isIntangibleCategory(schedule.assetCategory);
         journalsNotifier.addEntry(JournalEntry(
           id: jeId,
-          entryNumber: 'DEP-${schedule.assetName.replaceAll(' ', '-').toUpperCase()}-$periodLabel',
+          entryNumber: '${isIntangible ? 'AMRT' : 'DEP'}-${schedule.assetName.replaceAll(' ', '-').toUpperCase()}-$periodLabel',
           date: periodDate,
-          description: 'Depreciation: ${schedule.assetName} — $periodLabel',
-          reference: 'DEPR-${schedule.id.substring(0, 6).toUpperCase()}',
+          description: '${isIntangible ? 'Amortization' : 'Depreciation'}: ${schedule.assetName} — $periodLabel',
+          reference: '${isIntangible ? 'AMRT' : 'DEPR'}-${schedule.id.substring(0, 6).toUpperCase()}',
           status: JournalEntryStatus.posted,
           lines: [
             JournalLine(
               id: '$jeId-1',
               journalEntryId: jeId,
-              accountId: 'acct-143',
-              accountCode: '143',
-              accountName: 'Depreciation',
+              accountId: _expenseAccountId(schedule.assetCategory),
+              accountCode: _expenseAccountCode(schedule.assetCategory),
+              accountName: _expenseAccountName(schedule.assetCategory),
               debit: amount,
               credit: 0,
             ),
