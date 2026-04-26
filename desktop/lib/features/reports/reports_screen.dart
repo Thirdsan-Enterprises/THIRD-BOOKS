@@ -126,10 +126,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final receivablesImpact = -arRaw;
     final payablesImpact    = -apRaw;
 
-    // ── Depreciation add-back (non-cash expense) ─────────────────────────────
+    // ── Depreciation & Amortization add-back (non-cash expenses) ────────────
     final _depAccts = accounts.where(
       (a) => a.type == AccountType.expense &&
-             a.name.toLowerCase().contains('depreciation')).toList();
+             (a.name.toLowerCase().contains('depreciation') ||
+              a.name.toLowerCase().contains('amortization') ||
+              a.name.toLowerCase().contains('amortisation'))).toList();
     double depreciationAddBack = sumRaw(_depAccts);
     // Always include acct-143 (Depreciation Expense) directly as fallback
     // in case CoA name doesn't match the filter above.
@@ -139,8 +141,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
     // ── Investing ────────────────────────────────────────────────────────────
     final assetAcquisitions = sumRaw(accounts.where(
-      (a) => a.subType == AccountSubType.fixedAsset &&
-             !a.name.toLowerCase().contains('depreciation')));
+      (a) => (a.subType == AccountSubType.fixedAsset ||
+               a.subType == AccountSubType.intangibleAsset) &&
+             !a.name.toLowerCase().contains('depreciation') &&
+             !a.name.toLowerCase().contains('amortization') &&
+             !a.name.toLowerCase().contains('amortisation') &&
+             !a.name.toLowerCase().contains('accumulated')));
 
     // ── Financing ────────────────────────────────────────────────────────────
     final loanRaw = sumRaw(accounts.where(
@@ -866,7 +872,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             _pdfRow('  Increase/(Decrease) in Accounts Payables',
                 fmt(cf['payablesImpact']!)),
             if (cf['depreciationAddBack']! > 0)
-              _pdfRow('  Add: Depreciation of Assets (non-cash)', fmt(cf['depreciationAddBack']!)),
+              _pdfRow('  Add: Depreciation & Amortization (non-cash)', fmt(cf['depreciationAddBack']!)),
             _pdfDivider(),
             _pdfRow('NET CASH FROM OPERATING ACTIVITIES', fmt(cf['netOperating']!), bold: true, size: 12),
             pw.SizedBox(height: 12),
@@ -1921,8 +1927,27 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final accounts = accountsState.accounts;
     final raw = _computeLedgerBalances(entries);
 
-    final assetAccts = accounts.where((a) => a.type == AccountType.asset).toList()
+    final allAssetAccts = accounts.where((a) => a.type == AccountType.asset).toList()
       ..sort((a, b) => a.code.compareTo(b.code));
+    // Split assets into three IAS-aligned groups
+    final currentAssetAccts = allAssetAccts.where((a) =>
+        a.subType == AccountSubType.cash ||
+        a.subType == AccountSubType.bank ||
+        a.subType == AccountSubType.accountsReceivable ||
+        a.subType == AccountSubType.inventory ||
+        a.subType == AccountSubType.otherCurrentAsset).toList();
+    final fixedAssetAccts = allAssetAccts.where((a) =>
+        a.subType == AccountSubType.fixedAsset ||
+        a.subType == AccountSubType.otherAsset ||
+        (a.subType == null &&
+         !a.name.toLowerCase().contains('intangible') &&
+         !a.name.toLowerCase().contains('amortiz') &&
+         !a.name.toLowerCase().contains('software') &&
+         !a.name.toLowerCase().contains('patent') &&
+         !a.name.toLowerCase().contains('goodwill'))).toList();
+    final intangibleAssetAccts = allAssetAccts.where((a) =>
+        a.subType == AccountSubType.intangibleAsset).toList();
+    final assetAccts = allAssetAccts; // keep for total calculation
     final liabilityAccts = accounts.where((a) => a.type == AccountType.liability).toList()
       ..sort((a, b) => a.code.compareTo(b.code));
     final equityAccts = accounts.where((a) => a.type == AccountType.equity).toList()
@@ -1930,6 +1955,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final revenueAccts = accounts.where((a) => a.type == AccountType.revenue).toList();
     final expenseAccts = accounts.where((a) => a.type == AccountType.expense).toList();
 
+    final totalCurrentAssets    = currentAssetAccts.fold(0.0, (s, a) => s + _acctBal(a, raw));
+    final totalFixedAssets      = fixedAssetAccts.fold(0.0, (s, a) => s + _acctBal(a, raw));
+    final totalIntangibleAssets = intangibleAssetAccts.fold(0.0, (s, a) => s + _acctBal(a, raw));
     final totalAssets = assetAccts.fold(0.0, (s, a) => s + _acctBal(a, raw));
     final totalLiabilities = liabilityAccts.fold(0.0, (s, a) => s + _acctBal(a, raw));
     final totalPermEquity = equityAccts.fold(0.0, (s, a) => s + _acctBal(a, raw));
@@ -1960,15 +1988,39 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             Text('ASSETS', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             _ReportSection(
-              title: 'Current & Non-Current Assets',
-              items: assetAccts
+              title: 'Current Assets',
+              items: currentAssetAccts
                   .where((a) => _acctBal(a, raw) != 0)
                   .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw), 'accountId': a.id})
                   .toList(),
-              total: totalAssets,
+              total: totalCurrentAssets,
               isPositive: true,
               onItemTap: (item) => _showLedgerDrillDown(context, item),
             ),
+            const SizedBox(height: 8),
+            _ReportSection(
+              title: 'Property, Plant & Equipment (PP&E)',
+              items: fixedAssetAccts
+                  .where((a) => _acctBal(a, raw) != 0)
+                  .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw), 'accountId': a.id})
+                  .toList(),
+              total: totalFixedAssets,
+              isPositive: true,
+              onItemTap: (item) => _showLedgerDrillDown(context, item),
+            ),
+            if (intangibleAssetAccts.any((a) => _acctBal(a, raw) != 0)) ...[
+              const SizedBox(height: 8),
+              _ReportSection(
+                title: 'Intangible Assets (IAS 38)',
+                items: intangibleAssetAccts
+                    .where((a) => _acctBal(a, raw) != 0)
+                    .map((a) => {'name': '${a.code}  ${a.name}', 'amount': _acctBal(a, raw), 'accountId': a.id})
+                    .toList(),
+                total: totalIntangibleAssets,
+                isPositive: true,
+                onItemTap: (item) => _showLedgerDrillDown(context, item),
+              ),
+            ],
             _ReportTotalRow(label: 'Total Assets', amount: totalAssets, isHighlight: true),
             const Divider(height: 32),
             Text('LIABILITIES', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
@@ -2501,7 +2553,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               cfRow('Increase/(Decrease) in Accounts Payables',
                   cf['payablesImpact']!, indent: true),
               if (cf['depreciationAddBack']! > 0)
-                cfRow('Add: Depreciation of Assets (non-cash)',
+                cfRow('Add: Depreciation & Amortization (non-cash)',
                     cf['depreciationAddBack']!, indent: true),
               sectionDivider(),
               cfRow('NET CASH FROM OPERATING ACTIVITIES', cf['netOperating']!, isFinal: true),
@@ -2771,7 +2823,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ['Operating', 'Net Profit (from Income Statement)',                            fmtCsv(cf['operatingProfit']!)],
           ['Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments',   fmtCsv(cf['receivablesImpact']!)],
           ['Operating', 'Increase/(Decrease) in Accounts Payables',                    fmtCsv(cf['payablesImpact']!)],
-          ['Operating', 'Add: Depreciation of Assets (non-cash)',                      fmtCsv(cf['depreciationAddBack']!)],
+          ['Operating', 'Add: Depreciation & Amortization (non-cash)',                  fmtCsv(cf['depreciationAddBack']!)],
           ['Operating', 'NET CASH FROM OPERATING ACTIVITIES',                          fmtCsv(cf['netOperating']!)],
           [],
           ['Investing', 'Acquisition of Assets',                                       fmtCsv(-cf['assetAcquisitions']!)],
@@ -3083,7 +3135,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         xRow('Operating', 'Net Profit (from Income Statement)',                         cf['operatingProfit']!);
         xRow('Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments', cf['receivablesImpact']!);
         xRow('Operating', 'Increase/(Decrease) in Accounts Payables',                  cf['payablesImpact']!);
-        xRow('Operating', 'Add: Depreciation of Assets (non-cash)',                    cf['depreciationAddBack']!);
+        xRow('Operating', 'Add: Depreciation & Amortization (non-cash)',                cf['depreciationAddBack']!);
         xRow('Operating', 'NET CASH FROM OPERATING ACTIVITIES',                        cf['netOperating']!, bold: true);
         xSection('INVESTING ACTIVITIES');
         xRow('Investing', 'Acquisition of Assets',                                     -cf['assetAcquisitions']!);

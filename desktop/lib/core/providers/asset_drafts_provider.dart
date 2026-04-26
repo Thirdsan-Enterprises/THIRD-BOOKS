@@ -225,6 +225,7 @@ final assetDraftsProvider =
 // Categories that are considered assets (not expenses)
 // ---------------------------------------------------------------------------
 const kAssetCategories = [
+  // Tangible (PP&E — IAS 16)
   'Equipment',
   'Vehicle',
   'Furniture',
@@ -232,7 +233,21 @@ const kAssetCategories = [
   'Building',
   'Land',
   'Machinery',
+  // Intangible (IAS 38)
+  'Software',
+  'License',
+  'Patent',
+  'Trademark',
+  'Goodwill',
+  'Intangible',
 ];
+
+const kIntangibleCategories = {
+  'Software', 'License', 'Patent', 'Trademark', 'Goodwill', 'Intangible',
+};
 
 bool isAssetCategory(String? category) =>
     category != null && kAssetCategories.contains(category);
+
+bool isIntangibleCategory(String? category) =>
+    category != null && kIntangibleCategories.contains(category);

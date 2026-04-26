@@ -137,6 +137,8 @@ List<Account> _magicBetDefaultAccounts() {
     a('141', 'Tax Penalties',                           AccountType.expense,   AccountSubType.operatingExpense),
     a('142', 'Income Tax Expense',                      AccountType.expense,   AccountSubType.otherExpense),
     a('143', 'Depreciation',                            AccountType.expense,   AccountSubType.operatingExpense),
+    a('180', 'Amortization Expense',                    AccountType.expense,   AccountSubType.operatingExpense,
+      desc: 'Periodic amortization charge on intangible assets (IAS 38)'),
     a('144', 'Withholding Tax',                         AccountType.expense,   AccountSubType.operatingExpense),
     a('145', 'VAT Expense',                             AccountType.expense,   AccountSubType.operatingExpense),
     a('160', 'Technical Services Fee',                  AccountType.expense,   AccountSubType.operatingExpense),
@@ -198,6 +200,24 @@ List<Account> _magicBetDefaultAccounts() {
     a('158', 'Office Furniture & Fittings',             AccountType.asset,     AccountSubType.fixedAsset),
     a('159', 'Less Accum. Depreciation — Office Furniture',   AccountType.asset, AccountSubType.fixedAsset,
       desc: 'Contra-asset: accumulated depreciation on furniture & fittings'),
+
+    // ════════════════════════════════════════════════════════════════════════
+    // INTANGIBLE ASSETS (IAS 38)  (1700–1820)
+    // ════════════════════════════════════════════════════════════════════════
+    a('1700', 'Intangible Assets',                      AccountType.asset,     AccountSubType.intangibleAsset,
+      desc: 'IAS 38 – intangible assets (finite & indefinite life)'),
+    a('1710', 'Software & Licenses',                    AccountType.asset,     AccountSubType.intangibleAsset,
+      desc: 'Purchased software and perpetual licenses (IAS 38)'),
+    a('1720', 'Patents & Trademarks',                   AccountType.asset,     AccountSubType.intangibleAsset,
+      desc: 'Registered patents, trademarks and similar IP (IAS 38)'),
+    a('1730', 'Goodwill',                               AccountType.asset,     AccountSubType.intangibleAsset,
+      desc: 'Goodwill arising from business combinations (IFRS 3)'),
+    a('1800', 'Accumulated Amortization',               AccountType.asset,     AccountSubType.intangibleAsset,
+      desc: 'Contra-asset: total amortization charged on intangibles'),
+    a('1810', 'Accumulated Amortization - Software',    AccountType.asset,     AccountSubType.intangibleAsset,
+      desc: 'Contra-asset: amortization on software & licenses'),
+    a('1820', 'Accumulated Amortization - Patents',     AccountType.asset,     AccountSubType.intangibleAsset,
+      desc: 'Contra-asset: amortization on patents & trademarks'),
 
     // ════════════════════════════════════════════════════════════════════════
     // EQUITY  (175–177)
@@ -462,8 +482,19 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
           (a) => (int.tryParse(a.code) ?? 0) >= 1000,
         );
         if (!needsMigration) {
-          state = state.copyWith(accounts: localAccounts, isLoading: false);
-          debugPrint('Loaded ${localAccounts.length} accounts from local storage');
+          // Backfill any accounts added to the default CoA in newer app versions.
+          final defaults = _magicBetDefaultAccounts();
+          final existingCodes = localAccounts.map((a) => a.code).toSet();
+          final missing = defaults.where((d) => !existingCodes.contains(d.code)).toList();
+          if (missing.isNotEmpty) {
+            debugPrint('Backfilling ${missing.length} new default accounts...');
+            final merged = [...localAccounts, ...missing];
+            await _localStorage.saveAccounts(merged);
+            state = state.copyWith(accounts: merged, isLoading: false);
+          } else {
+            state = state.copyWith(accounts: localAccounts, isLoading: false);
+          }
+          debugPrint('Loaded ${localAccounts.length + missing.length} accounts from local storage');
           return;
         }
         debugPrint('Old 4-digit IFRS codes detected — migrating to client CoA...');

@@ -15,6 +15,7 @@ enum AccountSubType {
   accountsReceivable,
   inventory,
   fixedAsset,
+  intangibleAsset,
   otherCurrentAsset,
   otherAsset,
 
@@ -52,6 +53,7 @@ extension AccountSubTypeDisplay on AccountSubType {
       case AccountSubType.accountsReceivable: return 'Accounts Receivable';
       case AccountSubType.inventory:          return 'Inventory';
       case AccountSubType.fixedAsset:         return 'Fixed Asset';
+      case AccountSubType.intangibleAsset:    return 'Intangible Asset';
       case AccountSubType.otherCurrentAsset:  return 'Other Current Asset';
       case AccountSubType.otherAsset:         return 'Other Asset';
       case AccountSubType.accountsPayable:    return 'Accounts Payable';
@@ -73,6 +75,25 @@ extension AccountSubTypeDisplay on AccountSubType {
       case AccountSubType.otherExpense:       return 'Other Expense';
     }
   }
+}
+
+AccountSubType? _subTypeFromJson(Map<String, dynamic> json) {
+  // Backend sends 'category' (e.g. 'intangible_asset', 'fixed_asset') as the
+  // primary classifier.  Fall back to 'sub_type' for backwards compatibility.
+  final category = json['category'] as String?;
+  if (category == 'intangible_asset') return AccountSubType.intangibleAsset;
+  if (category == 'fixed_asset')      return AccountSubType.fixedAsset;
+  if (category == 'bank')             return AccountSubType.bank;
+  if (category == 'cash')             return AccountSubType.cash;
+  if (category == 'accounts_receivable') return AccountSubType.accountsReceivable;
+  if (category == 'inventory')        return AccountSubType.inventory;
+
+  final subType = json['sub_type'] as String? ?? json['subtype'] as String?;
+  if (subType == null) return null;
+  return AccountSubType.values.firstWhere(
+    (e) => e.name == subType,
+    orElse: () => AccountSubType.otherAsset,
+  );
 }
 
 class Account {
@@ -118,12 +139,9 @@ class Account {
         (e) => e.name == json['type'],
         orElse: () => AccountType.asset,
       ),
-      subType: json['sub_type'] != null
-          ? AccountSubType.values.firstWhere(
-              (e) => e.name == json['sub_type'],
-              orElse: () => AccountSubType.otherAsset,
-            )
-          : null,
+      // Map the backend 'category' field first (e.g. 'intangible_asset'),
+      // then fall back to the 'sub_type' string if category is absent.
+      subType: _subTypeFromJson(json),
       parentId: json['parent_id'] as String?,
       currencyCode: json['currency_code'] as String? ?? 'UGX',
       balance: (json['balance'] as num?)?.toDouble() ?? 0.0,
