@@ -76,26 +76,43 @@ class SetupMagicBet extends Command
 
     private function ensureTenant(): Tenant
     {
-        $existing = Tenant::where('email', 'marion@magicbet.ug')
+        // Stancl's BaseTenant::create() stores all custom attributes inside
+        // the data JSON column, ignoring the real table columns (name,
+        // company_name, email…) that our migration defines as NOT NULL.
+        // We bypass it with a raw DB insert directly into those columns.
+        $existing = DB::table('tenants')
+            ->where('email', 'marion@magicbet.ug')
             ->orWhere('name', 'LIKE', '%MagicBet%')
             ->orWhere('name', 'LIKE', '%Magic Bet%')
+            ->whereNull('deleted_at')
             ->first();
 
         if ($existing) {
             $this->info("  ↩  Tenant already exists: {$existing->name} (id={$existing->id})");
+
+            $updates = [];
             if ($existing->status !== 'active') {
-                $existing->update(['status' => 'active']);
-                $this->line('     <fg=yellow>↳ Status was not active — corrected to active.</>');
+                $updates['status'] = 'active';
+                $this->line('     <fg=yellow>↳ Status corrected to active.</>');
             }
-            if (!$existing->trial_ends_at || $existing->trial_ends_at->isPast()) {
-                $existing->update(['trial_ends_at' => now()->addYear()]);
-                $this->line('     <fg=yellow>↳ Trial expired — extended by 1 year.</>');
+            if (!$existing->trial_ends_at || strtotime($existing->trial_ends_at) < time()) {
+                $updates['trial_ends_at'] = now()->addYear();
+                $this->line('     <fg=yellow>↳ Trial extended by 1 year.</>');
             }
-            return $existing;
+            if (!empty($updates)) {
+                DB::table('tenants')->where('id', $existing->id)->update(
+                    array_merge($updates, ['updated_at' => now()])
+                );
+            }
+
+            return Tenant::find($existing->id);
         }
 
-        $tenant = Tenant::create([
-            'id'                   => Str::uuid()->toString(),
+        $id  = (string) Str::uuid();
+        $now = now();
+
+        DB::table('tenants')->insert([
+            'id'                   => $id,
             'name'                 => 'Magic Bet Ltd',
             'company_name'         => 'Magic Bet Ltd',
             'email'                => 'marion@magicbet.ug',
@@ -105,11 +122,16 @@ class SetupMagicBet extends Command
             'base_currency'        => 'UGX',
             'fiscal_year_start'    => '07-01',
             'plan'                 => 'trial',
-            'trial_ends_at'        => now()->addYear(),
+            'trial_ends_at'        => $now->copy()->addYear(),
             'subscription_ends_at' => null,
             'status'               => 'active',
+            'settings'             => null,
+            'data'                 => null,
+            'created_at'           => $now,
+            'updated_at'           => $now,
         ]);
 
+        $tenant = Tenant::find($id);
         $this->info("  ✓  Tenant created: {$tenant->name} (id={$tenant->id})");
         return $tenant;
     }
