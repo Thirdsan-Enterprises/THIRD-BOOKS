@@ -491,24 +491,17 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
           save: (items) => _localStorage.saveInvoices(items),
           reload: () => _ref.read(invoicesProvider.notifier).loadInvoices(),
         ),
-        // Bills: merge so pending-push local bills are never destroyed by a pull.
-        _pullEntityFromServer<Bill>(
-          endpoint: '/bills',
-          fromJson: (j) => Bill.fromJson(j),
-          save: (items) => _localStorage.saveBills(items),
-          reload: () => _ref.read(billsProvider.notifier).loadBills(),
-          loadLocal: () => _localStorage.loadBills(),
-          getId: (b) => b.id,
-        ),
-        // JournalEntries: merge so pending-push local JEs are never destroyed.
-        _pullEntityFromServer<JournalEntry>(
-          endpoint: '/journal-entries',
-          fromJson: (j) => JournalEntry.fromJson(j),
-          save: (items) => _localStorage.saveJournalEntries(items),
-          reload: () => _ref.read(journalsProvider.notifier).loadJournals(),
-          loadLocal: () => _localStorage.loadJournalEntries(),
-          getId: (e) => e.id,
-        ),
+        // Bills and JournalEntries are synced exclusively via the blob-store
+        // path (_syncBillsBlob / _syncJournalEntriesBlob) which runs in
+        // _syncClientDataEntities().  Pulling them here from the REST endpoint
+        // caused two problems:
+        //   1. JournalLine / BillLine decimal fields come back as strings
+        //      ("500.0000") from Laravel's decimal:4 cast, causing TypeError
+        //      in fromJson and silently emptying journals.json / bills.json.
+        //   2. Server assigns integer IDs; local uses UUIDs — ID mismatches
+        //      created duplicate records that confused the merge logic.
+        // The blob store is the single source of truth for these entities.
+
         _pullEntityFromServer<Payment>(
           endpoint: '/payments',
           fromJson: (j) => Payment.fromJson(j),
@@ -983,10 +976,11 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
             .whereType<Map<String, dynamic>>()
             .map(Invoice.fromJson)
             .toList();
-        // Merge: keep local-only invoices that haven't pushed to REST yet.
-        final serverIds = {for (final i in serverItems) i.id};
-        final localOnly = local.where((i) => !serverIds.contains(i.id)).toList();
-        final merged = [...serverItems, ...localOnly];
+        final merged = _mergeById<Invoice>(
+          local: local,
+          server: serverItems,
+          getId: (i) => i.id,
+        );
         await _localStorage.saveInvoices(merged);
         await _ref.read(invoicesProvider.notifier).loadInvoices();
       }
@@ -1012,10 +1006,11 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
             .whereType<Map<String, dynamic>>()
             .map(Bill.fromJson)
             .toList();
-        // Merge: keep local-only bills that haven't pushed to REST yet.
-        final serverIds = {for (final b in serverItems) b.id};
-        final localOnly = local.where((b) => !serverIds.contains(b.id)).toList();
-        final merged = [...serverItems, ...localOnly];
+        final merged = _mergeById<Bill>(
+          local: local,
+          server: serverItems,
+          getId: (b) => b.id,
+        );
         await _localStorage.saveBills(merged);
         await _ref.read(billsProvider.notifier).loadBills();
       }
@@ -1041,16 +1036,41 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
             .whereType<Map<String, dynamic>>()
             .map(JournalEntry.fromJson)
             .toList();
-        // Merge: keep local-only JEs that haven't pushed to REST yet.
-        final serverIds = {for (final j in serverItems) j.id};
-        final localOnly = local.where((j) => !serverIds.contains(j.id)).toList();
-        final merged = [...serverItems, ...localOnly];
+        // Map-based merge: start with all local journals, then overlay server
+        // versions for matching IDs.  This guarantees the set never shrinks —
+        // a local journal that was skipped by the server (e.g. empty id) or
+        // that is not yet in the blob store is always preserved.
+        final merged = _mergeById<JournalEntry>(
+          local: local,
+          server: serverItems,
+          getId: (j) => j.id,
+        );
         await _localStorage.saveJournalEntries(merged);
         await _ref.read(journalsProvider.notifier).loadJournals();
       }
     } catch (e) {
       debugPrint('Journal entries blob sync error: $e');
     }
+  }
+
+  // ============================================================================
+  // Merge Helper
+  // ============================================================================
+
+  /// Merges [local] and [server] lists by ID, ensuring the result never
+  /// shrinks below [local].  Server items overwrite local items for the same
+  /// ID (server is authoritative for updates), while local-only items are
+  /// always preserved (they may be pending push to the server).
+  List<T> _mergeById<T>({
+    required List<T> local,
+    required List<T> server,
+    required String Function(T) getId,
+  }) {
+    final map = {for (final item in local) getId(item): item};
+    for (final item in server) {
+      map[getId(item)] = item;
+    }
+    return map.values.toList();
   }
 
   // ============================================================================
