@@ -22,7 +22,7 @@ class InvoiceController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Invoice::with(['customer', 'currency'])
+        $query = Invoice::with(['customer', 'currency', 'lines.account'])
             ->orderByDesc('date')
             ->orderByDesc('created_at');
 
@@ -63,16 +63,21 @@ class InvoiceController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'company_id'           => 'required|exists:companies,id',
-            'customer_id'          => 'required|exists:customers,id',
+            // company_id / currency_id optional: desktop sends currency_code, no company_id.
+            'company_id'           => 'nullable|exists:companies,id',
+            'customer_id'          => 'required',
             'date'                 => 'required|date',
-            'due_date'             => 'nullable|date|after_or_equal:date',
-            'currency_id'          => 'required|exists:currencies,id',
+            'due_date'             => 'nullable|date',
+            'currency_id'          => 'nullable|exists:currencies,id',
+            'currency_code'        => 'nullable|string|size:3',
             'lines'                => 'required|array|min:1',
-            'lines.*.account_id'   => 'required|exists:accounts,id',
-            'lines.*.description'  => 'required|string',
-            'lines.*.quantity'     => 'required|numeric|min:0.01',
-            'lines.*.unit_price'   => 'required|numeric|min:0',
+            // account_id may be an integer PK or desktop code like "acct-125".
+            'lines.*.account_id'   => 'required',
+            'lines.*.description'  => 'nullable|string',
+            // quantity / unit_price optional: desktop may send amount only.
+            'lines.*.quantity'     => 'nullable|numeric|min:0',
+            'lines.*.unit_price'   => 'nullable|numeric|min:0',
+            'lines.*.amount'       => 'nullable|numeric|min:0',
             'lines.*.tax_rate'     => 'nullable|numeric|min:0|max:100',
         ]);
 
@@ -83,13 +88,58 @@ class InvoiceController extends Controller
         try {
             DB::beginTransaction();
 
-            $invoice = Invoice::create($request->only([
-                'company_id', 'customer_id', 'date', 'due_date',
-                'reference', 'notes', 'terms', 'currency_id', 'exchange_rate',
-            ]));
+            $companyId  = $request->company_id ?? \App\Models\Company::first()?->id;
+            $currencyId = $request->currency_id
+                ?? \App\Models\Currency::where('code', $request->currency_code ?? 'UGX')->value('id')
+                ?? \App\Models\Currency::first()?->id;
+
+            // Resolve customer: integer PK or string key.
+            $rawCustomerId = $request->customer_id;
+            $customerId    = ctype_digit((string) $rawCustomerId)
+                ? (int) $rawCustomerId
+                : \App\Models\Sales\Customer::where('id', $rawCustomerId)->value('id');
+            if (! $customerId) {
+                DB::rollBack();
+                return response()->json(['message' => "Customer '{$rawCustomerId}' not found"], 422);
+            }
+
+            $invoice = Invoice::create([
+                'company_id'   => $companyId,
+                'customer_id'  => $customerId,
+                'date'         => $request->date,
+                'due_date'     => $request->due_date,
+                'reference'    => $request->reference,
+                'notes'        => $request->notes,
+                'terms'        => $request->terms,
+                'currency_id'  => $currencyId,
+                'exchange_rate'=> $request->exchange_rate ?? 1,
+            ]);
 
             foreach ($request->lines as $lineData) {
-                $invoice->lines()->create($lineData);
+                // Resolve account: integer PK or "acct-NNN" / "NNN" code string.
+                $rawAcctId = $lineData['account_id'];
+                $code      = str_starts_with((string) $rawAcctId, 'acct-')
+                    ? substr($rawAcctId, 5)
+                    : (string) $rawAcctId;
+                $account   = ctype_digit($code)
+                    ? (\App\Models\Accounting\Account::find((int) $code)
+                        ?? \App\Models\Accounting\Account::where('code', $code)->firstOrFail())
+                    : \App\Models\Accounting\Account::where('code', $code)->firstOrFail();
+
+                $amount    = (float) ($lineData['amount']
+                    ?? (($lineData['unit_price'] ?? 0) * ($lineData['quantity'] ?? 1)));
+                $quantity  = (float) ($lineData['quantity'] ?? 1);
+                $unitPrice = $quantity > 0
+                    ? (float) ($lineData['unit_price'] ?? ($amount / $quantity))
+                    : 0.0;
+
+                $invoice->lines()->create([
+                    'account_id'  => $account->id,
+                    'description' => $lineData['description'] ?? $account->name ?? '',
+                    'quantity'    => $quantity,
+                    'unit_price'  => $unitPrice,
+                    'tax_rate'    => $lineData['tax_rate'] ?? 0,
+                ]);
             }
 
             $invoice->calculateTotals();
