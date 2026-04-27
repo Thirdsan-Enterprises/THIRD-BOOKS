@@ -611,6 +611,14 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
         _syncOutletRevenues(),
         _syncOutletExpenditures(),
         _syncCommissionPayments(),
+        // Accounting entities — blob store guarantees delivery regardless of
+        // REST validation state. Data also flows through the REST queue path
+        // so proper DB tables get populated when the server accepts the push.
+        _syncVendorsBlob(),
+        _syncCustomersBlob(),
+        _syncInvoicesBlob(),
+        _syncBillsBlob(),
+        _syncJournalEntriesBlob(),
       ]);
     } catch (e) {
       debugPrint('Error in _syncClientDataEntities: $e');
@@ -893,6 +901,155 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
       }
     } catch (e) {
       debugPrint('Commission payments sync error: $e');
+    }
+  }
+
+  // ============================================================================
+  // Accounting Entity Blob-Store Sync
+  // These mirror the outlet-revenues pattern: push ALL local records to the
+  // /client-data/{type} blob store on every sync cycle, then pull the server's
+  // authoritative set back.  This guarantees data reaches the server even when
+  // the REST queue push (→ proper DB tables) has not yet succeeded.
+  // ============================================================================
+
+  Future<void> _syncVendorsBlob() async {
+    const type = 'vendors';
+    try {
+      final local = await _localStorage.loadVendors();
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((v) => v.toJson()).toList()},
+        );
+      }
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final pulled = raw
+            .whereType<Map<String, dynamic>>()
+            .map(Vendor.fromJson)
+            .toList();
+        if (pulled.isNotEmpty) {
+          await _localStorage.saveVendors(pulled);
+          await _ref.read(vendorsProvider.notifier).loadVendors();
+        }
+      }
+    } catch (e) {
+      debugPrint('Vendors blob sync error: $e');
+    }
+  }
+
+  Future<void> _syncCustomersBlob() async {
+    const type = 'customers';
+    try {
+      final local = await _localStorage.loadCustomers();
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((c) => c.toJson()).toList()},
+        );
+      }
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final pulled = raw
+            .whereType<Map<String, dynamic>>()
+            .map(Customer.fromJson)
+            .toList();
+        if (pulled.isNotEmpty) {
+          await _localStorage.saveCustomers(pulled);
+          await _ref.read(customersProvider.notifier).loadCustomers();
+        }
+      }
+    } catch (e) {
+      debugPrint('Customers blob sync error: $e');
+    }
+  }
+
+  Future<void> _syncInvoicesBlob() async {
+    const type = 'invoices';
+    try {
+      final local = await _localStorage.loadInvoices();
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((i) => i.toJson()).toList()},
+        );
+      }
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final serverItems = raw
+            .whereType<Map<String, dynamic>>()
+            .map(Invoice.fromJson)
+            .toList();
+        // Merge: keep local-only invoices that haven't pushed to REST yet.
+        final serverIds = {for (final i in serverItems) i.id};
+        final localOnly = local.where((i) => !serverIds.contains(i.id)).toList();
+        final merged = [...serverItems, ...localOnly];
+        await _localStorage.saveInvoices(merged);
+        await _ref.read(invoicesProvider.notifier).loadInvoices();
+      }
+    } catch (e) {
+      debugPrint('Invoices blob sync error: $e');
+    }
+  }
+
+  Future<void> _syncBillsBlob() async {
+    const type = 'bills';
+    try {
+      final local = await _localStorage.loadBills();
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((b) => b.toJson()).toList()},
+        );
+      }
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final serverItems = raw
+            .whereType<Map<String, dynamic>>()
+            .map(Bill.fromJson)
+            .toList();
+        // Merge: keep local-only bills that haven't pushed to REST yet.
+        final serverIds = {for (final b in serverItems) b.id};
+        final localOnly = local.where((b) => !serverIds.contains(b.id)).toList();
+        final merged = [...serverItems, ...localOnly];
+        await _localStorage.saveBills(merged);
+        await _ref.read(billsProvider.notifier).loadBills();
+      }
+    } catch (e) {
+      debugPrint('Bills blob sync error: $e');
+    }
+  }
+
+  Future<void> _syncJournalEntriesBlob() async {
+    const type = 'journal-entries';
+    try {
+      final local = await _localStorage.loadJournalEntries();
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((j) => j.toJson()).toList()},
+        );
+      }
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final serverItems = raw
+            .whereType<Map<String, dynamic>>()
+            .map(JournalEntry.fromJson)
+            .toList();
+        // Merge: keep local-only JEs that haven't pushed to REST yet.
+        final serverIds = {for (final j in serverItems) j.id};
+        final localOnly = local.where((j) => !serverIds.contains(j.id)).toList();
+        final merged = [...serverItems, ...localOnly];
+        await _localStorage.saveJournalEntries(merged);
+        await _ref.read(journalsProvider.notifier).loadJournals();
+      }
+    } catch (e) {
+      debugPrint('Journal entries blob sync error: $e');
     }
   }
 
