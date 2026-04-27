@@ -13,26 +13,21 @@ class BillObserver
 
     /**
      * Handle the Bill "created" event.
+     *
+     * BillController::store() explicitly emits a full bill.created event (with
+     * company_id, correct date field, and eager-loaded lines) AFTER its DB
+     * transaction commits.  Emitting a second, incomplete event here would
+     * produce a duplicate with wrong field names (bill_date vs date) and no
+     * company_id, which corrupts materialization on other devices.
+     *
+     * For bills created outside the REST controller (e.g. during sync
+     * materialization) the $materializing guard in createEvent() already
+     * suppresses this path, so no event is ever double-emitted.
      */
     public function created(Bill $bill): void
     {
-        $this->eventSourceService->createEvent(
-            aggregateType: 'bill',
-            aggregateId: $bill->id,
-            eventType: 'bill.created',
-            eventData: [
-                'bill_number' => $bill->bill_number,
-                'vendor_id' => $bill->vendor_id,
-                'bill_date' => $bill->bill_date,
-                'due_date' => $bill->due_date,
-                'subtotal' => $bill->subtotal,
-                'tax_amount' => $bill->tax_amount,
-                'total' => $bill->total,
-                'status' => $bill->status,
-                'notes' => $bill->notes,
-                'vendor_invoice_number' => $bill->vendor_invoice_number,
-            ]
-        );
+        // Intentionally empty: BillController emits the authoritative event
+        // after commit with full data (company_id, lines, correct field names).
     }
 
     /**

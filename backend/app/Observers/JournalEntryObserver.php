@@ -14,15 +14,36 @@ class JournalEntryObserver
 
     public function created(JournalEntry $entry): void
     {
+        // Capture the materializing flag NOW (synchronously inside the observer).
+        // DB::afterCommit() fires after the outermost transaction commits, at which
+        // point EventSourceService::$materializing has already been reset to false
+        // by the finally block in materializeEvent().  Without capturing the flag
+        // here we would emit a duplicate "echo" event for every journal entry that
+        // gets created during sync materialisation, corrupting the event log and
+        // causing repeated line-deletion cycles on subsequent syncs.
+        $wasMaterializing = EventSourceService::isCurrentlyMaterializing();
+
         // Fire AFTER the surrounding transaction commits so that journal lines
         // (created separately after the entry) are already persisted and loadable.
-        DB::afterCommit(function () use ($entry) {
+        DB::afterCommit(function () use ($entry, $wasMaterializing) {
+            // Skip if this entry was created as part of materialising an incoming
+            // sync event — the event already exists in the log; echoing it would
+            // create an infinite re-materialise loop on other devices.
+            if ($wasMaterializing) {
+                return;
+            }
+
             $entry->refresh();
             $lines = $entry->lines->map(fn($l) => [
-                'account_id'  => $l->account_id,
-                'description' => $l->description,
-                'debit'       => $l->debit,
-                'credit'      => $l->credit,
+                'account_id'    => $l->account_id,
+                'description'   => $l->description,
+                'debit'         => (float) $l->debit,
+                'credit'        => (float) $l->credit,
+                'currency_id'   => $l->currency_id,
+                'exchange_rate' => (float) $l->exchange_rate,
+                'debit_foreign' => (float) $l->debit_foreign,
+                'credit_foreign'=> (float) $l->credit_foreign,
+                'order'         => $l->order,
             ])->toArray();
 
             $this->eventSourceService->createEvent(
@@ -37,6 +58,7 @@ class JournalEntryObserver
                     'reference'    => $entry->reference,
                     'status'       => $entry->status,
                     'type'         => $entry->type,
+                    'created_by'   => $entry->created_by,
                     'lines'        => $lines,
                 ]
             );
@@ -50,7 +72,13 @@ class JournalEntryObserver
             return;
         }
 
-        DB::afterCommit(function () use ($entry, $changes) {
+        $wasMaterializing = EventSourceService::isCurrentlyMaterializing();
+
+        DB::afterCommit(function () use ($entry, $changes, $wasMaterializing) {
+            if ($wasMaterializing) {
+                return;
+            }
+
             $this->eventSourceService->createEvent(
                 aggregateType: 'journal_entry',
                 aggregateId:   (string) $entry->id,
@@ -59,6 +87,7 @@ class JournalEntryObserver
                     'company_id' => $entry->company_id,
                     'changes'    => $changes,
                     'status'     => $entry->status,
+                    'type'       => $entry->type,
                 ]
             );
         });

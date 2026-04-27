@@ -26,6 +26,11 @@ class EventSourceService
     // via DI — a static flag ensures the materializing guard works across all of them.
     private static bool $materializing = false;
 
+    public static function isCurrentlyMaterializing(): bool
+    {
+        return self::$materializing;
+    }
+
     /**
      * Create a new event
      */
@@ -597,29 +602,58 @@ class EventSourceService
         $companyId = $data['company_id'] ?? $this->resolveDefaultCompanyId();
         if (!$companyId) return;
 
-        $entry = JournalEntry::updateOrCreate(['id' => $id], array_filter([
+        // Only set fields that are explicitly present in the event data.
+        // Using ?? 'manual' / ?? '' for missing keys would silently overwrite
+        // server-authoritative values (e.g. type='automatic' → 'manual',
+        // description → '') every time an 'updated' event is materialised.
+        $fields = array_filter([
             'company_id'   => $companyId,
             'entry_number' => $data['entry_number'] ?? null,
             'date'         => $data['date'] ?? null,
-            'description'  => $data['description'] ?? '',
+            'description'  => $data['description'] ?? null,
             'reference'    => $data['reference'] ?? null,
-            'status'       => $data['status'] ?? 'draft',
-            'type'         => $data['type'] ?? 'manual',
-            'created_by'   => $data['created_by'] ?? Auth::id(),
-        ], fn($v) => $v !== null));
+            'status'       => $data['status'] ?? null,
+            'type'         => $data['type'] ?? null,
+            // Fall back to current user only when the field is genuinely present
+            // in the event (created events carry created_by; updated events do not).
+            'created_by'   => $data['created_by'] ?? (($action === 'created') ? Auth::id() : null),
+        ], fn($v) => $v !== null);
+
+        $entry = JournalEntry::updateOrCreate(['id' => $id], $fields);
 
         if (!empty($data['lines'])) {
-            $entry->lines()->delete();
-            foreach ($data['lines'] as $line) {
-                if (empty($line['account_id'])) continue;
-                JournalLine::create([
-                    'journal_entry_id' => $entry->id,
-                    'account_id'       => $line['account_id'],
-                    'description'      => $line['description'] ?? null,
-                    'debit'            => $line['debit'] ?? 0,
-                    'credit'           => $line['credit'] ?? 0,
-                ]);
-            }
+            // Wrap delete + recreate in a savepoint so that if any line fails
+            // (e.g. missing NOT-NULL fields) the deletion is rolled back and the
+            // existing lines are preserved rather than wiped.
+            DB::transaction(function () use ($entry, $data) {
+                $entry->lines()->delete();
+
+                foreach ($data['lines'] as $index => $line) {
+                    if (empty($line['account_id'])) continue;
+
+                    // currency_id is NOT NULL in the schema; resolve it from the
+                    // account if the event did not carry it explicitly.
+                    $currencyId = $line['currency_id'] ?? null;
+                    if (!$currencyId) {
+                        $account    = Account::find($line['account_id']);
+                        $currencyId = $account?->currency_id;
+                    }
+                    if (!$currencyId) continue;
+
+                    JournalLine::create([
+                        'journal_entry_id' => $entry->id,
+                        'account_id'       => $line['account_id'],
+                        'description'      => $line['description'] ?? null,
+                        'debit'            => $line['debit'] ?? 0,
+                        'credit'           => $line['credit'] ?? 0,
+                        'currency_id'      => $currencyId,
+                        'exchange_rate'    => $line['exchange_rate'] ?? 1,
+                        'debit_foreign'    => $line['debit_foreign'] ?? ($line['debit'] ?? 0),
+                        'credit_foreign'   => $line['credit_foreign'] ?? ($line['credit'] ?? 0),
+                        'order'            => $line['order'] ?? $index,
+                    ]);
+                }
+            });
         }
     }
 
