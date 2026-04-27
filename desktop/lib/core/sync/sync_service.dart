@@ -559,16 +559,27 @@ class SyncService extends StateNotifier<SyncState> {
               ),
             );
 
-        // Upsert journal lines.
+        // Upsert journal lines.  When the server sends a lines array we treat
+        // it as the authoritative set: delete any stale local lines first, then
+        // insert the server-provided ones.  This mirrors the server's own
+        // delete-then-recreate approach in materializeJournalEntry() and
+        // prevents phantom lines from persisting after a sync.
+        // Line IDs from the server may be integers (auto-increment) — always
+        // call .toString() so they can be stored in the TEXT primary-key column.
         final lines = data['lines'] as List<dynamic>?;
         if (lines != null) {
+          await (_db.delete(_db.journalLines)
+                ..where((l) => l.journalEntryId.equals(data['id'] as String)))
+              .go();
           for (final line in lines) {
             final l = line as Map<String, dynamic>;
             final accountId = l['account_id'] as String?;
             if (accountId == null) continue;
+            final lineId = (l['id'] ?? '').toString();
+            if (lineId.isEmpty) continue;
             await _db.into(_db.journalLines).insertOnConflictUpdate(
                   JournalLinesCompanion.insert(
-                    id: l['id'] as String,
+                    id: lineId,
                     journalEntryId: data['id'] as String,
                     accountId: accountId,
                     debit: Value((l['debit'] as num?)?.toDouble() ?? 0.0),
