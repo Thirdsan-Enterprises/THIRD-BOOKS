@@ -21,6 +21,7 @@ class Invoice extends Model
         'company_id',
         'customer_id',
         'journal_entry_id',
+        'client_uuid',
         'invoice_number',
         'date',
         'due_date',

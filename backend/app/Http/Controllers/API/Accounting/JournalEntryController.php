@@ -42,7 +42,10 @@ class JournalEntryController extends Controller
 
     public function show($id)
     {
-        $entry = JournalEntry::with(['lines.account.currency', 'creator', 'poster'])->findOrFail($id);
+        $entry = $this->resolveEntry($id, ['lines.account.currency', 'creator', 'poster']);
+        if (! $entry) {
+            return response()->json(['message' => 'Journal entry not found'], 404);
+        }
 
         return response()->json([
             'journal_entry'  => $entry,
@@ -100,9 +103,25 @@ class JournalEntryController extends Controller
                 return response()->json(['message' => 'No company found for this tenant'], 422);
             }
             $company = Company::findOrFail($companyId);
+
+            // If the desktop supplied its local UUID as 'id', use it as
+            // client_uuid so subsequent PUT requests can resolve the record.
+            $clientUuid = $request->input('id');
+            if ($clientUuid) {
+                $existing = JournalEntry::where('client_uuid', $clientUuid)->first();
+                if ($existing) {
+                    $fresh = $existing->load(['lines.account']);
+                    return response()->json(['message' => 'Journal entry created successfully', 'journal_entry' => $fresh], 201);
+                }
+            }
+
             $journalEntry = $this->doubleEntryService->createJournalEntry(
                 $company, $request->all(), $request->user(), $request->boolean('auto_post', false)
             );
+
+            if ($clientUuid) {
+                $journalEntry->update(['client_uuid' => $clientUuid]);
+            }
 
             $fresh = $journalEntry->load(['lines.account']);
             $this->emitEvent('journal_entry.created', $journalEntry->id, $fresh->toArray());
@@ -116,7 +135,10 @@ class JournalEntryController extends Controller
 
     public function update(Request $request, $id)
     {
-        $entry = JournalEntry::findOrFail($id);
+        $entry = $this->resolveEntry($id);
+        if (! $entry) {
+            return response()->json(['message' => 'Journal entry not found'], 404);
+        }
 
         if ($entry->isPosted()) {
             return response()->json(['message' => 'Posted journal entries cannot be modified'], 403);
@@ -144,7 +166,10 @@ class JournalEntryController extends Controller
 
     public function destroy($id)
     {
-        $entry = JournalEntry::findOrFail($id);
+        $entry = $this->resolveEntry($id);
+        if (! $entry) {
+            return response()->json(['message' => 'Journal entry not found'], 404);
+        }
 
         if ($entry->isPosted()) {
             return response()->json(['message' => 'Posted journal entries cannot be deleted. Unpost first.'], 403);
@@ -161,7 +186,10 @@ class JournalEntryController extends Controller
 
     public function post($id, Request $request)
     {
-        $entry = JournalEntry::findOrFail($id);
+        $entry = $this->resolveEntry($id);
+        if (! $entry) {
+            return response()->json(['message' => 'Journal entry not found'], 404);
+        }
         $user  = $request->user();
 
         if (!$user->canPostTransactions()) {
@@ -182,7 +210,10 @@ class JournalEntryController extends Controller
 
     public function unpost($id, Request $request)
     {
-        $entry = JournalEntry::findOrFail($id);
+        $entry = $this->resolveEntry($id);
+        if (! $entry) {
+            return response()->json(['message' => 'Journal entry not found'], 404);
+        }
         $user  = $request->user();
 
         if (!$user->isAccountant()) {
@@ -203,7 +234,10 @@ class JournalEntryController extends Controller
 
     public function preview($id)
     {
-        $entry = JournalEntry::with(['lines.account.currency'])->findOrFail($id);
+        $entry = $this->resolveEntry($id, ['lines.account.currency']);
+        if (! $entry) {
+            return response()->json(['message' => 'Journal entry not found'], 404);
+        }
 
         return response()->json([
             'entry_number'  => $entry->entry_number,
@@ -224,6 +258,22 @@ class JournalEntryController extends Controller
             ]),
             'can_post' => $entry->isDraft() && $entry->isBalanced() && $entry->lines()->count() >= 2,
         ]);
+    }
+
+    /**
+     * Resolve a JournalEntry by its integer PK or by client_uuid.
+     * Desktop clients pass their local UUID as the route parameter; the
+     * server stores this in client_uuid so both lookup paths work.
+     */
+    private function resolveEntry(mixed $id, array $with = []): ?JournalEntry
+    {
+        $query = JournalEntry::query();
+        if ($with) {
+            $query->with($with);
+        }
+        return $query->where('id', $id)
+            ->orWhere('client_uuid', $id)
+            ->first();
     }
 
     private function emitEvent(string $eventType, string $aggregateId, array $data): void

@@ -38,6 +38,8 @@ class ClientDataSyncController extends Controller
         'customers',
         'invoices',
         'payments',
+        'credit-notes',
+        'debit-notes',
     ];
 
     public function index(Request $request, string $type)

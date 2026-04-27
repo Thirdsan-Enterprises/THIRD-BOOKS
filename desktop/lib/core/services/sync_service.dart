@@ -490,6 +490,8 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
           fromJson: (j) => Invoice.fromJson(j),
           save: (items) => _localStorage.saveInvoices(items),
           reload: () => _ref.read(invoicesProvider.notifier).loadInvoices(),
+          loadLocal: () => _localStorage.loadInvoices(),
+          getId: (i) => i.id,
         ),
         // Bills and JournalEntries are synced exclusively via the blob-store
         // path (_syncBillsBlob / _syncJournalEntriesBlob) which runs in
@@ -514,6 +516,8 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
           save: (items) => _localStorage.saveCreditNotes(items),
           reload: () => _ref.read(creditNotesProvider.notifier).reload(),
           responseKey: 'credit_notes',
+          loadLocal: () => _localStorage.loadCreditNotes(),
+          getId: (n) => n.id,
         ),
         _pullEntityFromServer<DebitNote>(
           endpoint: '/debit-notes',
@@ -521,6 +525,8 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
           save: (items) => _localStorage.saveDebitNotes(items),
           reload: () => _ref.read(debitNotesProvider.notifier).reload(),
           responseKey: 'debit_notes',
+          loadLocal: () => _localStorage.loadDebitNotes(),
+          getId: (n) => n.id,
         ),
       ]);
     } catch (e) {
@@ -612,6 +618,8 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
         _syncInvoicesBlob(),
         _syncBillsBlob(),
         _syncJournalEntriesBlob(),
+        _syncCreditNotesBlob(),
+        _syncDebitNotesBlob(),
       ]);
     } catch (e) {
       debugPrint('Error in _syncClientDataEntities: $e');
@@ -1050,6 +1058,66 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
       }
     } catch (e) {
       debugPrint('Journal entries blob sync error: $e');
+    }
+  }
+
+  Future<void> _syncCreditNotesBlob() async {
+    const type = 'credit-notes';
+    try {
+      final local = await _localStorage.loadCreditNotes();
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((n) => n.toJson()).toList()},
+        );
+      }
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final serverItems = raw
+            .whereType<Map<String, dynamic>>()
+            .map(CreditNote.fromJson)
+            .toList();
+        final merged = _mergeById<CreditNote>(
+          local: local,
+          server: serverItems,
+          getId: (n) => n.id,
+        );
+        await _localStorage.saveCreditNotes(merged);
+        _ref.read(creditNotesProvider.notifier).replaceAll(merged);
+      }
+    } catch (e) {
+      debugPrint('Credit notes blob sync error: $e');
+    }
+  }
+
+  Future<void> _syncDebitNotesBlob() async {
+    const type = 'debit-notes';
+    try {
+      final local = await _localStorage.loadDebitNotes();
+      if (local.isNotEmpty) {
+        await _apiClient.post(
+          '/client-data/$type',
+          data: {'records': local.map((n) => n.toJson()).toList()},
+        );
+      }
+      final resp = await _apiClient.get('/client-data/$type');
+      if (resp.statusCode == 200) {
+        final raw = (resp.data['data'] as List<dynamic>?) ?? [];
+        final serverItems = raw
+            .whereType<Map<String, dynamic>>()
+            .map(DebitNote.fromJson)
+            .toList();
+        final merged = _mergeById<DebitNote>(
+          local: local,
+          server: serverItems,
+          getId: (n) => n.id,
+        );
+        await _localStorage.saveDebitNotes(merged);
+        _ref.read(debitNotesProvider.notifier).replaceAll(merged);
+      }
+    } catch (e) {
+      debugPrint('Debit notes blob sync error: $e');
     }
   }
 

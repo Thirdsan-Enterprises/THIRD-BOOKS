@@ -51,8 +51,10 @@ class InvoiceController extends Controller
      */
     public function show($id)
     {
-        $invoice = Invoice::with(['customer', 'currency', 'lines.account', 'payments', 'journalEntry'])
-            ->findOrFail($id);
+        $invoice = $this->resolveInvoice($id, ['customer', 'currency', 'lines.account', 'payments', 'journalEntry']);
+        if (! $invoice) {
+            return response()->json(['message' => 'Invoice not found'], 404);
+        }
 
         return response()->json(['invoice' => $invoice]);
     }
@@ -103,9 +105,22 @@ class InvoiceController extends Controller
                 return response()->json(['message' => "Customer '{$rawCustomerId}' not found"], 422);
             }
 
+            // Idempotency: if the desktop already pushed this UUID, return the
+            // existing record instead of creating a duplicate.
+            $clientUuid = $request->input('id');
+            if ($clientUuid) {
+                $existing = Invoice::where('client_uuid', $clientUuid)->first();
+                if ($existing) {
+                    DB::rollBack();
+                    $fresh = $existing->fresh(['lines', 'customer']);
+                    return response()->json(['message' => 'Invoice created successfully', 'invoice' => $fresh], 201);
+                }
+            }
+
             $invoice = Invoice::create([
                 'company_id'   => $companyId,
                 'customer_id'  => $customerId,
+                'client_uuid'  => $clientUuid,
                 'date'         => $request->date,
                 'due_date'     => $request->due_date,
                 'reference'    => $request->reference,
@@ -171,7 +186,10 @@ class InvoiceController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $invoice = Invoice::findOrFail($id);
+        $invoice = $this->resolveInvoice($id);
+        if (! $invoice) {
+            return response()->json(['message' => 'Invoice not found'], 404);
+        }
 
         if (!in_array($invoice->status, [Invoice::STATUS_DRAFT])) {
             return response()->json(['message' => 'Only draft invoices can be modified'], 403);
@@ -201,7 +219,10 @@ class InvoiceController extends Controller
      */
     public function destroy($id)
     {
-        $invoice = Invoice::findOrFail($id);
+        $invoice = $this->resolveInvoice($id);
+        if (! $invoice) {
+            return response()->json(['message' => 'Invoice not found'], 404);
+        }
 
         if ($invoice->status !== Invoice::STATUS_DRAFT) {
             return response()->json(['message' => 'Only draft invoices can be deleted'], 403);
@@ -218,7 +239,10 @@ class InvoiceController extends Controller
      */
     public function send($id, Request $request)
     {
-        $invoice = Invoice::findOrFail($id);
+        $invoice = $this->resolveInvoice($id);
+        if (! $invoice) {
+            return response()->json(['message' => 'Invoice not found'], 404);
+        }
 
         if ($invoice->status !== Invoice::STATUS_DRAFT) {
             return response()->json(['message' => 'Only draft invoices can be sent'], 400);
@@ -242,7 +266,10 @@ class InvoiceController extends Controller
      */
     public function recordPayment($id, Request $request)
     {
-        $invoice = Invoice::findOrFail($id);
+        $invoice = $this->resolveInvoice($id);
+        if (! $invoice) {
+            return response()->json(['message' => 'Invoice not found'], 404);
+        }
 
         $validator = Validator::make($request->all(), [
             'amount'             => 'required|numeric|min:0.01',
@@ -307,9 +334,28 @@ class InvoiceController extends Controller
      */
     public function downloadPdf($id)
     {
-        $invoice = Invoice::with(['customer', 'lines.account', 'company'])->findOrFail($id);
+        $invoice = $this->resolveInvoice($id, ['customer', 'lines.account', 'company']);
+        if (! $invoice) {
+            return response()->json(['message' => 'Invoice not found'], 404);
+        }
 
         return response()->json(['message' => 'PDF generation not yet implemented', 'invoice' => $invoice]);
+    }
+
+    /**
+     * Resolve an Invoice by integer PK or by client_uuid.
+     * Desktop clients route PUT/DELETE to /invoices/{uuid}; the uuid is stored
+     * in client_uuid so both paths resolve the same record.
+     */
+    private function resolveInvoice(mixed $id, array $with = []): ?Invoice
+    {
+        $query = Invoice::query();
+        if ($with) {
+            $query->with($with);
+        }
+        return $query->where('id', $id)
+            ->orWhere('client_uuid', $id)
+            ->first();
     }
 
     private function emitEvent(string $eventType, string $aggregateId, array $data): void
