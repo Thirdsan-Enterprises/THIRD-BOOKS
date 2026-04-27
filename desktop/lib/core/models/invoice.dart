@@ -55,9 +55,9 @@ class Invoice {
 
   factory Invoice.fromJson(Map<String, dynamic> json) {
     return Invoice(
-      id: json['id'] as String,
+      id: (json['id'] ?? '').toString(),
       invoiceNumber: json['invoice_number'] as String,
-      customerId: json['customer_id'] as String,
+      customerId: (json['customer_id'] ?? '').toString(),
       customerName: json['customer_name'] as String?,
       date: DateTime.parse(json['date'] as String),
       dueDate: DateTime.parse(json['due_date'] as String),
@@ -173,15 +173,15 @@ class InvoiceLine {
 
   factory InvoiceLine.fromJson(Map<String, dynamic> json) {
     return InvoiceLine(
-      id: json['id'] as String,
-      invoiceId: json['invoice_id'] as String,
+      id: (json['id'] ?? '').toString(),
+      invoiceId: (json['invoice_id'] ?? '').toString(),
       description: json['description'] as String,
       quantity: (json['quantity'] as num?)?.toDouble() ?? 1.0,
       unitPrice: (json['unit_price'] as num?)?.toDouble() ?? 0.0,
       taxRate: (json['tax_rate'] as num?)?.toDouble() ?? 0.0,
       taxAmount: (json['tax_amount'] as num?)?.toDouble() ?? 0.0,
       amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
-      accountId: json['account_id'] as String?,
+      accountId: json['account_id'] == null ? null : json['account_id'].toString(),
     );
   }
 

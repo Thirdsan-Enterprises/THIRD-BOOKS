@@ -131,7 +131,7 @@ class Account {
 
   factory Account.fromJson(Map<String, dynamic> json) {
     return Account(
-      id: json['id'] as String,
+      id: (json['id'] ?? '').toString(),
       code: json['code'] as String,
       name: json['name'] as String,
       description: json['description'] as String?,
@@ -142,7 +142,7 @@ class Account {
       // Map the backend 'category' field first (e.g. 'intangible_asset'),
       // then fall back to the 'sub_type' string if category is absent.
       subType: _subTypeFromJson(json),
-      parentId: json['parent_id'] as String?,
+      parentId: json['parent_id'] == null ? null : json['parent_id'].toString(),
       currencyCode: json['currency_code'] as String? ?? 'UGX',
       balance: (json['balance'] as num?)?.toDouble() ?? 0.0,
       isActive: json['is_active'] as bool? ?? true,
