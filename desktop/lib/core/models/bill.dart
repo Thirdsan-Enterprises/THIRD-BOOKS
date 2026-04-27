@@ -56,9 +56,9 @@ class Bill {
 
   factory Bill.fromJson(Map<String, dynamic> json) {
     return Bill(
-      id: json['id'] as String,
+      id: (json['id'] ?? '').toString(),
       billNumber: json['bill_number'] as String,
-      vendorId: json['vendor_id'] as String,
+      vendorId: (json['vendor_id'] ?? '').toString(),
       vendorName: json['vendor_name'] as String?,
       date: DateTime.parse(json['date'] as String),
       dueDate: DateTime.parse(json['due_date'] as String),
@@ -175,11 +175,12 @@ class BillLine {
   });
 
   factory BillLine.fromJson(Map<String, dynamic> json) {
+    final account = json['account'] as Map<String, dynamic>?;
     return BillLine(
-      id: json['id'] as String,
-      billId: json['bill_id'] as String,
-      accountId: json['account_id'] as String,
-      accountName: json['account_name'] as String?,
+      id: (json['id'] ?? '').toString(),
+      billId: (json['bill_id'] ?? '').toString(),
+      accountId: (json['account_id'] ?? '').toString(),
+      accountName: json['account_name'] as String? ?? account?['name'] as String?,
       description: json['description'] as String,
       amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
       taxRate: (json['tax_rate'] as num?)?.toDouble() ?? 0.0,

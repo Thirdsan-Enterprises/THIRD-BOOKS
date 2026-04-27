@@ -40,10 +40,10 @@ class JournalEntry {
 
   factory JournalEntry.fromJson(Map<String, dynamic> json) {
     return JournalEntry(
-      id: json['id'] as String,
+      id: (json['id'] ?? '').toString(),
       entryNumber: json['entry_number'] as String,
       date: DateTime.parse(json['date'] as String),
-      description: json['description'] as String,
+      description: json['description'] as String? ?? '',
       reference: json['reference'] as String?,
       status: JournalEntryStatus.values.firstWhere(
         (e) => e.name == json['status'],
@@ -54,7 +54,7 @@ class JournalEntry {
               .toList() ??
           [],
       notes: json['notes'] as String?,
-      createdBy: json['created_by'] as String?,
+      createdBy: json['created_by'] == null ? null : json['created_by'].toString(),
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
       syncSequence: json['sync_sequence'] as int?,
@@ -131,12 +131,13 @@ class JournalLine {
   });
 
   factory JournalLine.fromJson(Map<String, dynamic> json) {
+    final account = json['account'] as Map<String, dynamic>?;
     return JournalLine(
-      id: json['id'] as String,
-      journalEntryId: json['journal_entry_id'] as String,
-      accountId: json['account_id'] as String,
-      accountName: json['account_name'] as String?,
-      accountCode: json['account_code'] as String?,
+      id: (json['id'] ?? '').toString(),
+      journalEntryId: (json['journal_entry_id'] ?? '').toString(),
+      accountId: (json['account_id'] ?? '').toString(),
+      accountName: json['account_name'] as String? ?? account?['name'] as String?,
+      accountCode: json['account_code'] as String? ?? account?['code'] as String?,
       debit: (json['debit'] as num?)?.toDouble() ?? 0.0,
       credit: (json['credit'] as num?)?.toDouble() ?? 0.0,
       description: json['description'] as String?,

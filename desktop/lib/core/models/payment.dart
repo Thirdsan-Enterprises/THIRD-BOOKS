@@ -58,22 +58,22 @@ class Payment {
 
   factory Payment.fromJson(Map<String, dynamic> json) {
     return Payment(
-      id: json['id'] as String,
+      id: (json['id'] ?? '').toString(),
       paymentNumber: json['payment_number'] as String,
       paymentType: PaymentType.values.firstWhere(
         (e) => e.name == json['payment_type'],
         orElse: () => PaymentType.received,
       ),
-      customerId: json['customer_id'] as String?,
+      customerId: json['customer_id'] == null ? null : json['customer_id'].toString(),
       customerName: json['customer_name'] as String?,
-      vendorId: json['vendor_id'] as String?,
+      vendorId: json['vendor_id'] == null ? null : json['vendor_id'].toString(),
       vendorName: json['vendor_name'] as String?,
       paymentDate: DateTime.parse(json['payment_date'] as String),
       amount: (json['amount'] as num).toDouble(),
       paymentMethod: json['payment_method'] as String,
       reference: json['reference'] as String?,
       notes: json['notes'] as String?,
-      accountId: json['account_id'] as String?,
+      accountId: json['account_id'] == null ? null : json['account_id'].toString(),
       accountName: json['account_name'] as String?,
       status: PaymentStatus.values.firstWhere(
         (e) => e.name == json['status'],
