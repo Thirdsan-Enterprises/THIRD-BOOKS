@@ -35,6 +35,7 @@ class JournalEntryObserver
 
             $entry->refresh();
             $lines = $entry->lines->map(fn($l) => [
+                'id'            => (string) $l->id,
                 'account_id'    => $l->account_id,
                 'description'   => $l->description,
                 'debit'         => (float) $l->debit,
