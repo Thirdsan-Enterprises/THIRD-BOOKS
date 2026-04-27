@@ -491,17 +491,23 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
           save: (items) => _localStorage.saveInvoices(items),
           reload: () => _ref.read(invoicesProvider.notifier).loadInvoices(),
         ),
+        // Bills: merge so pending-push local bills are never destroyed by a pull.
         _pullEntityFromServer<Bill>(
           endpoint: '/bills',
           fromJson: (j) => Bill.fromJson(j),
           save: (items) => _localStorage.saveBills(items),
           reload: () => _ref.read(billsProvider.notifier).loadBills(),
+          loadLocal: () => _localStorage.loadBills(),
+          getId: (b) => b.id,
         ),
+        // JournalEntries: merge so pending-push local JEs are never destroyed.
         _pullEntityFromServer<JournalEntry>(
           endpoint: '/journal-entries',
           fromJson: (j) => JournalEntry.fromJson(j),
           save: (items) => _localStorage.saveJournalEntries(items),
           reload: () => _ref.read(journalsProvider.notifier).loadJournals(),
+          loadLocal: () => _localStorage.loadJournalEntries(),
+          getId: (e) => e.id,
         ),
         _pullEntityFromServer<Payment>(
           endpoint: '/payments',
@@ -531,15 +537,22 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
 
   /// Fetches a collection from [endpoint], persists it to local storage via
   /// [save], then triggers a provider reload via [reload].
-  /// Requests all records in a single page to avoid silent truncation at the
-  /// server's default page size.
-  /// [responseKey] allows custom JSON envelope keys (e.g. 'credit_notes').
+  ///
+  /// When [loadLocal] and [getId] are supplied the pull uses a MERGE strategy:
+  /// server items (authoritative) are kept as-is, while local items whose IDs
+  /// are absent from the server response are preserved — they are pending push
+  /// and must not be destroyed by a pull before the push succeeds.
+  ///
+  /// Without those parameters the pull does a full replace (safe for
+  /// reference-data entities like Accounts, Customers, Vendors).
   Future<void> _pullEntityFromServer<T>({
     required String endpoint,
     required T Function(Map<String, dynamic>) fromJson,
     required Future<void> Function(List<T>) save,
     required Future<void> Function() reload,
     String? responseKey,
+    Future<List<T>> Function()? loadLocal,
+    String Function(T)? getId,
   }) async {
     try {
       final response = await _apiClient.get(
@@ -556,11 +569,24 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
         } else {
           rawList = body as List<dynamic>;
         }
-        final items = rawList
+        final serverItems = rawList
             .whereType<Map<String, dynamic>>()
             .map((j) => fromJson(j))
             .toList();
-        await save(items);
+
+        List<T> itemsToSave = serverItems;
+
+        if (loadLocal != null && getId != null) {
+          // Merge: keep local items whose IDs are not yet on the server.
+          final local = await loadLocal();
+          final serverIds = {for (final item in serverItems) getId(item)};
+          final localOnly = local.where((item) => !serverIds.contains(getId(item))).toList();
+          if (localOnly.isNotEmpty) {
+            itemsToSave = [...serverItems, ...localOnly];
+          }
+        }
+
+        await save(itemsToSave);
         await reload();
       }
     } catch (e) {

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Accounting\Account;
 use App\Models\Assets\AssetRegister;
 use App\Models\Purchases\Bill;
+use App\Models\Purchases\Vendor;
 use App\Services\Accounting\DoubleEntryService;
 use App\Services\Sync\EventSourceService;
 use Illuminate\Http\Request;
@@ -21,7 +22,7 @@ class BillController extends Controller
 
     public function index(Request $request)
     {
-        $query = Bill::with(['vendor', 'currency'])
+        $query = Bill::with(['vendor', 'currency', 'lines.account'])
             ->orderByDesc('date');
 
         if ($request->has('status')) {
@@ -51,15 +52,20 @@ class BillController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'company_id' => 'required|exists:companies,id',
-            'vendor_id' => 'required|exists:vendors,id',
-            'date' => 'required|date',
-            'currency_id' => 'required|exists:currencies,id',
-            'lines' => 'required|array|min:1',
-            'lines.*.account_id' => 'required|exists:accounts,id',
-            'lines.*.description' => 'required|string',
-            'lines.*.quantity' => 'required|numeric|min:0.01',
-            'lines.*.unit_price' => 'required|numeric|min:0',
+            // company_id / currency_id are optional: the desktop client sends
+            // currency_code and no company_id (single-company tenants).
+            'company_id'           => 'nullable|exists:companies,id',
+            'vendor_id'            => 'required',   // string key or integer PK
+            'date'                 => 'required|date',
+            'currency_id'          => 'nullable|exists:currencies,id',
+            'lines'                => 'required|array|min:1',
+            // account_id may be an integer PK or a local code like "acct-125".
+            'lines.*.account_id'   => 'required',
+            'lines.*.description'  => 'nullable|string',
+            // quantity and unit_price are optional: desktop sends amount directly.
+            'lines.*.quantity'     => 'nullable|numeric|min:0',
+            'lines.*.unit_price'   => 'nullable|numeric|min:0',
+            'lines.*.amount'       => 'nullable|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -69,13 +75,67 @@ class BillController extends Controller
         try {
             DB::beginTransaction();
 
-            $bill = Bill::create($request->only([
-                'company_id', 'vendor_id', 'date', 'due_date', 'reference',
-                'notes', 'currency_id', 'exchange_rate', 'vendor_invoice_number'
-            ]));
+            // Resolve company from request or tenant context.
+            $companyId = $request->company_id ?? \App\Models\Company::first()?->id;
+            if (! $companyId) {
+                DB::rollBack();
+                return response()->json(['message' => 'No company found for this tenant'], 422);
+            }
+
+            // Resolve currency: prefer explicit ID, then code, then default UGX.
+            $currencyId = $request->currency_id
+                ?? \App\Models\Currency::where('code', $request->currency_code ?? 'UGX')->value('id')
+                ?? \App\Models\Currency::first()?->id;
+
+            // Resolve vendor: accept integer PK or string key.
+            $rawVendorId = $request->vendor_id;
+            $vendorId    = ctype_digit((string) $rawVendorId)
+                ? (int) $rawVendorId
+                : \App\Models\Purchases\Vendor::where('id', $rawVendorId)->value('id');
+            if (! $vendorId) {
+                DB::rollBack();
+                return response()->json(['message' => "Vendor '{$rawVendorId}' not found"], 422);
+            }
+
+            $bill = Bill::create([
+                'company_id'           => $companyId,
+                'vendor_id'            => $vendorId,
+                'date'                 => $request->date,
+                'due_date'             => $request->due_date,
+                'reference'            => $request->reference,
+                'notes'                => $request->notes,
+                'currency_id'          => $currencyId,
+                'exchange_rate'        => $request->exchange_rate ?? 1,
+                'vendor_invoice_number'=> $request->vendor_invoice_number,
+            ]);
 
             foreach ($request->lines as $lineData) {
-                $bill->lines()->create($lineData);
+                // Resolve account: integer PK or "acct-NNN" / "NNN" code string.
+                $rawAcctId = $lineData['account_id'];
+                $code      = str_starts_with((string) $rawAcctId, 'acct-')
+                    ? substr($rawAcctId, 5)
+                    : (string) $rawAcctId;
+                $account   = ctype_digit($code)
+                    ? (Account::find((int) $code) ?? Account::where('code', $code)->firstOrFail())
+                    : Account::where('code', $code)->firstOrFail();
+
+                // If the client sends amount directly (no qty/price), use qty=1,
+                // unit_price=amount so BillLine::calculateTotals() works correctly.
+                $amount    = (float) ($lineData['amount']
+                    ?? (($lineData['unit_price'] ?? 0) * ($lineData['quantity'] ?? 1)));
+                $quantity  = (float) ($lineData['quantity'] ?? 1);
+                $unitPrice = $quantity > 0
+                    ? (float) ($lineData['unit_price'] ?? ($amount / $quantity))
+                    : 0.0;
+
+                $bill->lines()->create([
+                    'account_id'   => $account->id,
+                    'description'  => $lineData['description'] ?? $account->name ?? '',
+                    'quantity'     => $quantity,
+                    'unit_price'   => $unitPrice,
+                    'tax_rate'     => $lineData['tax_rate'] ?? 0,
+                    'order'        => $lineData['order'] ?? 0,
+                ]);
             }
 
             $bill->calculateTotals();
