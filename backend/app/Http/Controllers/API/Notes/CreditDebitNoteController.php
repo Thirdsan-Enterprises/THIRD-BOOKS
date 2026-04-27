@@ -45,8 +45,12 @@ class CreditDebitNoteController extends Controller
             'currency_code'      => 'nullable|string|size:3',
         ]);
 
+        $companyId = $request->input('company_id')
+            ?? \App\Models\Company::first()?->id;
+
         $note = CreditNote::create([
             ...$validated,
+            'company_id'         => $companyId,
             'credit_note_number' => $this->nextCreditNoteNumber(),
             'status'             => 'draft',
             'currency_code'      => $validated['currency_code'] ?? 'UGX',
@@ -116,8 +120,12 @@ class CreditDebitNoteController extends Controller
             'currency_code' => 'nullable|string|size:3',
         ]);
 
+        $companyId = $request->input('company_id')
+            ?? \App\Models\Company::first()?->id;
+
         $note = DebitNote::create([
             ...$validated,
+            'company_id'        => $companyId,
             'debit_note_number' => $this->nextDebitNoteNumber(),
             'status'            => 'draft',
             'currency_code'     => $validated['currency_code'] ?? 'UGX',

@@ -49,11 +49,13 @@ class CustomerController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'company_id'         => 'required|exists:companies,id',
+            // company_id / currency_id are optional: desktop clients don't send them.
+            'company_id'         => 'nullable|exists:companies,id',
             'name'               => 'required|string|max:255',
             'email'              => 'nullable|email',
             'phone'              => 'nullable|string|max:20',
-            'currency_id'        => 'required|exists:currencies,id',
+            'currency_id'        => 'nullable|exists:currencies,id',
+            'currency_code'      => 'nullable|string|size:3',
             'credit_limit'       => 'nullable|numeric|min:0',
             'payment_terms_days' => 'nullable|integer|min:0',
         ]);
@@ -62,7 +64,15 @@ class CustomerController extends Controller
             return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
-        $customer = Customer::create($request->all());
+        $companyId  = $request->company_id ?? \App\Models\Company::first()?->id;
+        $currencyId = $request->currency_id
+            ?? \App\Models\Currency::where('code', $request->currency_code ?? 'UGX')->value('id')
+            ?? \App\Models\Currency::first()?->id;
+
+        $customer = Customer::create(array_merge(
+            $request->except(['company_id', 'currency_id', 'currency_code']),
+            ['company_id' => $companyId, 'currency_id' => $currencyId]
+        ));
         $this->emitEvent('customer.created', $customer->id, $customer->toArray());
 
         return response()->json(['message' => 'Customer created successfully', 'customer' => $customer], 201);

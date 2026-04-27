@@ -48,17 +48,27 @@ class VendorController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'company_id'  => 'required|exists:companies,id',
-            'name'        => 'required|string|max:255',
-            'email'       => 'nullable|email',
-            'currency_id' => 'required|exists:currencies,id',
+            // company_id / currency_id are optional: desktop clients don't send them.
+            'company_id'    => 'nullable|exists:companies,id',
+            'name'          => 'required|string|max:255',
+            'email'         => 'nullable|email',
+            'currency_id'   => 'nullable|exists:currencies,id',
+            'currency_code' => 'nullable|string|size:3',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
-        $vendor = Vendor::create($request->all());
+        $companyId  = $request->company_id ?? \App\Models\Company::first()?->id;
+        $currencyId = $request->currency_id
+            ?? \App\Models\Currency::where('code', $request->currency_code ?? 'UGX')->value('id')
+            ?? \App\Models\Currency::first()?->id;
+
+        $vendor = Vendor::create(array_merge(
+            $request->except(['company_id', 'currency_id', 'currency_code']),
+            ['company_id' => $companyId, 'currency_id' => $currencyId]
+        ));
         $this->emitEvent('vendor.created', $vendor->id, $vendor->toArray());
 
         return response()->json(['message' => 'Vendor created successfully', 'vendor' => $vendor], 201);
