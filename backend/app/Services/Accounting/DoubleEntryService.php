@@ -93,7 +93,7 @@ class DoubleEntryService
     public function addLines(JournalEntry $journalEntry, array $lines): void
     {
         foreach ($lines as $index => $lineData) {
-            $account = Account::findOrFail($lineData['account_id']);
+            $account = $this->resolveAccount($lineData['account_id']);
             $currency = $account->currency;
 
             JournalLine::create([
@@ -505,5 +505,37 @@ class DoubleEntryService
             ->where('code', '1160') // Standard tax receivable account
             ->where('is_system', true)
             ->firstOrFail();
+    }
+
+    /**
+     * Resolve an Account from either an integer primary-key ID or a desktop
+     * client string key (e.g. "acct-125" or just "125" meaning code="125").
+     * Desktop clients create journal lines with local string IDs before they
+     * have the server's integer IDs; we must not reject those pushes.
+     */
+    private function resolveAccount(mixed $rawId): Account
+    {
+        $raw = (string) $rawId;
+
+        // Strip the optional "acct-" prefix used by the desktop client.
+        $code = str_starts_with($raw, 'acct-') ? substr($raw, 5) : $raw;
+
+        // Try integer PK first (server-assigned ID).
+        if (ctype_digit($code)) {
+            $account = Account::find((int) $code);
+            if ($account) {
+                return $account;
+            }
+        }
+
+        // Fall back to matching by account code.
+        $account = Account::where('code', $code)->first();
+        if ($account) {
+            return $account;
+        }
+
+        throw new \Illuminate\Database\Eloquent\ModelNotFoundException(
+            "Account not found for identifier: {$raw}"
+        );
     }
 }

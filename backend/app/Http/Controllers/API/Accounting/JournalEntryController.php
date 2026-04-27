@@ -55,13 +55,17 @@ class JournalEntryController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'company_id'           => 'required|exists:companies,id',
+            // company_id is optional: desktop clients don't carry it (single-
+            // company tenants). When absent we resolve it from the tenant context.
+            'company_id'           => 'nullable|exists:companies,id',
             'date'                 => 'required|date',
             'reference'            => 'nullable|string|max:255',
             'description'          => 'nullable|string',
             'auto_post'            => 'boolean',
             'lines'                => 'required|array|min:2',
-            'lines.*.account_id'   => 'required|exists:accounts,id',
+            // account_id may be an integer PK or a local code like "acct-125".
+            // Accept any non-empty value and resolve the real account in the loop.
+            'lines.*.account_id'   => 'required',
             'lines.*.debit'        => 'nullable|numeric|min:0',
             'lines.*.credit'       => 'nullable|numeric|min:0',
             'lines.*.description'  => 'nullable|string',
@@ -89,7 +93,13 @@ class JournalEntryController extends Controller
         }
 
         try {
-            $company      = Company::findOrFail($request->company_id);
+            // Resolve company: use the provided ID or fall back to the tenant's
+            // only company (single-company tenants from the desktop client).
+            $companyId = $request->company_id ?? Company::first()?->id;
+            if (! $companyId) {
+                return response()->json(['message' => 'No company found for this tenant'], 422);
+            }
+            $company = Company::findOrFail($companyId);
             $journalEntry = $this->doubleEntryService->createJournalEntry(
                 $company, $request->all(), $request->user(), $request->boolean('auto_post', false)
             );

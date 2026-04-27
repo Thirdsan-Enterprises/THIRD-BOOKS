@@ -108,7 +108,7 @@ class JournalEntry extends Model
         $totalDebits = $this->lines()->sum('debit');
         $totalCredits = $this->lines()->sum('credit');
 
-        return bccomp($totalDebits, $totalCredits, 4) === 0;
+        return round($totalDebits, 4) == round($totalCredits, 4);
     }
 
     public function getTotalDebits(): float

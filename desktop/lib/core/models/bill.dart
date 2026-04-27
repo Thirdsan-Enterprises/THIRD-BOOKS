@@ -159,6 +159,8 @@ class BillLine {
   final String accountId;
   final String? accountName;
   final String description;
+  final double quantity;
+  final double unitPrice;
   final double amount;
   final double taxRate;
   final double taxAmount;
@@ -169,6 +171,8 @@ class BillLine {
     required this.accountId,
     this.accountName,
     required this.description,
+    this.quantity = 1.0,
+    this.unitPrice = 0.0,
     this.amount = 0.0,
     this.taxRate = 0.0,
     this.taxAmount = 0.0,
@@ -176,13 +180,16 @@ class BillLine {
 
   factory BillLine.fromJson(Map<String, dynamic> json) {
     final account = json['account'] as Map<String, dynamic>?;
+    final amount = (json['amount'] as num?)?.toDouble() ?? 0.0;
     return BillLine(
       id: (json['id'] ?? '').toString(),
       billId: (json['bill_id'] ?? '').toString(),
       accountId: (json['account_id'] ?? '').toString(),
       accountName: json['account_name'] as String? ?? account?['name'] as String?,
-      description: json['description'] as String,
-      amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+      description: json['description'] as String? ?? '',
+      quantity: (json['quantity'] as num?)?.toDouble() ?? 1.0,
+      unitPrice: (json['unit_price'] as num?)?.toDouble() ?? amount,
+      amount: amount,
       taxRate: (json['tax_rate'] as num?)?.toDouble() ?? 0.0,
       taxAmount: (json['tax_amount'] as num?)?.toDouble() ?? 0.0,
     );
@@ -195,6 +202,8 @@ class BillLine {
       'account_id': accountId,
       'account_name': accountName,
       'description': description,
+      'quantity': quantity,
+      'unit_price': unitPrice,
       'amount': amount,
       'tax_rate': taxRate,
       'tax_amount': taxAmount,
