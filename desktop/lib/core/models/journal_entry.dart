@@ -138,10 +138,16 @@ class JournalLine {
       accountId: (json['account_id'] ?? '').toString(),
       accountName: json['account_name'] as String? ?? account?['name'] as String?,
       accountCode: json['account_code'] as String? ?? account?['code'] as String?,
-      debit: (json['debit'] as num?)?.toDouble() ?? 0.0,
-      credit: (json['credit'] as num?)?.toDouble() ?? 0.0,
+      debit: _parseAmount(json['debit']),
+      credit: _parseAmount(json['credit']),
       description: json['description'] as String?,
     );
+  }
+
+  static double _parseAmount(dynamic v) {
+    if (v == null) return 0.0;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString()) ?? 0.0;
   }
 
   Map<String, dynamic> toJson() {
