@@ -505,15 +505,25 @@ class EventSourceService
 
     protected function materializeInvoice(string $action, string $id, array $data): void
     {
+        // $id is the event's aggregate_id — an integer PK when the event was
+        // fired by the server observer, or a client UUID when pushed via /api/sync.
+        $isUuid = ! ctype_digit($id);
+
         if ($action === 'deleted') {
-            Invoice::where('id', $id)->delete();
+            if ($isUuid) {
+                Invoice::where('client_uuid', $id)->delete();
+            } else {
+                Invoice::where('id', $id)->delete();
+            }
             return;
         }
 
         $companyId = $data['company_id'] ?? $this->resolveDefaultCompanyId();
         if (!$companyId || empty($data['customer_id'])) return;
 
-        $invoice = Invoice::updateOrCreate(['id' => $id], array_filter([
+        $matchKey = $isUuid ? ['client_uuid' => $id] : ['id' => $id];
+
+        $invoice = Invoice::updateOrCreate($matchKey, array_filter([
             'company_id'     => $companyId,
             'customer_id'    => $data['customer_id'],
             'invoice_number' => $data['invoice_number'] ?? null,
@@ -594,8 +604,16 @@ class EventSourceService
 
     protected function materializeJournalEntry(string $action, string $id, array $data): void
     {
+        // $id may be an integer PK (server-observer event) or a client UUID
+        // (desktop-pushed event via /api/sync).
+        $isUuid = ! ctype_digit($id);
+
         if ($action === 'deleted') {
-            JournalEntry::where('id', $id)->delete();
+            if ($isUuid) {
+                JournalEntry::where('client_uuid', $id)->delete();
+            } else {
+                JournalEntry::where('id', $id)->delete();
+            }
             return;
         }
 
@@ -619,7 +637,8 @@ class EventSourceService
             'created_by'   => $data['created_by'] ?? (($action === 'created') ? Auth::id() : null),
         ], fn($v) => $v !== null);
 
-        $entry = JournalEntry::updateOrCreate(['id' => $id], $fields);
+        $matchKey = $isUuid ? ['client_uuid' => $id] : ['id' => $id];
+        $entry = JournalEntry::updateOrCreate($matchKey, $fields);
 
         if (!empty($data['lines'])) {
             // Wrap delete + recreate in a savepoint so that if any line fails
