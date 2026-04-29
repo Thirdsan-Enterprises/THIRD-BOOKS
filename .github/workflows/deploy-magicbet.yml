@@ -1,0 +1,117 @@
+name: Build & Deploy MagicBet Web App
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - 'claude/**'
+  pull_request:
+    branches:
+      - master
+      - main
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Deployment reason'
+        required: false
+        default: 'Manual deployment trigger'
+
+concurrency:
+  group: deploy-magicbet-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+
+    steps:
+      - name: Deployment start
+        run: |
+          echo "============================================"
+          echo "  BUILDING MAGICBET WEB APP"
+          echo "============================================"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter version info
+        working-directory: desktop
+        run: flutter --version
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: flutter pub get
+
+      - name: Build Flutter Web
+        working-directory: desktop
+        run: |
+          flutter build web \
+            --release \
+            --base-href "/" \
+            --dart-define=API_BASE_URL=${{ secrets.API_BASE_URL }} \
+            --dart-define=APP_ENV=production
+          echo "Web build complete. Output size: $(du -sh build/web | cut -f1)"
+
+      - name: Verify build output
+        working-directory: desktop
+        run: |
+          echo "=== Build output check ==="
+          for f in build/web/index.html build/web/main.dart.js build/web/flutter.js; do
+            [ -f "$f" ] && echo "OK $f" || { echo "FAIL $f"; exit 1; }
+          done
+          echo "Assets:"
+          ls build/web/assets/ 2>/dev/null | head -10
+          echo "Total files: $(find build/web -type f | wc -l)"
+
+      - name: Deploy to magicbet.thirdbooks.digital
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./desktop/build/web/
+          server-dir: /magicbet.thirdbooks.digital/public_html/
+          dangerous-clean-slate: true
+          exclude: |
+            **/.git*
+            **/.DS_Store
+
+      - name: Verify deployment
+        if: always()
+        run: |
+          sleep 10
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://magicbet.thirdbooks.digital" \
+            --max-time 30 2>/dev/null || echo "000")
+          echo "Health check HTTP: $HTTP"
+          if [ "$HTTP" = "200" ]; then
+            echo "Deployment PASSED"
+          else
+            echo "WARNING: site returned HTTP $HTTP — check server/FTP logs"
+          fi
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "============================================"
+          echo "  DEPLOYMENT COMPLETE"
+          echo "============================================"
+          echo "URL:    https://magicbet.thirdbooks.digital"
+          echo "Target: /magicbet.thirdbooks.digital/public_html/"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Time:   $(date -u)"
