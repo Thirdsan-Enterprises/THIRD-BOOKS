@@ -2,7 +2,20 @@
 // The app talks directly to the API; there is no local queue or offline sync.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../services/local_storage_service.dart' show SyncEntityType, SyncAction;
+
+enum SyncAction { create, update, delete }
+
+enum SyncEntityType {
+  account,
+  customer,
+  vendor,
+  invoice,
+  bill,
+  journalEntry,
+  payment,
+  creditNote,
+  debitNote,
+}
 
 // ---------------------------------------------------------------------------
 // SyncState — all fields are neutral defaults (no syncing, nothing pending)

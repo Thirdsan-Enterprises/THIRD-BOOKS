@@ -1963,6 +1963,8 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
 
     return fields;
   }
+}
+
 final csvImportProvider = StateNotifierProvider<CsvImportNotifier, CsvImportState>((ref) {
   return CsvImportNotifier(ref);
 });
