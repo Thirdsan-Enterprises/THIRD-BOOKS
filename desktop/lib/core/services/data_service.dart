@@ -2206,3 +2206,16 @@ class _MonthAccum {
     netRevenue += w.netRevenue;
   }
 }
+
+// ============================================================================
+// Connectivity — always online (web app)
+// ============================================================================
+
+class ConnectivityState {
+  final bool isOnline;
+  const ConnectivityState({this.isOnline = true});
+}
+
+final connectivityProvider = Provider<ConnectivityState>((ref) {
+  return const ConnectivityState(isOnline: true);
+});

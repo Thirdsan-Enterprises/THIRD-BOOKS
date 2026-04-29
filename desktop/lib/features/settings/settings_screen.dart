@@ -11,6 +11,7 @@ import '../../core/services/sync_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/local_storage_service.dart';
 import '../../core/services/local_backup_service.dart';
+import '../../core/services/data_service.dart' show connectivityProvider, ConnectivityState;
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -1810,7 +1811,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 const Text('Backup Created'),
                               ]),
                               content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Text('Saved to:\n${result.filePath}', style: const TextStyle(fontSize: 13)),
+                                Text('Downloaded as:\n${result.fileName}', style: const TextStyle(fontSize: 13)),
                                 const SizedBox(height: 12),
                                 const Divider(),
                                 const SizedBox(height: 8),
@@ -1844,17 +1845,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     const SizedBox(width: 12),
                     OutlinedButton.icon(
                       onPressed: () async {
-                        // Pick once, preview, confirm, then restore from same path
+                        // Pick backup file and get bytes (web-compatible)
                         final picked = await FilePicker.platform.pickFiles(
                           dialogTitle: 'Select ThirdBooks Backup',
                           type: FileType.any,
+                          withData: true,
                         );
-                        if (picked == null || picked.files.single.path == null) return;
-                        final filePath = picked.files.single.path!;
+                        if (picked == null || picked.files.single.bytes == null) return;
+                        final fileBytes = picked.files.single.bytes!;
 
                         final backup = LocalBackupService(LocalStorageService.instance);
                         try {
-                          final preview = await backup.previewRestoreFromPath(filePath);
+                          final preview = await backup.previewRestoreFromBytes(fileBytes);
                           if (!mounted) return;
                           if (preview.error != null) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -1893,7 +1895,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           );
 
                           if (confirm != true || !mounted) return;
-                          final result = await backup.restoreFromFile(filePath);
+                          final result = await backup.restoreFromBytes(fileBytes);
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                               content: Text('Restored ${result.totalRecords} records successfully'),
