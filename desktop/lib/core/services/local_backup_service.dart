@@ -2,6 +2,7 @@
 // Exports all cached data to a downloadable JSON file via the browser.
 
 import 'dart:convert';
+import 'dart:typed_data';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
 
@@ -28,6 +29,16 @@ class BackupResult {
     required this.counts,
     required this.exportedAt,
   });
+
+  int get totalRecords => counts.values.fold(0, (s, c) => s + c);
+}
+
+class BackupPreview {
+  final String? error;
+  final String exportedAt;
+  final Map<String, int> counts;
+
+  BackupPreview({this.error, required this.exportedAt, required this.counts});
 
   int get totalRecords => counts.values.fold(0, (s, c) => s + c);
 }
@@ -103,5 +114,63 @@ class LocalBackupService {
     html.Url.revokeObjectUrl(url);
 
     return BackupResult(fileName: fileName, counts: counts, exportedAt: now);
+  }
+
+  /// Parse backup bytes and return a preview without writing anything.
+  Future<BackupPreview> previewRestoreFromBytes(Uint8List bytes) async {
+    try {
+      final json = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+      if (json['app'] != _appTag) {
+        return BackupPreview(
+          error: 'Not a valid ThirdBooks backup file.',
+          exportedAt: '',
+          counts: {},
+        );
+      }
+      final counts = (json['counts'] as Map<String, dynamic>)
+          .map((k, v) => MapEntry(k, (v as num).toInt()));
+      return BackupPreview(
+        exportedAt: json['exported_at'] as String? ?? '',
+        counts: counts,
+      );
+    } catch (e) {
+      return BackupPreview(
+        error: 'Could not read backup file: $e',
+        exportedAt: '',
+        counts: {},
+      );
+    }
+  }
+
+  /// Restore all data from backup bytes, overwriting local cache.
+  Future<BackupResult> restoreFromBytes(Uint8List bytes) async {
+    final json = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+    final data = json['data'] as Map<String, dynamic>;
+    final counts = (json['counts'] as Map<String, dynamic>)
+        .map((k, v) => MapEntry(k, (v as num).toInt()));
+
+    Future<void> saveList<T>(
+      String key,
+      T Function(Map<String, dynamic>) fromJson,
+      Future<void> Function(List<T>) saver,
+    ) async {
+      final raw = (data[key] as List? ?? []).cast<Map<String, dynamic>>();
+      await saver(raw.map(fromJson).toList());
+    }
+
+    await saveList('accounts',    Account.fromJson,       _ls.saveAccounts);
+    await saveList('customers',   Customer.fromJson,      _ls.saveCustomers);
+    await saveList('vendors',     Vendor.fromJson,        _ls.saveVendors);
+    await saveList('invoices',    Invoice.fromJson,       _ls.saveInvoices);
+    await saveList('bills',       Bill.fromJson,          _ls.saveBills);
+    await saveList('journals',    JournalEntry.fromJson,  _ls.saveJournalEntries);
+    await saveList('payments',    Payment.fromJson,       _ls.savePayments);
+
+    final now = DateTime.now();
+    return BackupResult(
+      fileName: json['exported_at'] as String? ?? now.toIso8601String(),
+      counts: counts,
+      exportedAt: now,
+    );
   }
 }

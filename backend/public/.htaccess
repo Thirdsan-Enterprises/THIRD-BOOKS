@@ -33,11 +33,14 @@
 </IfModule>
 
 # CORS Headers for API
+# Allow both the landing page and the MagicBet web app origins
 <IfModule mod_headers.c>
-    Header always set Access-Control-Allow-Origin "https://thirdbooks.digital"
-    Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
-    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, X-XSRF-TOKEN"
+    SetEnvIf Origin "^https://(thirdbooks\.digital|magicbet\.thirdbooks\.digital)$" CORS_ORIGIN=$0
+    Header always set Access-Control-Allow-Origin "%{CORS_ORIGIN}e" env=CORS_ORIGIN
+    Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, X-Tenant-ID, Accept"
     Header always set Access-Control-Allow-Credentials "true"
+    Header always set Access-Control-Max-Age "86400"
 </IfModule>
 
 # Disable directory listing
