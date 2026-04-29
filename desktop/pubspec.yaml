@@ -1,7 +1,7 @@
 name: thirdbooks
-description: ThirdBooks - Professional Accounting Software for MSMEs
+description: MagicBet Accounting — Always-Online Web App
 publish_to: 'none'
-version: 1.0.2+3
+version: 2.0.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -22,13 +22,10 @@ dependencies:
   retrofit: ^4.0.0
   pretty_dio_logger: ^1.3.1
 
-  # Local Database (Offline-First)
-  drift: ^2.14.0
-  sqlite3_flutter_libs: ^0.5.0
-  path_provider: ^2.1.1
-  path: ^1.8.3
+  # Web-compatible Persistent Storage (replaces local file I/O)
+  shared_preferences: ^2.2.0
 
-  # Secure Storage
+  # Secure Storage (has web support via localStorage)
   flutter_secure_storage: ^9.0.0
 
   # UI Components
@@ -41,8 +38,7 @@ dependencies:
   fl_chart: ^0.66.0
   syncfusion_flutter_charts: ^24.1.41
 
-  # Data Tables - using Flutter's built-in DataTable for compatibility
-  # data_table_2 removed due to Flutter 3.19 compatibility issues
+  # Data Tables
   pluto_grid: ^7.0.0
 
   # PDF Generation & Printing
@@ -62,12 +58,12 @@ dependencies:
   uuid: ^4.3.3
   collection: ^1.18.0
 
-  # Window Management (Desktop)
-  window_manager: ^0.3.0
-
-  # File Picker & CSV
+  # File Picker & CSV (web-compatible)
   file_picker: ^6.1.0
   csv: ^6.0.0
+
+  # HTTP client (used for fetching attachment bytes for print/preview)
+  http: ^1.2.0
 
   # Authentication
   jwt_decoder: ^2.0.1
@@ -83,7 +79,6 @@ dev_dependencies:
   json_serializable: ^6.7.1
   freezed: ^2.4.6
   retrofit_generator: ^8.0.0
-  drift_dev: ^2.14.0
 
   # Linting
   flutter_lints: ^3.0.1

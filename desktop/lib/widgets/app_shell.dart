@@ -1,12 +1,9 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:window_manager/window_manager.dart';
 
 import '../core/theme/app_theme.dart';
 import '../core/services/auth_service.dart';
-import '../core/widgets/sync_status_indicator.dart';
 
 class AppShell extends ConsumerStatefulWidget {
   final Widget child;
@@ -28,9 +25,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     return Scaffold(
       body: Column(
         children: [
-          // Custom title bar for desktop
-          if (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
-            _buildTitleBar(context),
+          // Top navigation bar
+          _buildTopBar(context),
 
           // Main content
           Expanded(
@@ -54,58 +50,57 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
   }
 
-  Widget _buildTitleBar(BuildContext context) {
-    return GestureDetector(
-      onPanStart: (_) => windowManager.startDragging(),
-      child: Container(
-        height: 40,
-        color: AppColors.sidebarBackground,
-        child: Row(
-          children: [
-            const SizedBox(width: 16),
-            Image.asset(
-              'assets/images/logo_white.png',
-              height: 20,
-              errorBuilder: (_, __, ___) => const Icon(
-                Icons.account_balance,
-                color: AppColors.secondary,
-                size: 20,
-              ),
+  Widget _buildTopBar(BuildContext context) {
+    return Container(
+      height: 48,
+      color: AppColors.sidebarBackground,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Image.asset(
+            'assets/images/logo_white.png',
+            height: 22,
+            errorBuilder: (_, __, ___) => const Icon(
+              Icons.account_balance,
+              color: AppColors.secondary,
+              size: 22,
             ),
-            const SizedBox(width: 8),
-            const Text(
-              'MagicBet Accounting',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
-              ),
+          ),
+          const SizedBox(width: 10),
+          const Text(
+            'MagicBet Accounting',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+              letterSpacing: 0.3,
             ),
-            const SizedBox(width: 24),
-            const SyncStatusIndicator(),
-            const Spacer(),
-            // Window controls
-            _WindowButton(
-              icon: Icons.remove,
-              onPressed: () => windowManager.minimize(),
+          ),
+          const Spacer(),
+          // Connection status — always online
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.income.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(6),
             ),
-            _WindowButton(
-              icon: Icons.crop_square,
-              onPressed: () async {
-                if (await windowManager.isMaximized()) {
-                  windowManager.unmaximize();
-                } else {
-                  windowManager.maximize();
-                }
-              },
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.cloud_done, size: 14, color: AppColors.income),
+                const SizedBox(width: 6),
+                Text(
+                  'Live',
+                  style: TextStyle(
+                    color: AppColors.income,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
-            _WindowButton(
-              icon: Icons.close,
-              onPressed: () => windowManager.close(),
-              isClose: true,
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -319,24 +314,23 @@ class _AppShellState extends ConsumerState<AppShell> {
           // Bottom section
           const Divider(color: AppColors.sidebarItemHover, height: 1),
 
-          // Settings
           _buildNavItem(
             context,
             icon: Icons.settings_outlined,
             activeIcon: Icons.settings,
             label: 'Settings',
             path: '/settings',
-            isActive: currentPath == '/settings',
+            isActive: GoRouterState.of(context).uri.path == '/settings',
           ),
 
-          // Logout button
           _buildLogoutButton(context),
 
-          // Collapse button and copyright
           Padding(
             padding: const EdgeInsets.all(8),
             child: Row(
-              mainAxisAlignment: _isCollapsed ? MainAxisAlignment.center : MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: _isCollapsed
+                  ? MainAxisAlignment.center
+                  : MainAxisAlignment.spaceBetween,
               children: [
                 if (!_isCollapsed)
                   Padding(
@@ -410,7 +404,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      user?.name ?? 'Guest User',
+                      user?.name ?? 'User',
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
@@ -420,7 +414,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      user?.email ?? 'Offline Mode',
+                      user?.email ?? '',
                       style: TextStyle(
                         color: AppColors.sidebarTextMuted,
                         fontSize: 12,
@@ -433,7 +427,6 @@ class _AppShellState extends ConsumerState<AppShell> {
             ],
           ),
           const SizedBox(height: 12),
-          // Role badge
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
@@ -443,14 +436,10 @@ class _AppShellState extends ConsumerState<AppShell> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.verified_user,
-                  size: 14,
-                  color: AppColors.secondary,
-                ),
+                Icon(Icons.verified_user, size: 14, color: AppColors.secondary),
                 const SizedBox(width: 6),
                 Text(
-                  user?.role.replaceAll('_', ' ').toUpperCase() ?? 'GUEST',
+                  user?.role.replaceAll('_', ' ').toUpperCase() ?? 'USER',
                   style: TextStyle(
                     color: AppColors.secondary,
                     fontSize: 11,
@@ -478,17 +467,15 @@ class _AppShellState extends ConsumerState<AppShell> {
           hoverColor: Colors.red.withOpacity(0.15),
           child: Container(
             padding: EdgeInsets.symmetric(
-              horizontal: _isCollapsed ? 12 : 12,
+              horizontal: 12,
               vertical: 12,
             ),
             child: Row(
-              mainAxisAlignment: _isCollapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
+              mainAxisAlignment: _isCollapsed
+                  ? MainAxisAlignment.center
+                  : MainAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.logout,
-                  color: Colors.red.shade300,
-                  size: 20,
-                ),
+                Icon(Icons.logout, color: Colors.red.shade300, size: 20),
                 if (!_isCollapsed) ...[
                   const SizedBox(width: 12),
                   Text(
@@ -513,7 +500,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Sign Out'),
-        content: const Text('Are you sure you want to sign out? Any unsaved changes will be lost.'),
+        content: const Text('Are you sure you want to sign out?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -522,27 +509,18 @@ class _AppShellState extends ConsumerState<AppShell> {
           FilledButton(
             onPressed: () async {
               Navigator.pop(ctx);
-
-              // Show loading indicator
               showDialog(
                 context: context,
                 barrierDismissible: false,
-                builder: (ctx) => const Center(
-                  child: CircularProgressIndicator(),
-                ),
+                builder: (ctx) => const Center(child: CircularProgressIndicator()),
               );
-
-              // Perform logout
               await ref.read(authStateProvider.notifier).logout();
-
               if (mounted) {
-                Navigator.pop(context); // Close loading dialog
+                Navigator.pop(context);
                 context.go('/login');
               }
             },
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('Sign Out'),
           ),
         ],
@@ -585,12 +563,11 @@ class _AppShellState extends ConsumerState<AppShell> {
           borderRadius: BorderRadius.circular(8),
           hoverColor: AppColors.sidebarItemHover,
           child: Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: _isCollapsed ? 12 : 12,
-              vertical: 12,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             decoration: BoxDecoration(
-              color: isActive ? AppColors.sidebarItemActive.withOpacity(0.15) : null,
+              color: isActive
+                  ? AppColors.sidebarItemActive.withOpacity(0.15)
+                  : null,
               borderRadius: BorderRadius.circular(8),
               border: isActive
                   ? Border(
@@ -602,11 +579,15 @@ class _AppShellState extends ConsumerState<AppShell> {
                   : null,
             ),
             child: Row(
-              mainAxisAlignment: _isCollapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
+              mainAxisAlignment: _isCollapsed
+                  ? MainAxisAlignment.center
+                  : MainAxisAlignment.start,
               children: [
                 Icon(
                   isActive ? activeIcon : icon,
-                  color: isActive ? AppColors.sidebarItemActive : AppColors.sidebarText,
+                  color: isActive
+                      ? AppColors.sidebarItemActive
+                      : AppColors.sidebarText,
                   size: 20,
                 ),
                 if (!_isCollapsed) ...[
@@ -615,8 +596,11 @@ class _AppShellState extends ConsumerState<AppShell> {
                     child: Text(
                       label,
                       style: TextStyle(
-                        color: isActive ? AppColors.sidebarItemActive : AppColors.sidebarText,
-                        fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+                        color: isActive
+                            ? AppColors.sidebarItemActive
+                            : AppColors.sidebarText,
+                        fontWeight:
+                            isActive ? FontWeight.w600 : FontWeight.w400,
                         fontSize: 14,
                       ),
                       overflow: TextOverflow.ellipsis,
@@ -625,38 +609,6 @@ class _AppShellState extends ConsumerState<AppShell> {
                 ],
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _WindowButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onPressed;
-  final bool isClose;
-
-  const _WindowButton({
-    required this.icon,
-    required this.onPressed,
-    this.isClose = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 46,
-      height: 40,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onPressed,
-          hoverColor: isClose ? Colors.red : Colors.white.withOpacity(0.1),
-          child: Icon(
-            icon,
-            color: Colors.white,
-            size: 16,
           ),
         ),
       ),

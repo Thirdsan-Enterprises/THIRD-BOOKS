@@ -2,7 +2,9 @@
 // Manages vendor/supplier accounts and payables
 // © 2026 ThirdBooks. All rights reserved.
 
-import 'dart:io';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -1043,34 +1045,31 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
       return;
     }
 
-    final result = await FilePicker.platform.saveFile(
-      dialogTitle: 'Export Vendors',
-      fileName: 'vendors_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
-      type: FileType.custom,
-      allowedExtensions: ['csv'],
-    );
+    final buffer = StringBuffer();
+    buffer.writeln('ID,Name,Email,Phone,Address,Tax ID,Payment Terms,Balance,Status,Created');
 
-    if (result != null) {
-      final buffer = StringBuffer();
-      buffer.writeln('ID,Name,Email,Phone,Address,Tax ID,Payment Terms,Balance,Status,Created');
+    for (final vendor in vendorsState.vendors) {
+      buffer.writeln(
+        '"${vendor.id}","${vendor.name}","${vendor.email}","${vendor.phone}",'
+        '"${vendor.address}","${vendor.taxId ?? ''}","${vendor.paymentTerms ?? ''}",'
+        '${vendor.balance},"${vendor.isActive ? 'Active' : 'Inactive'}",'
+        '"${DateFormat('yyyy-MM-dd').format(vendor.createdAt)}"'
+      );
+    }
 
-      for (final vendor in vendorsState.vendors) {
-        buffer.writeln(
-          '"${vendor.id}","${vendor.name}","${vendor.email}","${vendor.phone}",'
-          '"${vendor.address}","${vendor.taxId ?? ''}","${vendor.paymentTerms ?? ''}",'
-          '${vendor.balance},"${vendor.isActive ? 'Active' : 'Inactive'}",'
-          '"${DateFormat('yyyy-MM-dd').format(vendor.createdAt)}"'
-        );
-      }
+    final bytes = const Utf8Encoder().convert(buffer.toString());
+    final blob = html.Blob([bytes], 'text/csv');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final fileName = 'vendors_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv';
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', fileName)
+      ..click();
+    html.Url.revokeObjectUrl(url);
 
-      final file = File(result);
-      await file.writeAsString(buffer.toString());
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Exported ${vendorsState.vendors.length} vendors to $result')),
-        );
-      }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Exported ${vendorsState.vendors.length} vendors')),
+      );
     }
   }
 
@@ -1079,11 +1078,11 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
       dialogTitle: 'Import Vendors',
       type: FileType.custom,
       allowedExtensions: ['csv'],
+      withData: true,
     );
 
-    if (result != null && result.files.single.path != null) {
-      final file = File(result.files.single.path!);
-      final content = await file.readAsString();
+    if (result != null && result.files.single.bytes != null) {
+      final content = utf8.decode(result.files.single.bytes!);
       final lines = content.split('\n');
 
       if (lines.length < 2) {

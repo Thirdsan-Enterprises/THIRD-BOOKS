@@ -2,7 +2,9 @@
 // Manages customer accounts and receivables
 // © 2026 ThirdBooks. All rights reserved.
 
-import 'dart:io';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -1041,34 +1043,31 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
       return;
     }
 
-    final result = await FilePicker.platform.saveFile(
-      dialogTitle: 'Export Customers',
-      fileName: 'customers_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
-      type: FileType.custom,
-      allowedExtensions: ['csv'],
-    );
+    final buffer = StringBuffer();
+    buffer.writeln('ID,Name,Email,Phone,Address,Tax ID,Credit Limit,Balance,Status,Created');
 
-    if (result != null) {
-      final buffer = StringBuffer();
-      buffer.writeln('ID,Name,Email,Phone,Address,Tax ID,Credit Limit,Balance,Status,Created');
+    for (final customer in customersState.customers) {
+      buffer.writeln(
+        '"${customer.id}","${customer.name}","${customer.email}","${customer.phone}",'
+        '"${customer.address}","${customer.taxId ?? ''}",${customer.creditLimit},'
+        '${customer.balance},"${customer.isActive ? 'Active' : 'Inactive'}",'
+        '"${DateFormat('yyyy-MM-dd').format(customer.createdAt)}"'
+      );
+    }
 
-      for (final customer in customersState.customers) {
-        buffer.writeln(
-          '"${customer.id}","${customer.name}","${customer.email}","${customer.phone}",'
-          '"${customer.address}","${customer.taxId ?? ''}",${customer.creditLimit},'
-          '${customer.balance},"${customer.isActive ? 'Active' : 'Inactive'}",'
-          '"${DateFormat('yyyy-MM-dd').format(customer.createdAt)}"'
-        );
-      }
+    final bytes = const Utf8Encoder().convert(buffer.toString());
+    final blob = html.Blob([bytes], 'text/csv');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final fileName = 'customers_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv';
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', fileName)
+      ..click();
+    html.Url.revokeObjectUrl(url);
 
-      final file = File(result);
-      await file.writeAsString(buffer.toString());
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Exported ${customersState.customers.length} customers to $result')),
-        );
-      }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Exported ${customersState.customers.length} customers')),
+      );
     }
   }
 
@@ -1077,11 +1076,11 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
       dialogTitle: 'Import Customers',
       type: FileType.custom,
       allowedExtensions: ['csv'],
+      withData: true,
     );
 
-    if (result != null && result.files.single.path != null) {
-      final file = File(result.files.single.path!);
-      final content = await file.readAsString();
+    if (result != null && result.files.single.bytes != null) {
+      final content = utf8.decode(result.files.single.bytes!);
       final lines = content.split('\n');
 
       if (lines.length < 2) {

@@ -2,7 +2,9 @@
 // Track and manage vendor bills and expenses
 // © 2026 ThirdBooks. All rights reserved.
 
-import 'dart:io';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -1762,35 +1764,32 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
       return;
     }
 
-    final result = await FilePicker.platform.saveFile(
-      dialogTitle: 'Export Bills',
-      fileName: 'bills_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
-      type: FileType.custom,
-      allowedExtensions: ['csv'],
-    );
+    final buffer = StringBuffer();
+    buffer.writeln('Bill #,Vendor,Date,Due Date,Subtotal,Tax,Total,Amount Paid,Status');
 
-    if (result != null) {
-      final buffer = StringBuffer();
-      buffer.writeln('Bill #,Vendor,Date,Due Date,Subtotal,Tax,Total,Amount Paid,Status');
+    for (final bill in billsState.bills) {
+      buffer.writeln(
+        '"${bill.billNumber}","${bill.vendorName}",'
+        '"${DateFormat('yyyy-MM-dd').format(bill.date)}",'
+        '"${DateFormat('yyyy-MM-dd').format(bill.dueDate)}",'
+        '${bill.subtotal},${bill.taxAmount},${bill.total},'
+        '${bill.amountPaid},"${_getStatusString(bill.status)}"'
+      );
+    }
 
-      for (final bill in billsState.bills) {
-        buffer.writeln(
-          '"${bill.billNumber}","${bill.vendorName}",'
-          '"${DateFormat('yyyy-MM-dd').format(bill.date)}",'
-          '"${DateFormat('yyyy-MM-dd').format(bill.dueDate)}",'
-          '${bill.subtotal},${bill.taxAmount},${bill.total},'
-          '${bill.amountPaid},"${_getStatusString(bill.status)}"'
-        );
-      }
+    final bytes = const Utf8Encoder().convert(buffer.toString());
+    final blob = html.Blob([bytes], 'text/csv');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final fileName = 'bills_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv';
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', fileName)
+      ..click();
+    html.Url.revokeObjectUrl(url);
 
-      final file = File(result);
-      await file.writeAsString(buffer.toString());
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Exported ${billsState.bills.length} bills to $result')),
-        );
-      }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Exported ${billsState.bills.length} bills')),
+      );
     }
   }
 }

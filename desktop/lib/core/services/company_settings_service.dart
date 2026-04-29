@@ -1,8 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ---------------------------------------------------------------------------
 // Model
@@ -134,19 +133,15 @@ class CompanySettingsNotifier extends StateNotifier<CompanySettings> {
     _load();
   }
 
-  Future<File> _getFile() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final dataDir = Directory('${dir.path}/thirdbooks_data');
-    if (!await dataDir.exists()) await dataDir.create(recursive: true);
-    return File('${dataDir.path}/company_settings.json');
-  }
+  static const _prefKey = 'company_settings_json';
 
   Future<void> _load() async {
     try {
-      final file = await _getFile();
-      if (await file.exists()) {
-        final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-        state = CompanySettings.fromJson(json);
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefKey);
+      if (raw != null) {
+        state = CompanySettings.fromJson(
+            jsonDecode(raw) as Map<String, dynamic>);
       }
     } catch (e) {
       debugPrint('Error loading company settings: $e');
@@ -156,8 +151,8 @@ class CompanySettingsNotifier extends StateNotifier<CompanySettings> {
   Future<void> save(CompanySettings settings) async {
     try {
       state = settings;
-      final file = await _getFile();
-      await file.writeAsString(jsonEncode(settings.toJson()));
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefKey, jsonEncode(settings.toJson()));
     } catch (e) {
       debugPrint('Error saving company settings: $e');
     }

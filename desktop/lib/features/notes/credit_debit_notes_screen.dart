@@ -12,12 +12,9 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
-import '../../core/services/sync_service.dart';
 import '../../core/models/models.dart';
 import '../../core/widgets/attachment_widget.dart';
 import '../../core/providers/notes_providers.dart';
-import '../../core/services/local_storage_service.dart'
-    show SyncEntityType, SyncAction;
 
 // ---------------------------------------------------------------------------
 // Screen
@@ -633,20 +630,8 @@ class _CreditDebitNotesScreenState
 
                 if (isEdit) {
                   ref.read(creditNotesProvider.notifier).updateNote(cn);
-                  ref.read(syncServiceProvider.notifier).queueChange(
-                    action: SyncAction.update,
-                    entityType: SyncEntityType.creditNote,
-                    entityId: cn.id,
-                    data: cn.toJson(),
-                  );
                 } else {
                   ref.read(creditNotesProvider.notifier).addNote(cn);
-                  ref.read(syncServiceProvider.notifier).queueChange(
-                    action: SyncAction.create,
-                    entityType: SyncEntityType.creditNote,
-                    entityId: cn.id,
-                    data: cn.toJson(),
-                  );
                 }
                 // Apply to invoice and post GL journal entry when issuing
                 if (cn.status == NoteStatus.issued) {
@@ -940,20 +925,8 @@ class _CreditDebitNotesScreenState
 
                 if (isEdit) {
                   ref.read(debitNotesProvider.notifier).updateNote(dn);
-                  ref.read(syncServiceProvider.notifier).queueChange(
-                    action: SyncAction.update,
-                    entityType: SyncEntityType.debitNote,
-                    entityId: dn.id,
-                    data: dn.toJson(),
-                  );
                 } else {
                   ref.read(debitNotesProvider.notifier).addNote(dn);
-                  ref.read(syncServiceProvider.notifier).queueChange(
-                    action: SyncAction.create,
-                    entityType: SyncEntityType.debitNote,
-                    entityId: dn.id,
-                    data: dn.toJson(),
-                  );
                 }
                 // Apply to bill and post GL journal entry when issuing
                 if (dn.status == NoteStatus.issued) {
@@ -1000,11 +973,6 @@ class _CreditDebitNotesScreenState
             style: FilledButton.styleFrom(backgroundColor: AppColors.error),
             onPressed: () {
               ref.read(creditNotesProvider.notifier).deleteNote(note.id);
-              ref.read(syncServiceProvider.notifier).queueChange(
-                action: SyncAction.delete,
-                entityType: SyncEntityType.creditNote,
-                entityId: note.id,
-              );
               Navigator.pop(ctx);
             },
             child: const Text('Delete'),
@@ -1029,11 +997,6 @@ class _CreditDebitNotesScreenState
             style: FilledButton.styleFrom(backgroundColor: AppColors.error),
             onPressed: () {
               ref.read(debitNotesProvider.notifier).deleteNote(note.id);
-              ref.read(syncServiceProvider.notifier).queueChange(
-                action: SyncAction.delete,
-                entityType: SyncEntityType.debitNote,
-                entityId: note.id,
-              );
               Navigator.pop(ctx);
             },
             child: const Text('Delete'),

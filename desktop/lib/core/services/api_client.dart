@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -283,11 +282,19 @@ class ApiClient {
 
     for (int i = 0; i < files.length; i++) {
       final f = files[i];
-      if (f.path == null) continue;
-      formData.files.add(MapEntry(
-        'files[]',
-        await MultipartFile.fromFile(f.path!, filename: f.name),
-      ));
+      if (f.bytes != null) {
+        formData.files.add(MapEntry(
+          'files[]',
+          MultipartFile.fromBytes(f.bytes!, filename: f.name),
+        ));
+      } else if (f.path != null) {
+        formData.files.add(MapEntry(
+          'files[]',
+          MultipartFile.fromBytes([], filename: f.name),
+        ));
+      } else {
+        continue;
+      }
       final label = labels != null && i < labels.length ? labels[i] : null;
       if (label != null) {
         formData.fields.add(MapEntry('labels[$i]', label));
@@ -353,13 +360,7 @@ class ApiClient {
       if (closingBalance != null) MapEntry('closing_balance', closingBalance.toString()),
     ]);
 
-    if (csvFilePath != null) {
-      final file = File(csvFilePath);
-      formData.files.add(MapEntry(
-        'file',
-        await MultipartFile.fromFile(csvFilePath, filename: file.uri.pathSegments.last),
-      ));
-    }
+    // csvFilePath is ignored on web — pass rows as JSON instead
 
     try {
       final resp = await _dio.post(
