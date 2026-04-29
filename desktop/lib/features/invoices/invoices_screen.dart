@@ -1,8 +1,9 @@
-import 'dart:io';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -806,34 +807,30 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
       return;
     }
 
-    final result = await FilePicker.platform.saveFile(
-      dialogTitle: 'Export Invoices',
-      fileName: 'invoices_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
-      type: FileType.custom,
-      allowedExtensions: ['csv'],
-    );
+    final buffer = StringBuffer();
+    buffer.writeln('Invoice #,Customer,Date,Due Date,Subtotal,Tax,Total,Amount Paid,Status');
+    for (final invoice in invoicesState.invoices) {
+      buffer.writeln(
+        '"${invoice.invoiceNumber}","${invoice.customerName}",'
+        '"${DateFormat('yyyy-MM-dd').format(invoice.date)}",'
+        '"${DateFormat('yyyy-MM-dd').format(invoice.dueDate)}",'
+        '${invoice.subtotal},${invoice.taxAmount},${invoice.total},'
+        '${invoice.amountPaid},"${_getStatusString(invoice.status)}"',
+      );
+    }
 
-    if (result != null) {
-      final buffer = StringBuffer();
-      buffer.writeln('Invoice #,Customer,Date,Due Date,Subtotal,Tax,Total,Amount Paid,Status');
-      for (final invoice in invoicesState.invoices) {
-        buffer.writeln(
-          '"${invoice.invoiceNumber}","${invoice.customerName}",'
-          '"${DateFormat('yyyy-MM-dd').format(invoice.date)}",'
-          '"${DateFormat('yyyy-MM-dd').format(invoice.dueDate)}",'
-          '${invoice.subtotal},${invoice.taxAmount},${invoice.total},'
-          '${invoice.amountPaid},"${_getStatusString(invoice.status)}"',
-        );
-      }
+    final bytes = utf8.encode(buffer.toString());
+    final blob = html.Blob([bytes], 'text/csv');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', 'invoices_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv')
+      ..click();
+    html.Url.revokeObjectUrl(url);
 
-      final file = File(result);
-      await file.writeAsString(buffer.toString());
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Exported ${invoicesState.invoices.length} invoices to $result')),
-        );
-      }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Exported ${invoicesState.invoices.length} invoices')),
+      );
     }
   }
 }

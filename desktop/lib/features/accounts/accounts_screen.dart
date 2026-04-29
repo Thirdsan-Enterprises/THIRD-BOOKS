@@ -1,9 +1,10 @@
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'dart:convert';
-import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -556,25 +557,22 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
         csvData.writeln('${account.code},"${account.name}",${_getTypeName(account.type)},${account.subType?.name ?? ''},$normalDir,${debitBalance.toStringAsFixed(0)},${creditBalance.toStringAsFixed(0)}');
       }
 
-      final result = await FilePicker.platform.saveFile(
-        dialogTitle: 'Export Chart of Accounts',
-        fileName: 'chart_of_accounts_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
-        type: FileType.custom,
-        allowedExtensions: ['csv'],
-      );
+      final bytes = const Utf8Encoder().convert(csvData.toString());
+      final blob = html.Blob([bytes], 'text/csv');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final fileName = 'chart_of_accounts_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv';
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute('download', fileName)
+        ..click();
+      html.Url.revokeObjectUrl(url);
 
-      if (result != null) {
-        final file = File(result);
-        await file.writeAsString(csvData.toString());
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Exported ${accounts.length} accounts to $result'),
-              backgroundColor: AppColors.success,
-            ),
-          );
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Exported ${accounts.length} accounts'),
+            backgroundColor: AppColors.success,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -593,11 +591,11 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['csv'],
+        withData: true,
       );
 
-      if (result != null && result.files.single.path != null) {
-        final file = File(result.files.single.path!);
-        final content = await file.readAsString();
+      if (result != null && result.files.single.bytes != null) {
+        final content = utf8.decode(result.files.single.bytes!);
         final lines = content.split('\n');
 
         int imported = 0;

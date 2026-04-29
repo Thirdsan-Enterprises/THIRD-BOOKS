@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -197,8 +196,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   border: Border.all(color: Theme.of(context).dividerColor),
                                 ),
                                 clipBehavior: Clip.antiAlias,
-                                child: logoPath != null && File(logoPath).existsSync()
-                                    ? Image.file(File(logoPath), fit: BoxFit.cover)
+                                child: logoPath != null && logoPath.isNotEmpty
+                                    ? (logoPath.startsWith('http://') || logoPath.startsWith('https://')
+                                        ? Image.network(logoPath, fit: BoxFit.cover)
+                                        : Image.network(logoPath, fit: BoxFit.cover))
                                     : Icon(
                                         Icons.business,
                                         size: 48,

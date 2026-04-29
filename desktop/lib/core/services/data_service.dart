@@ -2,13 +2,10 @@
 // Offline-First Architecture with Local Storage and Sync Queue
 // © 2026 Magic Bet Ltd. All rights reserved.
 
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
-import 'package:drift/drift.dart' hide Column;
 
 import 'api_client.dart';
 import 'auth_service.dart';
@@ -16,17 +13,109 @@ import 'local_storage_service.dart';
 import 'sync_service.dart';
 import 'theme_service.dart';
 import '../models/models.dart';
-import '../database/app_database.dart' hide Account, Customer, Vendor, Invoice, Bill, JournalEntry, JournalLine;
 import '../providers/asset_drafts_provider.dart';
 
 // Global local storage instance
 final _localStorage = LocalStorageService.instance;
 const _uuid = Uuid();
 
-// Database provider
-final databaseProvider = Provider<AppDatabase>((ref) {
-  return AppDatabase();
-});
+// ---------------------------------------------------------------------------
+// Stub data classes — these previously lived in app_database.dart (Drift).
+// The local SQLite database has been retired; data now comes from the server.
+// Screens that reference these types will compile against these stubs.
+// ---------------------------------------------------------------------------
+
+class Outlet {
+  final String id;
+  final String outletCode;
+  final String name;
+  final String? address;
+  final String? city;
+  final String? postalCode;
+  final String? region;
+  final String? venueType;
+  final String? ownerName;
+  final String? ownerContact;
+  final double commissionRate;
+  final bool isActive;
+  final String? notes;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const Outlet({
+    required this.id,
+    required this.outletCode,
+    required this.name,
+    this.address,
+    this.city,
+    this.postalCode,
+    this.region,
+    this.venueType,
+    this.ownerName,
+    this.ownerContact,
+    this.commissionRate = 40.0,
+    this.isActive = true,
+    this.notes,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+}
+
+class OutletRevenue {
+  final String id;
+  final String outletId;
+  final DateTime date;
+  final double amount;
+  final double commissionAmount;
+  final double netAmount;
+  final String? description;
+  final String? reference;
+  final String status;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const OutletRevenue({
+    required this.id,
+    required this.outletId,
+    required this.date,
+    this.amount = 0,
+    this.commissionAmount = 0,
+    this.netAmount = 0,
+    this.description,
+    this.reference,
+    this.status = 'recorded',
+    required this.createdAt,
+    required this.updatedAt,
+  });
+}
+
+class OutletExpenditure {
+  final String id;
+  final String outletId;
+  final DateTime date;
+  final String expenseType;
+  final double amount;
+  final String description;
+  final String? reference;
+  final String? paidTo;
+  final String status;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const OutletExpenditure({
+    required this.id,
+    required this.outletId,
+    required this.date,
+    required this.expenseType,
+    this.amount = 0,
+    required this.description,
+    this.reference,
+    this.paidTo,
+    this.status = 'pending',
+    required this.createdAt,
+    required this.updatedAt,
+  });
+}
 
 // ============================================================================
 // MagicBet Ltd — Professional Chart of Accounts
@@ -316,122 +405,10 @@ class DashboardData {
   }
 }
 
-/// Dashboard data computed from real outlet revenue data in the database
+/// Dashboard data — outlet database has been retired; data now comes from the
+/// server.  Return empty until a server-backed provider is implemented.
 final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
-  final db = ref.read(databaseProvider);
-
-  try {
-    final allRevenues = await db.getAllOutletRevenues();
-    final outlets = await db.getAllOutlets();
-
-    if (allRevenues.isEmpty) {
-      return DashboardData.empty();
-    }
-
-    // Run carry-forward commission engine per outlet to get accurate Net Revenue.
-    // This is the real money MagicBet has available after paying 40% to outlet owners.
-    double totalCashIn = 0;
-    double totalCashOut = 0;   // raw payouts (Total Out column)
-    double totalGGR = 0;       // Gross Gaming Revenue = Cash In - Cash Out
-    double totalOutletExpense = 0;  // 40% commission (carry-forward adjusted)
-    double totalNetRevenue = 0;    // what MagicBet actually keeps
-
-    final revenuesByOutlet = <String, List<OutletRevenue>>{};
-    for (final rev in allRevenues) {
-      revenuesByOutlet.putIfAbsent(rev.outletId, () => []).add(rev);
-      totalCashIn += rev.amount;
-      totalCashOut += rev.commissionAmount;
-      totalGGR += rev.netAmount;
-    }
-
-    // Monthly GGR and Net Revenue for charts
-    final Map<int, double> monthlyGGR = {};
-    final Map<int, double> monthlyNet = {};
-
-    // Per-outlet net for top-outlets panel
-    final Map<String, double> outletNet = {};
-
-    for (final outlet in outlets) {
-      final revs = revenuesByOutlet[outlet.id] ?? [];
-      final weeks = _computeWeeksForOutlet(outlet, revs);
-      final outletNetTotal = weeks.fold(0.0, (s, w) => s + w.netRevenue);
-      final outletExpTotal = weeks.fold(0.0, (s, w) => s + w.outletExpense);
-      totalOutletExpense += outletExpTotal;
-      totalNetRevenue += outletNetTotal;
-      outletNet[outlet.id] = outletNetTotal;
-
-      // Monthly aggregation from weekly data
-      for (final w in weeks) {
-        final mo = w.weekStart.month;
-        monthlyGGR[mo] = (monthlyGGR[mo] ?? 0) + w.rawGGR;
-        monthlyNet[mo] = (monthlyNet[mo] ?? 0) + w.netRevenue;
-      }
-    }
-
-    // Recent transactions (last 10 entries, sorted DESC)
-    final sortedRevenues = List<OutletRevenue>.from(allRevenues)
-      ..sort((a, b) => b.date.compareTo(a.date));
-
-    final recentTx = <Map<String, dynamic>>[];
-    for (var i = 0; i < sortedRevenues.length && i < 10; i++) {
-      final rev = sortedRevenues[i];
-      final outlet = outlets.where((o) => o.id == rev.outletId).firstOrNull;
-      recentTx.add({
-        'title': outlet?.name ?? 'Outlet',
-        'subtitle': DateFormat('MMM d, yyyy').format(rev.date),
-        'amount': rev.netAmount,
-        'isIncome': rev.netAmount >= 0,
-        'icon': 'payments',
-      });
-    }
-
-    // Chart data: GGR line (light) and Net line (bold)
-    final revenueData = monthlyGGR.entries
-        .map((e) => {'month': e.key.toDouble(), 'value': e.value})
-        .toList()
-      ..sort((a, b) => a['month']!.compareTo(b['month']!));
-
-    final expenseData = monthlyNet.entries
-        .map((e) => {'month': e.key.toDouble(), 'value': e.value})
-        .toList()
-      ..sort((a, b) => a['month']!.compareTo(b['month']!));
-
-    // Top outlets by net revenue for the panel
-    final sortedByNet = outletNet.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    final topNet = sortedByNet.take(5).toList();
-    final maxNet = topNet.isNotEmpty ? topNet.first.value.abs().clamp(1.0, double.infinity) : 1.0;
-
-    final receivableAging = topNet.map((e) {
-      final outlet = outlets.where((o) => o.id == e.key).firstOrNull;
-      return {
-        'label': outlet?.name ?? 'Unknown',
-        'amount': e.value,
-        'percentage': e.value / maxNet,
-      };
-    }).toList();
-
-    return DashboardData(
-      totalRevenue: totalGGR,
-      totalExpenses: totalOutletExpense, // actual 40% commission expense
-      netIncome: totalNetRevenue,        // real money MagicBet keeps
-      outstandingInvoices: 0,
-      invoiceCount: outlets.where((o) => o.isActive).length,
-      revenueChange: 0,
-      expenseChange: 0,
-      incomeChange: 0,
-      cashIn: totalCashIn,
-      cashOut: totalCashOut,
-      netCash: totalNetRevenue,
-      revenueData: revenueData,
-      expenseData: expenseData,
-      receivableAging: receivableAging,
-      recentTransactions: recentTx,
-    );
-  } catch (e) {
-    debugPrint('Error computing dashboard data: $e');
-    return DashboardData.empty();
-  }
+  return DashboardData.empty();
 });
 
 // ============================================================================
@@ -1842,42 +1819,25 @@ final paymentsProvider = StateNotifierProvider<PaymentsNotifier, PaymentsState>(
 // Outlets Service - Database Stream
 // ============================================================================
 
-/// Stream provider that watches outlets from database in real-time
+/// Stream provider that watches outlets — outlet database has been retired.
+/// Outlets now come from the server; returning empty stream until implemented.
 final outletsStreamProvider = StreamProvider<List<Outlet>>((ref) {
-  final db = ref.watch(databaseProvider);
-  return db.watchAllOutlets();
+  return Stream.value([]);
 });
 
 /// Get active outlets count
 final activeOutletsCountProvider = Provider<int>((ref) {
-  final outletsAsync = ref.watch(outletsStreamProvider);
-  return outletsAsync.when(
-    data: (outlets) => outlets.where((o) => o.isActive).length,
-    loading: () => 0,
-    error: (_, __) => 0,
-  );
+  return 0;
 });
 
 /// Get outlets by region
 final outletsByRegionProvider = Provider.family<List<Outlet>, String>((ref, region) {
-  final outletsAsync = ref.watch(outletsStreamProvider);
-  return outletsAsync.when(
-    data: (outlets) {
-      if (region == 'All') return outlets;
-      return outlets.where((o) => o.region == region).toList();
-    },
-    loading: () => [],
-    error: (_, __) => [],
-  );
+  return [];
 });
 
 /// Sorted outlets stream (by outlet code/ID)
 final sortedOutletsStreamProvider = Provider<Stream<List<Outlet>>>((ref) {
-  final db = ref.watch(databaseProvider);
-  return db.watchAllOutlets().map((outlets) {
-    outlets.sort((a, b) => a.outletCode.compareTo(b.outletCode));
-    return outlets;
-  });
+  return Stream.value([]);
 });
 
 // ============================================================================
@@ -1930,10 +1890,9 @@ class CsvImportState {
 }
 
 class CsvImportNotifier extends StateNotifier<CsvImportState> {
-  final AppDatabase _db;
   final Ref _ref;
 
-  CsvImportNotifier(this._db, this._ref) : super(CsvImportState());
+  CsvImportNotifier(this._ref) : super(CsvImportState());
 
   /// Parse a number string like " 746,000 " or " 1,585,000 " to double
   double _parseAmount(String raw) {
@@ -1962,420 +1921,25 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
     return csvCode.trim();
   }
 
-  /// Import CSV file and create outlet revenue entries + journal entries
+  /// Import CSV file — outlet database has been retired; this is a no-op stub.
   Future<CsvImportResult> importCsvFile(String filePath) async {
-    state = state.copyWith(isImporting: true, progress: 0, error: null);
-
-    int totalRows = 0;
-    int importedRows = 0;
-    int skippedRows = 0;
-    int journalEntriesCreated = 0;
-    final errors = <String>[];
-
-    try {
-      final file = File(filePath);
-      if (!await file.exists()) {
-        throw Exception('File not found: $filePath');
-      }
-
-      final lines = await file.readAsLines();
-      if (lines.isEmpty) {
-        throw Exception('CSV file is empty');
-      }
-
-      // Skip header row
-      totalRows = lines.length - 1;
-
-      // Get all outlets for mapping
-      final outlets = await _db.getAllOutlets();
-      final outletMap = <String, Outlet>{};
-      for (final outlet in outlets) {
-        outletMap[outlet.outletCode] = outlet;
-      }
-
-      // Cache existing revenue records to detect duplicates within this import
-      // and against the database (prevents re-importing the same CSV file).
-      // Key: "{outletId}|{yyyyMMdd}"
-      final existingRevenues = await _db.getAllOutletRevenues();
-      final existingKeys = <String>{};
-      for (final r in existingRevenues) {
-        existingKeys.add(
-            '${r.outletId}|${DateFormat('yyyyMMdd').format(r.date)}');
-      }
-
-      // Track journal entries to create
-      final journalEntries = <JournalEntry>[];
-      int jeCounter = 0;
-
-      for (var i = 1; i < lines.length; i++) {
-        final line = lines[i].trim();
-        if (line.isEmpty) {
-          skippedRows++;
-          continue;
-        }
-
-        try {
-          // Parse CSV line (handle quoted fields with commas)
-          final fields = _parseCsvLine(line);
-          if (fields.length < 5) {
-            errors.add('Row ${i + 1}: Not enough columns (${fields.length})');
-            skippedRows++;
-            continue;
-          }
-
-          final csvOutletCode = fields[0].trim();
-          final dateStr = fields[1].trim();
-          final totalIn = _parseAmount(fields[2]);
-          final totalOut = _parseAmount(fields[3]);
-          final totalGGR = _parseAmount(fields[4]);
-
-          // Map outlet code
-          final outletCode = _mapOutletCode(csvOutletCode);
-          final outlet = outletMap[outletCode];
-
-          if (outlet == null) {
-            errors.add('Row ${i + 1}: Outlet $outletCode not found');
-            skippedRows++;
-            continue;
-          }
-
-          // Parse date
-          final date = _parseDate(dateStr);
-          if (date == null) {
-            errors.add('Row ${i + 1}: Invalid date "$dateStr"');
-            skippedRows++;
-            continue;
-          }
-
-          // Deduplication: skip if this outlet+date was already imported
-          final dupKey = '${outlet.id}|${DateFormat('yyyyMMdd').format(date)}';
-          if (existingKeys.contains(dupKey)) {
-            skippedRows++;
-            state = state.copyWith(progress: i / totalRows);
-            continue;
-          }
-          existingKeys.add(dupKey); // guard against within-file duplicates
-
-          // Create OutletRevenue entry
-          // amount = Total In, commissionAmount = Total Out, netAmount = GGR
-          final revenueId = _uuid.v4();
-          final revenue = OutletRevenuesCompanion.insert(
-            id: revenueId,
-            outletId: outlet.id,
-            date: date,
-            amount: Value(totalIn),
-            commissionAmount: Value(totalOut),
-            netAmount: Value(totalGGR),
-            description: Value('CSV Import: ${outlet.name} - ${DateFormat('MMM d, yyyy').format(date)}'),
-            reference: Value('CSV-$csvOutletCode-${DateFormat('yyyyMMdd').format(date)}'),
-            status: const Value('recorded'),
-            createdAt: DateTime.now(),
-            updatedAt: DateTime.now(),
-          );
-
-          await _db.insertOutletRevenue(revenue);
-          importedRows++;
-
-          // Create journal entry for this revenue record
-          jeCounter++;
-          final jeId = _uuid.v4();
-          final jeNumber = 'JE-CSV-${DateFormat('yyyyMMdd').format(date)}-${jeCounter.toString().padLeft(4, '0')}';
-
-          journalEntries.add(JournalEntry(
-            id: jeId,
-            entryNumber: jeNumber,
-            date: date,
-            description: '${outlet.name} (${outlet.outletCode}) - Daily GGR',
-            reference: 'CSV-$csvOutletCode-${DateFormat('yyyyMMdd').format(date)}',
-            status: JournalEntryStatus.posted,
-            lines: [
-              // DR: Accounts Receivable (150) — GGR the outlet owes MagicBet
-              JournalLine(id: '${jeId}-1', journalEntryId: jeId, accountId: 'acct-150', accountCode: '150', accountName: 'Accounts Receivable', debit: totalGGR, credit: 0),
-              // DR: Payouts — contra-revenue for customer winnings paid
-              JournalLine(id: '${jeId}-2', journalEntryId: jeId, accountId: 'acct-107', accountCode: '107', accountName: 'Payouts', debit: totalOut, credit: 0),
-              // CR: Stakes — gross revenue recognised
-              // Balance: DR(totalGGR + totalOut) = DR(totalIn) = CR(totalIn) ✓
-              JournalLine(id: '${jeId}-3', journalEntryId: jeId, accountId: 'acct-103', accountCode: '103', accountName: 'Stakes', debit: 0, credit: totalIn),
-            ],
-            createdAt: DateTime.now(),
-            updatedAt: DateTime.now(),
-            createdBy: 'CSV Import',
-          ));
-
-          // Update progress
-          state = state.copyWith(progress: i / totalRows);
-
-        } catch (e) {
-          errors.add('Row ${i + 1}: $e');
-          skippedRows++;
-        }
-      }
-
-      // Save journal entries to local storage
-      if (journalEntries.isNotEmpty) {
-        try {
-          final existingEntries = await _localStorage.loadJournalEntries();
-          var allEntries = [...existingEntries, ...journalEntries];
-          journalEntriesCreated = journalEntries.length;
-
-          // Create weekly commission JEs for any periods not yet covered.
-          // Gaming tax JEs are NOT auto-generated (accountant enters manually).
-          final ancillaryJEs = await _createAncillaryJEs(allEntries);
-          if (ancillaryJEs.isNotEmpty) {
-            allEntries = [...allEntries, ...ancillaryJEs];
-            journalEntriesCreated += ancillaryJEs.length;
-
-            // Queue commission + gaming-tax JEs for backend GL sync.
-            // Daily revenue JEs are local-only (too many to queue individually).
-            for (final je in ancillaryJEs) {
-              _ref.read(syncServiceProvider.notifier).queueChange(
-                action: SyncAction.create,
-                entityType: SyncEntityType.journalEntry,
-                entityId: je.id,
-                data: je.toJson(),
-              );
-            }
-          }
-
-          await _localStorage.saveJournalEntries(allEntries);
-
-          // Update the journals provider state
-          _ref.read(journalsProvider.notifier).state = JournalsState(
-            entries: allEntries,
-            isLoading: false,
-          );
-        } catch (e) {
-          errors.add('Failed to save journal entries: $e');
-        }
-      }
-
-      // Refresh all revenue-dependent providers
-      _ref.invalidate(dashboardDataProvider);
-      _ref.invalidate(outletRevenueSummaryProvider);
-      _ref.invalidate(outletAnalyticsProvider);
-
-    } catch (e) {
-      state = state.copyWith(isImporting: false, error: e.toString());
-      return CsvImportResult(
-        totalRows: totalRows,
-        importedRows: importedRows,
-        skippedRows: skippedRows,
-        journalEntriesCreated: journalEntriesCreated,
-        errors: [e.toString()],
-      );
-    }
-
-    final result = CsvImportResult(
-      totalRows: totalRows,
-      importedRows: importedRows,
-      skippedRows: skippedRows,
-      journalEntriesCreated: journalEntriesCreated,
-      errors: errors,
-    );
-
     state = state.copyWith(
       isImporting: false,
-      lastResult: result,
-      progress: 1.0,
+      error: 'CSV import to local database is no longer supported. '
+          'Outlet data now lives on the server.',
     );
-
-    return result;
+    return CsvImportResult(
+      totalRows: 0,
+      importedRows: 0,
+      skippedRows: 0,
+      journalEntriesCreated: 0,
+      errors: ['Local database has been retired.'],
+    );
   }
 
-  // ---------------------------------------------------------------------------
-  // Public: Create / repair JEs for all outlet revenue records in the DB
-  // ---------------------------------------------------------------------------
-  // Safe to call after every CSV import (idempotent — uses the OutletRevenue's
-  // [reference] field as the JE idempotency key so no duplicates are created).
-  //
-  // Creates:
-  //   • One daily revenue JE per OutletRevenue row not already journalised
-  //       DR  150 Accounts Receivable = GGR (outlet owes MagicBet this amount)
-  //       DR  107 Payouts             = customer winnings paid out (contra-rev)
-  //       CR  103 Stakes              = gross stakes wagered (full revenue)
-  //   • Weekly commission JEs via _createAncillaryJEs()
-  //       DR  178 Commission Expense  = 40% of carry-forward GGR
-  //       CR  150 Accounts Receivable = reduces what outlet owes MagicBet
-  //   Gaming tax JEs are NOT created automatically (accountant posts manually).
-  // ---------------------------------------------------------------------------
-
+  /// Create JEs for outlet revenues — no-op stub (database retired).
   Future<void> createJEsForOutletRevenues() async {
-    final allRevenues = await _db.getAllOutletRevenues();
-    if (allRevenues.isEmpty) return;
-
-    // Build outlet lookup map
-    final outlets = await _db.getAllOutlets();
-    final outletMap = <String, Outlet>{};
-    for (final o in outlets) {
-      outletMap[o.id] = o;
-    }
-
-    // Load existing JEs and collect their references (idempotency keys)
-    final existingEntries = await _localStorage.loadJournalEntries();
-    final existingRefs = existingEntries
-        .map((e) => e.reference)
-        .whereType<String>()
-        .toSet();
-
-    final newDailyJEs = <JournalEntry>[];
-    final now = DateTime.now();
-    int counter = 0;
-
-    for (final rev in allRevenues) {
-      // Use the revenue's own reference as the JE key (e.g. CSV-3000-20260101)
-      final ref = rev.reference ??
-          'CSV-${rev.outletId}-${DateFormat('yyyyMMdd').format(rev.date)}';
-      if (existingRefs.contains(ref)) continue; // already journalised
-
-      counter++;
-      final jeId = _uuid.v4();
-      final outletName = outletMap[rev.outletId]?.name ?? 'Outlet';
-
-      // Arithmetic check:
-      //   Total In (stakes) = GGR (netAmount) + Payouts (commissionAmount)
-      //   DR side: netAmount + commissionAmount == CR side: amount  ✓
-      newDailyJEs.add(JournalEntry(
-        id: jeId,
-        entryNumber:
-            'REV-${DateFormat('yyyyMMdd').format(rev.date)}-${counter.toString().padLeft(4, '0')}',
-        date: rev.date,
-        description: '$outletName — Daily Revenue',
-        reference: ref,
-        status: JournalEntryStatus.posted,
-        lines: [
-          // DR: Accounts Receivable (150) — GGR the outlet owes MagicBet
-          // (outlet holds cash; this is the net amount due after payouts)
-          JournalLine(
-            id: '$jeId-1',
-            journalEntryId: jeId,
-            accountId: 'acct-150',
-            accountCode: '150',
-            accountName: 'Accounts Receivable',
-            debit: rev.netAmount,
-            credit: 0,
-          ),
-          // DR: Payouts (107) — contra-revenue for winnings returned to players
-          JournalLine(
-            id: '$jeId-2',
-            journalEntryId: jeId,
-            accountId: 'acct-107',
-            accountCode: '107',
-            accountName: 'Payouts',
-            debit: rev.commissionAmount,
-            credit: 0,
-          ),
-          // CR: Stakes (103) — gross revenue recognised on all wagers placed
-          JournalLine(
-            id: '$jeId-3',
-            journalEntryId: jeId,
-            accountId: 'acct-103',
-            accountCode: '103',
-            accountName: 'Stakes',
-            debit: 0,
-            credit: rev.amount,
-          ),
-        ],
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'System',
-      ));
-      existingRefs.add(ref);
-    }
-
-    // Build ancillary JEs (weekly commission + monthly gaming tax)
-    final allCurrent = [...existingEntries, ...newDailyJEs];
-    final ancillary = await _createAncillaryJEs(allCurrent);
-
-    if (newDailyJEs.isNotEmpty || ancillary.isNotEmpty) {
-      final allEntries = [...allCurrent, ...ancillary];
-      await _localStorage.saveJournalEntries(allEntries);
-      // Reload journals provider so CoA balances and reports update immediately
-      await _ref.read(journalsProvider.notifier).loadJournals();
-      _ref.invalidate(dashboardDataProvider);
-      _ref.invalidate(outletRevenueSummaryProvider);
-      _ref.invalidate(outletAnalyticsProvider);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Ancillary JEs — weekly outlet commission only
-  // ---------------------------------------------------------------------------
-  // Creates weekly commission JEs per outlet using the carry-forward GGR
-  // algorithm. Gaming tax JEs are NOT auto-generated — the accountant posts
-  // those manually so the correct figures and period allocations are applied.
-  // Reference codes are idempotency keys; re-imports never double-post.
-  // ---------------------------------------------------------------------------
-
-  Future<List<JournalEntry>> _createAncillaryJEs(
-    List<JournalEntry> existingEntries,
-  ) async {
-    final existingRefs = existingEntries
-        .map((e) => e.reference)
-        .whereType<String>()
-        .toSet();
-    final result = <JournalEntry>[];
-    final now = DateTime.now();
-
-    final outlets = await _db.getAllOutlets();
-    final allRevenues = await _db.getAllOutletRevenues();
-    if (outlets.isEmpty || allRevenues.isEmpty) return result;
-
-    // ── 1. Weekly outlet commission JEs (per outlet) ─────────────────────────
-    final revenuesByOutlet = <String, List<OutletRevenue>>{};
-    for (final rev in allRevenues) {
-      revenuesByOutlet.putIfAbsent(rev.outletId, () => []).add(rev);
-    }
-
-    for (final outlet in outlets) {
-      final revs = revenuesByOutlet[outlet.id] ?? [];
-      final weeks = _computeWeeksForOutlet(outlet, revs);
-
-      for (final week in weeks) {
-        if (week.outletExpense <= 0) continue;
-
-        final ref =
-            'JE-COMM-${outlet.outletCode}-${week.year}-W${week.weekNumber.toString().padLeft(2, '0')}';
-        if (existingRefs.contains(ref)) continue;
-
-        final jeId = _uuid.v4();
-        final weekLabel = 'Week ${week.weekNumber} ${week.year}';
-        result.add(JournalEntry(
-          id: jeId,
-          entryNumber: ref,
-          date: week.weekEnd,
-          description:
-              'Outlet Commission (40% GGR) — ${outlet.name} — $weekLabel',
-          reference: ref,
-          status: JournalEntryStatus.posted,
-          lines: [
-            // DR: Outlet Commission Expense (178)
-            JournalLine(
-              id: '$jeId-1', journalEntryId: jeId,
-              accountId: 'acct-178', accountCode: '178',
-              accountName: 'Outlet Commission Expense',
-              debit: week.outletExpense, credit: 0,
-            ),
-            // CR: Accounts Receivable (150) — commission reduces what the outlet
-            // owes MagicBet; net AR balance = GGR less commission due to owner
-            JournalLine(
-              id: '$jeId-2', journalEntryId: jeId,
-              accountId: 'acct-150', accountCode: '150',
-              accountName: 'Accounts Receivable',
-              debit: 0, credit: week.outletExpense,
-            ),
-          ],
-          createdAt: now,
-          updatedAt: now,
-          createdBy: 'System',
-        ));
-        existingRefs.add(ref);
-      }
-    }
-
-    // Gaming tax JEs are NOT auto-generated — the accountant posts those
-    // manually so the correct figures and period allocations are applied.
-
-    return result;
+    // No-op: outlet revenue database has been retired.
   }
 
   /// Parse a CSV line handling quoted fields with commas
@@ -2399,54 +1963,27 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
 
     return fields;
   }
-}
-
 final csvImportProvider = StateNotifierProvider<CsvImportNotifier, CsvImportState>((ref) {
-  final db = ref.read(databaseProvider);
-  return CsvImportNotifier(db, ref);
+  return CsvImportNotifier(ref);
 });
 
 // ============================================================================
 // Outlet Revenue Aggregation Providers
 // ============================================================================
 
-/// All outlet revenues stream
+/// All outlet revenues stream — database retired; returns empty stream.
 final allOutletRevenuesProvider = StreamProvider<List<OutletRevenue>>((ref) {
-  final db = ref.watch(databaseProvider);
-  return db.select(db.outletRevenues).watch();
+  return Stream.value([]);
 });
 
-/// Stream provider for all outlet expenditures
+/// Stream provider for all outlet expenditures — database retired; returns empty stream.
 final allOutletExpendituresProvider = StreamProvider<List<OutletExpenditure>>((ref) {
-  final db = ref.watch(databaseProvider);
-  return db.select(db.outletExpenditures).watch();
+  return Stream.value([]);
 });
 
-/// Revenue summary per outlet
+/// Revenue summary per outlet — database retired; returns empty map.
 final outletRevenueSummaryProvider = FutureProvider<Map<String, Map<String, double>>>((ref) async {
-  final db = ref.read(databaseProvider);
-  final revenues = await db.getAllOutletRevenues();
-  final outlets = await db.getAllOutlets();
-
-  final summary = <String, Map<String, double>>{};
-
-  for (final outlet in outlets) {
-    final outletRevs = revenues.where((r) => r.outletId == outlet.id);
-    double totalIn = 0, totalOut = 0, totalGGR = 0;
-    for (final rev in outletRevs) {
-      totalIn += rev.amount;
-      totalOut += rev.commissionAmount;
-      totalGGR += rev.netAmount;
-    }
-    summary[outlet.outletCode] = {
-      'totalIn': totalIn,
-      'totalOut': totalOut,
-      'totalGGR': totalGGR,
-      'days': outletRevs.length.toDouble(),
-    };
-  }
-
-  return summary;
+  return {};
 });
 
 // ============================================================================
@@ -2650,74 +2187,8 @@ List<OutletWeekSummary> _computeWeeksForOutlet(
 }
 
 final outletAnalyticsProvider = FutureProvider<OutletAnalyticsData>((ref) async {
-  final db = ref.read(databaseProvider);
-  final outlets = await db.getAllOutlets();
-  final allRevenues = await db.getAllOutletRevenues();
-
-  if (outlets.isEmpty || allRevenues.isEmpty) return OutletAnalyticsData.empty;
-
-  final revenuesByOutlet = <String, List<OutletRevenue>>{};
-  for (final rev in allRevenues) {
-    revenuesByOutlet.putIfAbsent(rev.outletId, () => []).add(rev);
-  }
-
-  final allWeeks = <OutletWeekSummary>[];
-  final allMonths = <OutletMonthSummary>[];
-  final lifetimes = <OutletLifetime>[];
-
-  for (final outlet in outlets) {
-    final revs = revenuesByOutlet[outlet.id] ?? [];
-    final weeks = _computeWeeksForOutlet(outlet, revs);
-    allWeeks.addAll(weeks);
-
-    // Aggregate months from weekly summaries (use adjustedGGR and outletExpense)
-    // Group weeks into months by weekStart month
-    final monthMap = <String, _MonthAccum>{};
-    for (final w in weeks) {
-      final mk = '${w.year}-${w.weekStart.month.toString().padLeft(2, '0')}';
-      monthMap.putIfAbsent(mk, () => _MonthAccum(w.weekStart.year, w.weekStart.month));
-      monthMap[mk]!.addWeek(w);
-    }
-    for (final accum in monthMap.values) {
-      allMonths.add(OutletMonthSummary(
-        outletId: outlet.id,
-        outletName: outlet.name,
-        outletCode: outlet.outletCode,
-        year: accum.year,
-        month: accum.month,
-        totalGGR: accum.totalGGR,
-        totalOutletExpense: accum.totalOutletExpense,
-        netRevenue: accum.netRevenue,
-      ));
-    }
-
-    // Lifetime totals per outlet
-    final lifetimeGGR = weeks.fold(0.0, (s, w) => s + w.rawGGR);
-    final lifetimeExpense = weeks.fold(0.0, (s, w) => s + w.outletExpense);
-    final lifetimeNet = weeks.fold(0.0, (s, w) => s + w.netRevenue);
-    lifetimes.add(OutletLifetime(
-      outletId: outlet.id,
-      outletName: outlet.name,
-      outletCode: outlet.outletCode,
-      totalGGR: lifetimeGGR,
-      totalOutletExpense: lifetimeExpense,
-      netRevenue: lifetimeNet,
-    ));
-  }
-
-  final grandGGR = lifetimes.fold(0.0, (s, o) => s + o.totalGGR);
-  final grandExpense = lifetimes.fold(0.0, (s, o) => s + o.totalOutletExpense);
-  final grandNet = lifetimes.fold(0.0, (s, o) => s + o.netRevenue);
-
-  return OutletAnalyticsData(
-    totalGGR: grandGGR,
-    totalOutletExpense: grandExpense,
-    totalNetRevenue: grandNet,
-    totalActiveOutlets: outlets.where((o) => o.isActive).length,
-    allWeeks: allWeeks,
-    allMonths: allMonths,
-    lifetimeTotals: lifetimes,
-  );
+  // Outlet database has been retired; data now comes from the server.
+  return OutletAnalyticsData.empty;
 });
 
 class _MonthAccum {

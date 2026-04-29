@@ -1,5 +1,3 @@
-import 'package:drift/drift.dart';
-
 enum AccountType {
   asset,
   liability,

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -40,15 +39,8 @@ class PdfInvoiceService {
   }) async {
     final pdf = pw.Document();
 
-    // Load logo if available
+    // Logo loading is not supported in the web build
     pw.MemoryImage? logoImage;
-    if (company.logoPath != null) {
-      final logoFile = File(company.logoPath!);
-      if (await logoFile.exists()) {
-        final bytes = await logoFile.readAsBytes();
-        logoImage = pw.MemoryImage(bytes);
-      }
-    }
 
     pdf.addPage(
       pw.Page(

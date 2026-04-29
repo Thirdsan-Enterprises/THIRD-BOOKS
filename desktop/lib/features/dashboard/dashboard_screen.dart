@@ -1,10 +1,11 @@
-import 'dart:io';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
-import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
@@ -24,39 +25,36 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Future<void> _exportDashboard(DashboardData data) async {
     try {
-      final result = await FilePicker.platform.saveFile(
-        dialogTitle: 'Export Dashboard Report',
-        fileName:
-            'dashboard_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
-        type: FileType.custom,
-        allowedExtensions: ['csv'],
-      );
-      if (result != null) {
-        final buffer = StringBuffer();
-        buffer.writeln('MagicBet Dashboard Export - ${DateFormat('MMMM yyyy').format(DateTime.now())}');
-        buffer.writeln('');
-        buffer.writeln('Metric,Value');
-        buffer.writeln('Total GGR,${data.totalRevenue}');
-        buffer.writeln('Total Expenses,${data.totalExpenses}');
-        buffer.writeln('Net Income,${data.netIncome}');
-        buffer.writeln('Outstanding Invoices,${data.outstandingInvoices}');
-        buffer.writeln('Cash In,${data.cashIn}');
-        buffer.writeln('Cash Out,${data.cashOut}');
-        buffer.writeln('Net Cash,${data.netCash}');
-        buffer.writeln('');
-        buffer.writeln('Recent Transactions');
-        buffer.writeln('Description,Type,Amount');
-        for (final tx in data.recentTransactions) {
-          buffer.writeln(
-              '"${tx['title']}","${tx['isIncome'] == true ? 'Income' : 'Expense'}",${tx['amount']}');
-        }
-        final file = File(result);
-        await file.writeAsString(buffer.toString());
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Dashboard exported to $result')),
-          );
-        }
+      final buffer = StringBuffer();
+      buffer.writeln('MagicBet Dashboard Export - ${DateFormat('MMMM yyyy').format(DateTime.now())}');
+      buffer.writeln('');
+      buffer.writeln('Metric,Value');
+      buffer.writeln('Total GGR,${data.totalRevenue}');
+      buffer.writeln('Total Expenses,${data.totalExpenses}');
+      buffer.writeln('Net Income,${data.netIncome}');
+      buffer.writeln('Outstanding Invoices,${data.outstandingInvoices}');
+      buffer.writeln('Cash In,${data.cashIn}');
+      buffer.writeln('Cash Out,${data.cashOut}');
+      buffer.writeln('Net Cash,${data.netCash}');
+      buffer.writeln('');
+      buffer.writeln('Recent Transactions');
+      buffer.writeln('Description,Type,Amount');
+      for (final tx in data.recentTransactions) {
+        buffer.writeln(
+            '"${tx['title']}","${tx['isIncome'] == true ? 'Income' : 'Expense'}",${tx['amount']}');
+      }
+      final bytes = const Utf8Encoder().convert(buffer.toString());
+      final blob = html.Blob([bytes], 'text/csv');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final fileName = 'dashboard_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv';
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute('download', fileName)
+        ..click();
+      html.Url.revokeObjectUrl(url);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Dashboard exported')),
+        );
       }
     } catch (e) {
       if (mounted) {

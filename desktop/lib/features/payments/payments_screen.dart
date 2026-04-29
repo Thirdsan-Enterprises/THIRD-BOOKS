@@ -1,4 +1,6 @@
-import 'dart:io';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -319,39 +321,36 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
     }
 
     try {
-      final result = await FilePicker.platform.saveFile(
-        dialogTitle: 'Export Payments',
-        fileName: 'payments_${DateFormat('yyyyMMdd').format(DateTime.now())}.csv',
-        type: FileType.custom,
-        allowedExtensions: ['csv'],
-      );
+      final buffer = StringBuffer();
+      buffer.writeln('Payment Number,Type,Customer/Vendor,Date,Amount,Method,Reference,Account,Status');
 
-      if (result != null) {
-        final buffer = StringBuffer();
-        buffer.writeln('Payment Number,Type,Customer/Vendor,Date,Amount,Method,Reference,Account,Status');
+      for (final payment in paymentsState.payments) {
+        buffer.writeln(
+          '${payment.paymentNumber},'
+          '${payment.isReceived ? 'Received' : 'Made'},'
+          '"${payment.isReceived ? payment.customerName ?? '' : payment.vendorName ?? ''}",'
+          '${DateFormat('yyyy-MM-dd').format(payment.paymentDate)},'
+          '${payment.amount},'
+          '${payment.paymentMethod},'
+          '"${payment.reference ?? ''}",'
+          '"${payment.accountName ?? ''}",'
+          '${payment.status.name}',
+        );
+      }
 
-        for (final payment in paymentsState.payments) {
-          buffer.writeln(
-            '${payment.paymentNumber},'
-            '${payment.isReceived ? 'Received' : 'Made'},'
-            '"${payment.isReceived ? payment.customerName ?? '' : payment.vendorName ?? ''}",'
-            '${DateFormat('yyyy-MM-dd').format(payment.paymentDate)},'
-            '${payment.amount},'
-            '${payment.paymentMethod},'
-            '"${payment.reference ?? ''}",'
-            '"${payment.accountName ?? ''}",'
-            '${payment.status.name}',
-          );
-        }
+      final bytes = const Utf8Encoder().convert(buffer.toString());
+      final blob = html.Blob([bytes], 'text/csv');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final fileName = 'payments_${DateFormat('yyyyMMdd').format(DateTime.now())}.csv';
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute('download', fileName)
+        ..click();
+      html.Url.revokeObjectUrl(url);
 
-        final file = File(result);
-        await file.writeAsString(buffer.toString());
-
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Exported ${paymentsState.payments.length} payments to CSV')),
-          );
-        }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Exported ${paymentsState.payments.length} payments to CSV')),
+        );
       }
     } catch (e) {
       if (context.mounted) {

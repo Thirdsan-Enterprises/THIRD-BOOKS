@@ -6,7 +6,6 @@ import 'package:dio/dio.dart';
 
 import 'api_client.dart';
 import 'init_service.dart';
-import '../database/app_database.dart';
 
 // Auth state
 class AuthState {
@@ -176,8 +175,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// Run MagicBet initialization if this is the first login
   Future<void> _runInitializationIfNeeded() async {
     try {
-      final db = AppDatabase();
-      await InitializationService.checkAndRunSetup(db);
+      await InitializationService.checkAndRunSetup();
     } catch (e) {
       print('Initialization check failed: $e');
       // Don't throw - initialization is a background task

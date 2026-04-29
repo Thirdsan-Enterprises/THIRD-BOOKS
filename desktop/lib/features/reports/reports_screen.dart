@@ -1,4 +1,5 @@
-import 'dart:io';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -8,12 +9,10 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:csv/csv.dart';
-import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/models/models.dart';
-import '../../core/database/app_database.dart' hide Account, Customer, Vendor, Invoice, Bill, JournalEntry, JournalLine;
 
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({super.key});
@@ -1027,21 +1026,16 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       final pdf = await _buildPdfDocument(reportName);
       final bytes = await pdf.save();
       final filename = '${reportName.replaceAll(' ', '_')}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf';
-
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Export $reportName as PDF',
-        fileName: filename,
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-      );
-
-      if (path != null) {
-        await File(path).writeAsBytes(bytes);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('PDF exported: $path'), backgroundColor: AppColors.success),
-          );
-        }
+      final blob = html.Blob([bytes], 'application/pdf');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      html.AnchorElement(href: url)
+        ..setAttribute('download', filename)
+        ..click();
+      html.Url.revokeObjectUrl(url);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF exported: $filename'), backgroundColor: AppColors.success),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -3019,20 +3013,16 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       final csv = const ListToCsvConverter().convert(csvRows);
       final filename = '${reportName.replaceAll(' ', '_')}_${DateFormat('yyyyMMdd').format(DateTime.now())}.csv';
 
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Export $reportName as CSV',
-        fileName: filename,
-        type: FileType.custom,
-        allowedExtensions: ['csv'],
-      );
-
-      if (path != null) {
-        await File(path).writeAsString(csv);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('CSV exported: $path'), backgroundColor: AppColors.success),
-          );
-        }
+      final blob = html.Blob([csv], 'text/csv');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      html.AnchorElement(href: url)
+        ..setAttribute('download', filename)
+        ..click();
+      html.Url.revokeObjectUrl(url);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('CSV exported: $filename'), backgroundColor: AppColors.success),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -3386,20 +3376,17 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       if (bytes == null) throw Exception('Failed to generate Excel file');
 
       final filename = '${reportName.replaceAll(' ', '_')}_${DateFormat('yyyyMMdd').format(DateTime.now())}.xlsx';
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Export $reportName as Excel',
-        fileName: filename,
-        type: FileType.custom,
-        allowedExtensions: ['xlsx'],
-      );
-
-      if (path != null) {
-        await File(path).writeAsBytes(bytes);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Excel exported: $path'), backgroundColor: AppColors.success),
-          );
-        }
+      final blob = html.Blob([bytes],
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      html.AnchorElement(href: url)
+        ..setAttribute('download', filename)
+        ..click();
+      html.Url.revokeObjectUrl(url);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Excel exported: $filename'), backgroundColor: AppColors.success),
+        );
       }
     } catch (e) {
       if (mounted) {

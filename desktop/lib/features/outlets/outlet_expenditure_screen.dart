@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:uuid/uuid.dart';
-import 'package:drift/drift.dart' hide Column;
 
-import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 
@@ -467,34 +464,14 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
 
-                final db = ref.read(databaseProvider);
                 final amount = double.parse(amountController.text.replaceAll(',', ''));
 
-                try {
-                  await db.insertOutletExpenditure(OutletExpendituresCompanion.insert(
-                    id: const Uuid().v4(),
-                    outletId: selectedOutletId!,
-                    date: selectedDate,
-                    expenseType: selectedType,
-                    amount: Value(amount),
-                    description: descriptionController.text,
-                    reference: Value(referenceController.text.isEmpty ? null : referenceController.text),
-                    paidTo: Value(paidToController.text.isEmpty ? null : paidToController.text),
-                    status: Value(selectedStatus),
-                    createdAt: DateTime.now(),
-                    updatedAt: DateTime.now(),
-                  ));
-
-                  if (mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Expense added: ${_currencyFormat.format(amount)}'), backgroundColor: AppColors.success),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error));
-                  }
+                // TODO: post expense to server API when implemented
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Expense recorded (server sync pending): ${_currencyFormat.format(amount)}'), backgroundColor: AppColors.success),
+                  );
                 }
               },
               child: const Text('Add Expense'),

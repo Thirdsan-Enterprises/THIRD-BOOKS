@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/auth_service.dart';
-import '../../core/services/sync_service.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -134,12 +133,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
         final isValid = await authService.validateToken();
 
         if (isValid && mounted) {
-          setState(() => _statusMessage = 'Syncing latest data...');
-
-          // Kick off a background sync so the app always has fresh cloud data
-          // on startup. We do not await so it doesn't block navigation.
-          ref.read(syncServiceProvider.notifier).syncAll();
-
           setState(() => _statusMessage = 'Welcome back!');
 
           // Ensure minimum 3 seconds total splash time
