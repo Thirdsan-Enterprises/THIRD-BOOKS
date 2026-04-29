@@ -1,12 +1,10 @@
-import 'dart:io';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:uuid/uuid.dart';
 import 'package:excel/excel.dart' as xl;
-import 'package:file_picker/file_picker.dart';
 
-import '../../core/database/app_database.dart' hide Bill;
 import '../../core/theme/app_theme.dart';
 import '../../core/providers/asset_drafts_provider.dart';
 import '../../core/providers/depreciation_schedules_provider.dart';
@@ -475,21 +473,20 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
     if (bytes == null) return;
 
     try {
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Export Asset Register',
-        fileName:
-            'asset_register_${DateFormat('yyyyMMdd').format(DateTime.now())}.xlsx',
-        type: FileType.custom,
-        allowedExtensions: ['xlsx'],
-      );
-      if (path != null) {
-        await File(path).writeAsBytes(bytes);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Exported: $path'),
-            backgroundColor: AppColors.success,
-          ));
-        }
+      final filename =
+          'asset_register_${DateFormat('yyyyMMdd').format(DateTime.now())}.xlsx';
+      final blob = html.Blob([bytes],
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      html.AnchorElement(href: url)
+        ..setAttribute('download', filename)
+        ..click();
+      html.Url.revokeObjectUrl(url);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Exported: $filename'),
+          backgroundColor: AppColors.success,
+        ));
       }
     } catch (e) {
       if (mounted) {

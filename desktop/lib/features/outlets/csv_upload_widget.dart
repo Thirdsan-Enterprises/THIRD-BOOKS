@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -44,9 +43,8 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
         withData: true,
       );
 
-      if (result != null && result.files.single.path != null) {
-        final file = File(result.files.single.path!);
-        final csvString = await file.readAsString();
+      if (result != null && result.files.single.bytes != null) {
+        final csvString = String.fromCharCodes(result.files.single.bytes!);
         final csvData = const CsvToListConverter().convert(csvString);
 
         setState(() {
@@ -84,8 +82,7 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
     });
 
     try {
-      final db = ref.read(databaseProvider);
-      final importService = CSVImportService(db);
+      final importService = CSVImportService(null);
 
       final result = await importService.importCSVData(
         _csvData!,

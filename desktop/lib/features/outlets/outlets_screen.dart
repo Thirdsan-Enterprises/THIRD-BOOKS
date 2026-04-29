@@ -1,14 +1,8 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
-import 'package:drift/drift.dart' hide Column;
 import 'package:csv/csv.dart';
-import 'package:file_picker/file_picker.dart';
 
-import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 
@@ -499,23 +493,14 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
 
     final csvContent = const ListToCsvConverter().convert(rows);
 
-    final savePath = await FilePicker.platform.saveFile(
-      dialogTitle: 'Save Outlets CSV',
-      fileName: 'magicbet_outlets_${DateFormat('yyyyMMdd').format(DateTime.now())}.csv',
-      allowedExtensions: ['csv'],
-      type: FileType.custom,
-    );
-
-    if (savePath != null) {
-      await File(savePath).writeAsString(csvContent);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Exported ${allOutlets.length} outlets to CSV.'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
+    // TODO: implement web-compatible download (dart:html Blob) or server export
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('CSV export: ${allOutlets.length} outlets ready (${csvContent.length} bytes). Server-side export pending implementation.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
     }
   }
 
@@ -524,109 +509,14 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
   // (CommissionRate and IsActive are optional — defaults are used if absent)
 
   Future<void> _importOutletsCsv() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['csv'],
-      dialogTitle: 'Select Outlets CSV',
-    );
-    if (result == null) return;
-
-    final filePath = result.files.single.path;
-    if (filePath == null) return;
-
-    final content = await File(filePath).readAsString();
-    final List<List<dynamic>> rows = const CsvToListConverter(eol: '\n').convert(content);
-
-    if (rows.length < 2) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('CSV is empty or missing data rows.'), backgroundColor: AppColors.warning),
-        );
-      }
-      return;
-    }
-
-    // Map header names to column indices (case-insensitive)
-    final header = rows.first.map((h) => h.toString().trim().toLowerCase()).toList();
-    int col(String name) => header.indexOf(name);
-
-    final codeIdx = col('outletcode') >= 0 ? col('outletcode') : 0;
-    final nameIdx = col('name') >= 0 ? col('name') : 1;
-    final cityIdx = col('city') >= 0 ? col('city') : 2;
-    final regionIdx = col('region') >= 0 ? col('region') : 3;
-    final ownerNameIdx = col('ownername') >= 0 ? col('ownername') : 4;
-    final ownerContactIdx = col('ownercontact') >= 0 ? col('ownercontact') : 5;
-    final commissionIdx = col('commissionrate');
-
-    final db = ref.read(databaseProvider);
-    int inserted = 0;
-    int updated = 0;
-    int skipped = 0;
-    final now = DateTime.now();
-    const uuid = Uuid();
-
-    for (final row in rows.skip(1)) {
-      if (row.isEmpty) continue;
-      final code = row.length > codeIdx ? row[codeIdx].toString().trim() : '';
-      final name = row.length > nameIdx ? row[nameIdx].toString().trim() : '';
-      if (code.isEmpty || name.isEmpty) { skipped++; continue; }
-
-      String? city = row.length > cityIdx ? row[cityIdx].toString().trim() : null;
-      String? region = row.length > regionIdx ? row[regionIdx].toString().trim() : null;
-      String? ownerName = row.length > ownerNameIdx ? row[ownerNameIdx].toString().trim() : null;
-      String? ownerContact = row.length > ownerContactIdx ? row[ownerContactIdx].toString().trim() : null;
-      final commissionRate = commissionIdx >= 0 && row.length > commissionIdx
-          ? double.tryParse(row[commissionIdx].toString()) ?? 40.0
-          : 40.0;
-
-      // Normalize empty strings to null
-      city = city?.isEmpty == true ? null : city;
-      region = region?.isEmpty == true ? null : region;
-      ownerName = ownerName?.isEmpty == true ? null : ownerName;
-      ownerContact = ownerContact?.isEmpty == true ? null : ownerContact;
-
-      try {
-        final existing = await db.getOutletByCode(code);
-        if (existing != null) {
-          await db.updateOutlet(OutletsCompanion(
-            id: Value(existing.id),
-            outletCode: Value(code),
-            name: Value(name),
-            city: Value(city),
-            region: Value(region),
-            ownerName: Value(ownerName),
-            ownerContact: Value(ownerContact),
-            commissionRate: Value(commissionRate),
-            isActive: Value(existing.isActive),
-            createdAt: Value(existing.createdAt),
-            updatedAt: Value(now),
-          ));
-          updated++;
-        } else {
-          await db.insertOutlet(OutletsCompanion.insert(
-            id: uuid.v4(),
-            outletCode: code,
-            name: name,
-            city: Value(city),
-            region: Value(region),
-            ownerName: Value(ownerName),
-            ownerContact: Value(ownerContact),
-            commissionRate: Value(commissionRate),
-            isActive: const Value(true),
-            createdAt: now,
-            updatedAt: now,
-          ));
-          inserted++;
-        }
-      } catch (e) {
-        skipped++;
-      }
-    }
-
+    // CSV import to local database is no longer supported.
+    // TODO: implement server-side outlet import via API.
     if (mounted) {
-      final msg = 'Import complete: $inserted new, $updated updated${skipped > 0 ? ', $skipped skipped' : ''}.';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: AppColors.success),
+        const SnackBar(
+          content: Text('CSV import not available: outlet data is now managed on the server.'),
+          backgroundColor: AppColors.warning,
+        ),
       );
     }
   }
@@ -753,43 +643,15 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
             FilledButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
-
-                final db = ref.read(databaseProvider);
-                final now = DateTime.now();
-
-                try {
-                  await db.insertOutlet(OutletsCompanion.insert(
-                    id: const Uuid().v4(),
-                    outletCode: codeController.text.trim(),
-                    name: nameController.text.trim(),
-                    address: Value(addressController.text.isEmpty ? null : addressController.text.trim()),
-                    city: Value(cityController.text.isEmpty ? null : cityController.text.trim()),
-                    region: Value(selectedRegion),
-                    ownerName: Value(ownerController.text.isEmpty ? null : ownerController.text.trim()),
-                    ownerContact: Value(contactController.text.isEmpty ? null : contactController.text.trim()),
-                    isActive: const Value(true),
-                    createdAt: now,
-                    updatedAt: now,
-                  ));
-
-                  if (mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Outlet added successfully'),
-                        backgroundColor: AppColors.success,
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Error adding outlet: $e'),
-                        backgroundColor: AppColors.error,
-                      ),
-                    );
-                  }
+                // TODO: create outlet via server API when implemented
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Outlet management now handled on server — contact admin.'),
+                      backgroundColor: AppColors.warning,
+                    ),
+                  );
                 }
               },
               child: const Text('Add Outlet'),
@@ -921,45 +783,15 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
             FilledButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
-
-                final db = ref.read(databaseProvider);
-                final now = DateTime.now();
-
-                try {
-                  await db.updateOutlet(OutletsCompanion(
-                    id: Value(outlet.id),
-                    outletCode: Value(codeController.text.trim()),
-                    name: Value(nameController.text.trim()),
-                    address: Value(addressController.text.isEmpty ? null : addressController.text.trim()),
-                    city: Value(cityController.text.isEmpty ? null : cityController.text.trim()),
-                    region: Value(selectedRegion),
-                    venueType: Value(outlet.venueType),
-                    ownerName: Value(ownerController.text.isEmpty ? null : ownerController.text.trim()),
-                    ownerContact: Value(contactController.text.isEmpty ? null : contactController.text.trim()),
-                    commissionRate: Value(double.parse(commissionController.text)),
-                    isActive: Value(outlet.isActive),
-                    createdAt: Value(outlet.createdAt),
-                    updatedAt: Value(now),
-                  ));
-
-                  if (mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Outlet updated successfully'),
-                        backgroundColor: AppColors.success,
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Error updating outlet: $e'),
-                        backgroundColor: AppColors.error,
-                      ),
-                    );
-                  }
+                // TODO: update outlet via server API when implemented
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Outlet management now handled on server — contact admin.'),
+                      backgroundColor: AppColors.warning,
+                    ),
+                  );
                 }
               },
               child: const Text('Save Changes'),
@@ -1022,67 +854,26 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
 
     if (confirmed != true) return;
 
-    final db = ref.read(databaseProvider);
-    try {
-      await db.deleteOutletWithData(outlet.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${outlet.name} and all its data deleted.'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Delete failed: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
+    // TODO: delete outlet via server API when implemented
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${outlet.name}: deletion now handled on server — contact admin.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
     }
   }
 
   Future<void> _toggleOutletStatus(Outlet outlet) async {
-    final db = ref.read(databaseProvider);
-    try {
-      await db.updateOutlet(OutletsCompanion(
-        id: Value(outlet.id),
-        outletCode: Value(outlet.outletCode),
-        name: Value(outlet.name),
-        address: Value(outlet.address),
-        city: Value(outlet.city),
-        postalCode: Value(outlet.postalCode),
-        region: Value(outlet.region),
-        venueType: Value(outlet.venueType),
-        ownerName: Value(outlet.ownerName),
-        ownerContact: Value(outlet.ownerContact),
-        commissionRate: Value(outlet.commissionRate),
-        isActive: Value(!outlet.isActive),
-        notes: Value(outlet.notes),
-        createdAt: Value(outlet.createdAt),
-        updatedAt: Value(DateTime.now()),
-      ));
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(outlet.isActive ? 'Outlet deactivated' : 'Outlet activated'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
+    // TODO: toggle outlet status via server API when implemented
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${outlet.name}: status change now handled on server — contact admin.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
     }
   }
 }

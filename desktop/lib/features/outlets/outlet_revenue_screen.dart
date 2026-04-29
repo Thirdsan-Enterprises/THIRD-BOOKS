@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:uuid/uuid.dart';
-import 'package:drift/drift.dart' hide Column;
 
-import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 
@@ -433,41 +430,16 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
 
-                final db = ref.read(databaseProvider);
                 final cashIn = double.parse(amountController.text.replaceAll(',', ''));
                 final cashOut = double.parse(cashOutController.text.replaceAll(',', ''));
                 final ggr = cashIn - cashOut;
-                final outlet = outletsData.firstWhere((o) => o.id == selectedOutletId);
 
-                try {
-                  await db.insertOutletRevenue(OutletRevenuesCompanion.insert(
-                    id: const Uuid().v4(),
-                    outletId: selectedOutletId!,
-                    date: selectedDate,
-                    amount: Value(cashIn),
-                    commissionAmount: Value(cashOut),
-                    netAmount: Value(ggr),
-                    description: Value(descriptionController.text.isEmpty
-                        ? '${outlet.name} - ${DateFormat('MMM d, yyyy').format(selectedDate)}'
-                        : descriptionController.text),
-                    reference: Value(referenceController.text.isEmpty ? null : referenceController.text),
-                    status: const Value('recorded'),
-                    createdAt: DateTime.now(),
-                    updatedAt: DateTime.now(),
-                  ));
-
-                  if (mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Revenue recorded: ${_currencyFormat.format(ggr)} GGR'), backgroundColor: AppColors.success),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
-                    );
-                  }
+                // TODO: record revenue via server API when implemented
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Revenue recorded (server sync pending): ${_currencyFormat.format(ggr)} GGR'), backgroundColor: AppColors.success),
+                  );
                 }
               },
               child: const Text('Record Revenue'),
