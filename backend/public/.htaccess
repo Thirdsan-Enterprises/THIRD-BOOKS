@@ -9,9 +9,10 @@
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
-    # Handle OPTIONS preflight requests
+    # Return 200 OK for OPTIONS preflight — must come before the Laravel route.
+    # R=200 sends HTTP 200 directly; mod_headers adds the CORS headers above.
     RewriteCond %{REQUEST_METHOD} OPTIONS
-    RewriteRule ^(.*)$ $1 [R=200,L]
+    RewriteRule .* - [R=200,L]
 
     # Redirect Trailing Slashes If Not A Folder...
     RewriteCond %{REQUEST_FILENAME} !-d
@@ -24,23 +25,23 @@
     RewriteRule ^ index.php [L]
 </IfModule>
 
-# Security Headers
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# The app uses Bearer token auth (Authorization header), NOT cookies, so we
+# can safely use a wildcard origin. This avoids all SetEnvIf regex issues and
+# works regardless of which subdomain the client is on.
+<IfModule mod_headers.c>
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, X-Tenant-ID, Accept, Origin"
+    Header always set Access-Control-Max-Age "86400"
+</IfModule>
+
+# ── Security Headers ──────────────────────────────────────────────────────────
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "SAMEORIGIN"
     Header always set X-XSS-Protection "1; mode=block"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
-</IfModule>
-
-# CORS Headers for API
-# Allow both the landing page and the MagicBet web app origins
-<IfModule mod_headers.c>
-    SetEnvIf Origin "^https://(thirdbooks\.digital|magicbet\.thirdbooks\.digital)$" CORS_ORIGIN=$0
-    Header always set Access-Control-Allow-Origin "%{CORS_ORIGIN}e" env=CORS_ORIGIN
-    Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, X-Tenant-ID, Accept"
-    Header always set Access-Control-Allow-Credentials "true"
-    Header always set Access-Control-Max-Age "86400"
 </IfModule>
 
 # Disable directory listing
