@@ -8,7 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 
 import 'local_storage_service.dart';
-import '../database/app_database.dart';
+import '../database/app_database.dart' show AppDatabase;
 import '../models/account.dart';
 import '../models/customer.dart';
 import '../models/vendor.dart';
