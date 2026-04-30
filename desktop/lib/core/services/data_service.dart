@@ -2008,10 +2008,59 @@ final csvImportProvider = StateNotifierProvider<CsvImportNotifier, CsvImportStat
 // Outlet Revenue Aggregation Providers
 // ============================================================================
 
-/// All outlet revenues stream — database retired; returns empty stream.
-final allOutletRevenuesProvider = StreamProvider<List<OutletRevenue>>((ref) {
-  return Stream.value([]);
+/// All outlet revenues — fetched from server client_sync_data blob store.
+final allOutletRevenuesProvider = StreamProvider<List<OutletRevenue>>((ref) async* {
+  final api = ref.read(apiClientProvider);
+  try {
+    final raw = await api.getOutletRevenues();
+    final revenues = raw.map((m) {
+      final id = m['id']?.toString() ?? _uuid.v4();
+      // Support both old camelCase format and new snake_case format
+      final outletCode = m['outlet_code']?.toString()
+          ?? m['outletCode']?.toString()
+          ?? '';
+      final outletId = m['outlet_id']?.toString()
+          ?? m['outletId']?.toString()
+          ?? outletCode;
+      final dateStr = m['date']?.toString()
+          ?? m['business_day']?.toString()
+          ?? m['businessDay']?.toString()
+          ?? '';
+      final date = DateTime.tryParse(dateStr) ?? DateTime.now();
+      final amount = _parseDouble(
+          m['stake_amount'] ?? m['stakeAmount'] ?? m['totalIn'] ?? m['amount'] ?? 0);
+      final payoutAmount = _parseDouble(
+          m['payout_amount'] ?? m['payoutAmount'] ?? m['totalOut'] ?? m['commissionAmount'] ?? 0);
+      final netAmount = _parseDouble(
+          m['net_amount'] ?? m['netAmount'] ?? m['totalGGR'] ?? m['ggr'] ?? 0);
+      final outletName = m['outlet_name']?.toString() ?? m['outletName']?.toString();
+      return OutletRevenue(
+        id: id,
+        outletId: outletCode.isNotEmpty ? outletCode : outletId,
+        date: date,
+        amount: amount,
+        commissionAmount: payoutAmount,
+        netAmount: netAmount,
+        description: outletName,
+        reference: m['reference']?.toString(),
+        status: 'recorded',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+    }).toList();
+    // Sort newest first
+    revenues.sort((a, b) => b.date.compareTo(a.date));
+    yield revenues;
+  } catch (_) {
+    yield [];
+  }
 });
+
+double _parseDouble(dynamic v) {
+  if (v == null) return 0.0;
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString().replaceAll(',', '').trim()) ?? 0.0;
+}
 
 /// Stream provider for all outlet expenditures — database retired; returns empty stream.
 final allOutletExpendituresProvider = StreamProvider<List<OutletExpenditure>>((ref) {

@@ -1,5 +1,8 @@
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 import 'api_client.dart';
+
+const _uuid = Uuid();
 
 /// Parses MagicBet outlet revenue CSV files and POSTs each row to the
 /// server's /api/outlet-revenues endpoint, which immediately creates the
@@ -103,6 +106,20 @@ class CSVImportService {
       final result = await _api!.postOutletRevenues(batch);
       final created = result['created'] as int? ?? 0;
       final skipped = result['skipped'] as int? ?? 0;
+
+      // Store raw rows in client_sync_data blob store so Revenue screen can
+      // display them. Only store newly created rows (skip duplicates already stored).
+      if (created > 0) {
+        try {
+          final blobs = batch.map((row) => {
+                ...row,
+                'id': _uuid.v4(),
+              }).toList();
+          await _api!.storeOutletRevenues(blobs);
+        } catch (_) {
+          // Non-fatal: JEs were already created; display sync failure is acceptable
+        }
+      }
 
       return CSVImportResult(
         successCount: created,

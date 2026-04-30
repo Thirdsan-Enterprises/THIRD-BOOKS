@@ -371,6 +371,18 @@ class ApiClient {
     }
   }
 
+  /// Fetch all outlet revenue records from the generic blob store.
+  Future<List<Map<String, dynamic>>> getOutletRevenues() async {
+    final resp = await get('/client-data/outlet-revenues');
+    return (resp.data['data'] as List? ?? []).cast<Map<String, dynamic>>();
+  }
+
+  /// Store outlet revenue records in the generic blob store for display.
+  /// Each record must have a unique 'id' field.
+  Future<void> storeOutletRevenues(List<Map<String, dynamic>> records) async {
+    await post('/client-data/outlet-revenues', data: {'records': records});
+  }
+
   // ── Banking — Statements ──────────────────────────────────────────────────
 
   /// Fetch all uploaded bank statements for the company.
