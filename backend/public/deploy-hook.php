@@ -127,7 +127,11 @@ if ($runCache) {
     }
 }
 
-// 5. Storage link (idempotent)
+// 5. Seed MagicBet outlets for all tenants (idempotent — uses updateOrCreate)
+$result = runArtisan('magicbet:seed-outlets --all', $projectRoot, $php, $artisan);
+$results[] = $result;
+
+// 6. Storage link (idempotent)
 $results[] = runArtisan('storage:link --force', $projectRoot, $php, $artisan);
 
 // 6. System diagnostic — output appears in GitHub Actions log after every deploy
