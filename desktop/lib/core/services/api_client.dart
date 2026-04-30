@@ -321,6 +321,23 @@ class ApiClient {
     }
   }
 
+  // ── Outlets ───────────────────────────────────────────────────────────────
+
+  /// Fetch all outlets from the server.
+  Future<List<Map<String, dynamic>>> getOutlets({String? region}) async {
+    final resp = await get('/outlets', queryParameters: {
+      if (region != null && region != 'All') 'region': region,
+    });
+    final list = (resp.data['data'] as List? ?? []).cast<Map<String, dynamic>>();
+    return list;
+  }
+
+  /// Seed default outlets on the server (idempotent).
+  Future<Map<String, dynamic>> seedOutlets() async {
+    final resp = await post('/outlets/seed', data: {});
+    return resp.data as Map<String, dynamic>;
+  }
+
   // ── Banking — Statements ──────────────────────────────────────────────────
 
   /// Fetch all uploaded bank statements for the company.
