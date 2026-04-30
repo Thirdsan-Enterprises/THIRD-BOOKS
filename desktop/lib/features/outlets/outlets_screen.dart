@@ -1,9 +1,14 @@
+import 'dart:convert';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:csv/csv.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/api_client.dart';
 import '../../core/services/data_service.dart';
 
 class OutletsScreen extends ConsumerStatefulWidget {
@@ -492,16 +497,13 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
     ];
 
     final csvContent = const ListToCsvConverter().convert(rows);
-
-    // TODO: implement web-compatible download (dart:html Blob) or server export
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('CSV export: ${allOutlets.length} outlets ready (${csvContent.length} bytes). Server-side export pending implementation.'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-    }
+    final bytes = utf8.encode(csvContent);
+    final blob = html.Blob([bytes], 'text/csv');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    html.AnchorElement(href: url)
+      ..setAttribute('download', 'outlets_export.csv')
+      ..click();
+    html.Url.revokeObjectUrl(url);
   }
 
   // ── CSV Import ────────────────────────────────────────────────────────────
@@ -509,13 +511,14 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
   // (CommissionRate and IsActive are optional — defaults are used if absent)
 
   Future<void> _importOutletsCsv() async {
-    // CSV import to local database is no longer supported.
-    // TODO: implement server-side outlet import via API.
+    // Outlet definition CSV import — each row creates/updates an outlet on the server.
+    // Expected columns: OutletCode, Name, City, Region, OwnerName, OwnerContact
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('CSV import not available: outlet data is now managed on the server.'),
-          backgroundColor: AppColors.warning,
+          content: Text(
+            'To import outlet definitions, use the server admin panel or contact your administrator.',
+          ),
         ),
       );
     }
@@ -643,15 +646,41 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
             FilledButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
-                // TODO: create outlet via server API when implemented
-                if (mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Outlet management now handled on server — contact admin.'),
-                      backgroundColor: AppColors.warning,
-                    ),
-                  );
+                Navigator.pop(context);
+                try {
+                  final api = ref.read(apiClientProvider);
+                  await api.createOutlet({
+                    'outlet_code': codeController.text.trim(),
+                    'name': nameController.text.trim(),
+                    if (addressController.text.trim().isNotEmpty)
+                      'address': addressController.text.trim(),
+                    if (cityController.text.trim().isNotEmpty)
+                      'city': cityController.text.trim(),
+                    if (selectedRegion != null) 'region': selectedRegion,
+                    if (ownerController.text.trim().isNotEmpty)
+                      'owner_name': ownerController.text.trim(),
+                    if (contactController.text.trim().isNotEmpty)
+                      'owner_contact': contactController.text.trim(),
+                    'is_active': true,
+                  });
+                  ref.invalidate(outletsStreamProvider);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Outlet created successfully.'),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error: $e'),
+                        backgroundColor: AppColors.error,
+                      ),
+                    );
+                  }
                 }
               },
               child: const Text('Add Outlet'),
@@ -783,15 +812,38 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
             FilledButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
-                // TODO: update outlet via server API when implemented
-                if (mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Outlet management now handled on server — contact admin.'),
-                      backgroundColor: AppColors.warning,
-                    ),
-                  );
+                Navigator.pop(context);
+                try {
+                  final api = ref.read(apiClientProvider);
+                  await api.updateOutlet(outlet.id, {
+                    'outlet_code': codeController.text.trim(),
+                    'name': nameController.text.trim(),
+                    'address': addressController.text.trim(),
+                    'city': cityController.text.trim(),
+                    if (selectedRegion != null) 'region': selectedRegion,
+                    'owner_name': ownerController.text.trim(),
+                    'owner_contact': contactController.text.trim(),
+                    'commission_rate':
+                        double.tryParse(commissionController.text) ?? 40.0,
+                  });
+                  ref.invalidate(outletsStreamProvider);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Outlet updated successfully.'),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error: $e'),
+                        backgroundColor: AppColors.error,
+                      ),
+                    );
+                  }
                 }
               },
               child: const Text('Save Changes'),
@@ -854,26 +906,54 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
 
     if (confirmed != true) return;
 
-    // TODO: delete outlet via server API when implemented
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${outlet.name}: deletion now handled on server — contact admin.'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.deleteOutlet(outlet.id);
+      ref.invalidate(outletsStreamProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${outlet.name} deleted permanently.'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting outlet: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 
   Future<void> _toggleOutletStatus(Outlet outlet) async {
-    // TODO: toggle outlet status via server API when implemented
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${outlet.name}: status change now handled on server — contact admin.'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.updateOutlet(outlet.id, {'is_active': !outlet.isActive});
+      ref.invalidate(outletsStreamProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${outlet.name} ${outlet.isActive ? 'deactivated' : 'activated'}.',
+            ),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating status: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 }

@@ -338,6 +338,39 @@ class ApiClient {
     return resp.data as Map<String, dynamic>;
   }
 
+  /// Create a new outlet.
+  Future<Map<String, dynamic>> createOutlet(Map<String, dynamic> data) async {
+    final resp = await post('/outlets', data: data);
+    return (resp.data['data'] as Map<String, dynamic>? ?? resp.data as Map<String, dynamic>? ?? {});
+  }
+
+  /// Update an existing outlet.
+  Future<Map<String, dynamic>> updateOutlet(
+      String id, Map<String, dynamic> data) async {
+    final resp = await put('/outlets/$id', data: data);
+    return (resp.data['data'] as Map<String, dynamic>? ?? resp.data as Map<String, dynamic>? ?? {});
+  }
+
+  /// Delete an outlet permanently.
+  Future<void> deleteOutlet(String id) async {
+    await delete('/outlets/$id');
+  }
+
+  // ── Outlet Revenues ───────────────────────────────────────────────────────
+
+  /// POST outlet revenue rows parsed from a CSV file.
+  /// Each row must have: outlet_code, date, stake_amount, payout_amount, net_amount.
+  /// Returns {created, skipped, errors}.
+  Future<Map<String, dynamic>> postOutletRevenues(
+      List<Map<String, dynamic>> rows) async {
+    try {
+      final resp = await post('/outlet-revenues', data: rows);
+      return resp.data as Map<String, dynamic>? ?? {};
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
   // ── Banking — Statements ──────────────────────────────────────────────────
 
   /// Fetch all uploaded bank statements for the company.
