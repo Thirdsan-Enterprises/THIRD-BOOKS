@@ -14,6 +14,7 @@ use App\Http\Controllers\SyncController;
 use App\Http\Controllers\ConflictController;
 use App\Http\Controllers\API\AccountDataController;
 use App\Http\Controllers\API\Outlets\OutletRevenueController;
+use App\Http\Controllers\API\Outlets\OutletController;
 use App\Http\Controllers\API\AttachmentController;
 use App\Http\Controllers\API\Banking\BankStatementController;
 use App\Http\Controllers\API\Banking\BankReconciliationController;
@@ -112,6 +113,10 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/statements/{statement}/lines/{line}/reconcile', [BankReconciliationController::class, 'reconcile']); // 1 line → many bills
             Route::delete('/reconciliation-items/{item}', [BankReconciliationController::class, 'unreconcile']); // Reverse
         });
+
+        // Outlets CRUD + seed
+        Route::post('outlets/seed', [OutletController::class, 'seed']);
+        Route::apiResource('outlets', OutletController::class);
 
         // Outlet Revenue — posts DR Petty Cash / DR Payouts / CR Stakes JEs
         Route::prefix('outlet-revenues')->group(function () {
