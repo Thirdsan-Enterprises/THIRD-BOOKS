@@ -114,6 +114,7 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
 
         // Invalidate all data providers so dashboard and reports reflect new data immediately
         ref.invalidate(dashboardDataProvider);
+        ref.invalidate(allOutletRevenuesProvider);
         ref.invalidate(outletRevenueSummaryProvider);
         ref.invalidate(outletAnalyticsProvider);
         ref.invalidate(journalsProvider);

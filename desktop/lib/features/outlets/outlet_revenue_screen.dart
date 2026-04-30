@@ -94,7 +94,7 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
                       items: [
                         const DropdownMenuItem<String?>(value: null, child: Text('All Outlets')),
                         ...outlets.map((o) => DropdownMenuItem(
-                              value: o.id,
+                              value: o.outletCode,
                               child: Text('${o.name} (${o.outletCode})'),
                             )),
                       ],
@@ -122,8 +122,12 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
           // Summary Cards
           revenuesAsync.when(
             data: (revenues) {
+              final outletsForFilter = ref.watch(outletsStreamProvider).valueOrNull ?? [];
+              final outletCodeFromId = {for (var o in outletsForFilter) o.id: o.outletCode};
               final filtered = _selectedOutletId != null
-                  ? revenues.where((r) => r.outletId == _selectedOutletId).toList()
+                  ? revenues.where((r) =>
+                        r.outletId == _selectedOutletId ||
+                        outletCodeFromId[r.outletId] == _selectedOutletId).toList()
                   : revenues;
               final totalIn = filtered.fold<double>(0, (s, r) => s + r.amount);
               final totalOut = filtered.fold<double>(0, (s, r) => s + r.commissionAmount);
@@ -181,7 +185,11 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
                     child: revenuesAsync.when(
                       data: (revenues) {
                         final outletsData = ref.watch(outletsStreamProvider).valueOrNull ?? [];
-                        final outletMap = {for (var o in outletsData) o.id: o};
+                        // Support old data (keyed by server UUID) and new data (keyed by outlet code)
+                        final outletMapById = {for (var o in outletsData) o.id: o};
+                        final outletMapByCode = {for (var o in outletsData) o.outletCode: o};
+                        Outlet? findOutlet(String outletId) =>
+                            outletMapById[outletId] ?? outletMapByCode[outletId];
 
                         var filtered = revenues.toList();
                         if (_selectedOutletId != null) {
@@ -189,10 +197,11 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
                         }
                         if (_searchQuery.isNotEmpty) {
                           filtered = filtered.where((r) {
-                            final outlet = outletMap[r.outletId];
+                            final outlet = findOutlet(r.outletId);
                             return outlet?.name.toLowerCase().contains(_searchQuery.toLowerCase()) == true ||
                                 outlet?.outletCode.toLowerCase().contains(_searchQuery.toLowerCase()) == true ||
-                                (r.description?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
+                                (r.description?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
+                                r.outletId.toLowerCase().contains(_searchQuery.toLowerCase());
                           }).toList();
                         }
                         filtered.sort((a, b) => b.date.compareTo(a.date));
@@ -216,7 +225,7 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
                           itemCount: filtered.length,
                           itemBuilder: (context, index) {
                             final rev = filtered[index];
-                            final outlet = outletMap[rev.outletId];
+                            final outlet = findOutlet(rev.outletId);
                             return Container(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                               decoration: BoxDecoration(
@@ -230,8 +239,8 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(outlet?.name ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.w500)),
-                                        Text(outlet?.outletCode ?? '', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)),
+                                        Text(outlet?.name ?? rev.description ?? rev.outletId, style: const TextStyle(fontWeight: FontWeight.w500)),
+                                        Text(outlet?.outletCode ?? rev.outletId, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)),
                                       ],
                                     ),
                                   ),
