@@ -5,6 +5,7 @@ import 'package:csv/csv.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/api_client.dart';
 import '../../core/services/csv_import_service.dart';
 import '../../core/services/data_service.dart';
 
@@ -82,7 +83,7 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
     });
 
     try {
-      final importService = CSVImportService(null);
+      final importService = CSVImportService(ref.read(apiClientProvider));
 
       final result = await importService.importCSVData(
         _csvData!,
