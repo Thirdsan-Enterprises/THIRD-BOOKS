@@ -96,15 +96,11 @@ class ConnectivityNotifier extends StateNotifier<ConnectivityState> {
   Timer? _checkTimer;
 
   ConnectivityNotifier(this._apiClient) : super(ConnectivityState()) {
-    _startPeriodicCheck();
-    checkConnectivity();
+    // No periodic check — auto-sync removed. Connectivity state is not needed.
   }
 
   void _startPeriodicCheck() {
-    _checkTimer?.cancel();
-    _checkTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      checkConnectivity();
-    });
+    // No-op: periodic connectivity check removed.
   }
 
   Future<void> checkConnectivity() async {
@@ -211,22 +207,11 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
   Future<void> _initialize() async {
     await _localStorage.initialize();
     await _loadPendingChanges();
-    _startAutoSync();
-
-    // Pull from server as soon as connectivity is established (handles app
-    // startup and reconnection after an offline period).
-    _ref.listen<ConnectivityState>(connectivityProvider, (previous, next) {
-      if (next.isOnline && !(previous?.isOnline ?? false)) {
-        _attemptAutoSync();
-      }
-    });
+    // Auto-sync disabled — data sharing is done via Export/Import file transfer.
   }
 
   void _startAutoSync() {
-    _autoSyncTimer?.cancel();
-    _autoSyncTimer = Timer.periodic(const Duration(minutes: 5), (_) {
-      _attemptAutoSync();
-    });
+    // No-op: auto-sync removed. Use Export Backup / Import Backup instead.
   }
 
   Future<void> _attemptAutoSync() async {
@@ -270,12 +255,6 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
 
     await _localStorage.addToSyncQueue(item);
     await _loadPendingChanges();
-
-    // Try to sync immediately if online
-    final connectivity = _ref.read(connectivityProvider);
-    if (connectivity.isOnline) {
-      _processSingleItem(item);
-    }
   }
 
   // ============================================================================

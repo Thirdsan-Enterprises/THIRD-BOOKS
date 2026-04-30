@@ -4,10 +4,11 @@
 
 import 'dart:convert';
 import 'dart:io';
-import 'package:file_picker/file_picker.dart'; // used for saveFile in exportBackup
+import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 
 import 'local_storage_service.dart';
+import '../database/app_database.dart';
 import '../models/account.dart';
 import '../models/customer.dart';
 import '../models/vendor.dart';
@@ -40,19 +41,19 @@ class RestoreResult {
 }
 
 class LocalBackupService {
-  static const _backupVersion = '1.1';
+  static const _backupVersion = '1.2';
   static const _appTag = 'ThirdBooks';
   final LocalStorageService _ls;
+  final AppDatabase _db;
 
-  LocalBackupService(this._ls);
+  LocalBackupService(this._ls, this._db);
 
   // ── Export ──────────────────────────────────────────────────────────────────
 
-  /// Gathers all local data, serialises to JSON, prompts user to save.
-  /// Returns [BackupResult] with path + counts, or null if the dialog was cancelled.
   Future<BackupResult?> exportBackup() async {
     await _ls.initialize();
 
+    // JSON-store entities
     final accounts     = await _ls.loadAccounts();
     final customers    = await _ls.loadCustomers();
     final vendors      = await _ls.loadVendors();
@@ -65,19 +66,32 @@ class LocalBackupService {
     final creditNotes  = await _ls.loadCreditNotes();
     final debitNotes   = await _ls.loadDebitNotes();
 
+    // SQLite/Drift entities
+    final dbOutlets       = await _db.getAllOutlets();
+    final dbRevenues      = await _db.getAllOutletRevenues();
+    final dbExpenditures  = await _db.getAllOutletExpenditures();
+    final dbCommissions   = await _db.getAllCommissionPayments();
+
+    // Build outlet code map for FK resolution on import
+    final outletCodeMap = {for (final o in dbOutlets) o.id: o.outletCode};
+
     final now = DateTime.now();
     final counts = {
-      'accounts':           accounts.length,
-      'customers':          customers.length,
-      'vendors':            vendors.length,
-      'invoices':           invoices.length,
-      'bills':              bills.length,
-      'journals':           journals.length,
-      'payments':           payments.length,
-      'bank_transactions':  bankTxns.length,
-      'outlet_settlements': settlements.length,
-      'credit_notes':       creditNotes.length,
-      'debit_notes':        debitNotes.length,
+      'accounts':            accounts.length,
+      'customers':           customers.length,
+      'vendors':             vendors.length,
+      'invoices':            invoices.length,
+      'bills':               bills.length,
+      'journals':            journals.length,
+      'payments':            payments.length,
+      'bank_transactions':   bankTxns.length,
+      'outlet_settlements':  settlements.length,
+      'credit_notes':        creditNotes.length,
+      'debit_notes':         debitNotes.length,
+      'outlets':             dbOutlets.length,
+      'outlet_revenues':     dbRevenues.length,
+      'outlet_expenditures': dbExpenditures.length,
+      'commission_payments': dbCommissions.length,
     };
 
     final payload = {
@@ -97,6 +111,68 @@ class LocalBackupService {
         'outlet_settlements': settlements.map((e) => e.toJson()).toList(),
         'credit_notes':       creditNotes.map((e) => e.toJson()).toList(),
         'debit_notes':        debitNotes.map((e) => e.toJson()).toList(),
+        'outlets': dbOutlets.map((o) => {
+          'id':             o.id,
+          'outlet_code':    o.outletCode,
+          'name':           o.name,
+          'address':        o.address,
+          'city':           o.city,
+          'postal_code':    o.postalCode,
+          'region':         o.region,
+          'venue_type':     o.venueType,
+          'owner_name':     o.ownerName,
+          'owner_contact':  o.ownerContact,
+          'commission_rate': o.commissionRate,
+          'is_active':      o.isActive,
+          'notes':          o.notes,
+          'created_at':     o.createdAt.toIso8601String(),
+          'updated_at':     o.updatedAt.toIso8601String(),
+        }).toList(),
+        'outlet_revenues': dbRevenues.map((r) => {
+          'id':                r.id,
+          'outlet_id':         r.outletId,
+          'outlet_code':       outletCodeMap[r.outletId] ?? '',
+          'date':              r.date.toIso8601String(),
+          'amount':            r.amount,
+          'commission_amount': r.commissionAmount,
+          'net_amount':        r.netAmount,
+          'description':       r.description,
+          'reference':         r.reference,
+          'status':            r.status,
+          'created_at':        r.createdAt.toIso8601String(),
+          'updated_at':        r.updatedAt.toIso8601String(),
+        }).toList(),
+        'outlet_expenditures': dbExpenditures.map((e) => {
+          'id':           e.id,
+          'outlet_id':    e.outletId,
+          'outlet_code':  outletCodeMap[e.outletId] ?? '',
+          'date':         e.date.toIso8601String(),
+          'expense_type': e.expenseType,
+          'amount':       e.amount,
+          'description':  e.description,
+          'reference':    e.reference,
+          'paid_to':      e.paidTo,
+          'status':       e.status,
+          'created_at':   e.createdAt.toIso8601String(),
+          'updated_at':   e.updatedAt.toIso8601String(),
+        }).toList(),
+        'commission_payments': dbCommissions.map((c) => {
+          'id':                 c.id,
+          'outlet_id':          c.outletId,
+          'outlet_code':        outletCodeMap[c.outletId] ?? '',
+          'period_start':       c.periodStart.toIso8601String(),
+          'period_end':         c.periodEnd.toIso8601String(),
+          'total_revenue':      c.totalRevenue,
+          'commission_rate':    c.commissionRate,
+          'commission_amount':  c.commissionAmount,
+          'status':             c.status,
+          'paid_date':          c.paidDate?.toIso8601String(),
+          'payment_method':     c.paymentMethod,
+          'payment_reference':  c.paymentReference,
+          'notes':              c.notes,
+          'created_at':         c.createdAt.toIso8601String(),
+          'updated_at':         c.updatedAt.toIso8601String(),
+        }).toList(),
       },
     };
 
@@ -110,7 +186,6 @@ class LocalBackupService {
     );
     if (savePath == null) return null;
 
-    // Ensure extension
     final finalPath = savePath.endsWith('.thirdbooks') ? savePath : '$savePath.thirdbooks';
     await File(finalPath).writeAsString(const JsonEncoder.withIndent('  ').convert(payload));
 
@@ -119,14 +194,12 @@ class LocalBackupService {
 
   // ── Import / Restore ────────────────────────────────────────────────────────
 
-  /// Parse a backup file at [filePath] and return a preview without writing.
   Future<RestoreResult> previewRestoreFromPath(String filePath) async {
     final content = await File(filePath).readAsString();
     return _parse(content, filePath: filePath) ??
         RestoreResult(counts: {}, exportedAt: '', success: false, error: 'Could not parse file');
   }
 
-  /// Restores from the file previously previewed. Pass the raw JSON content.
   Future<RestoreResult> restoreFromFile(String filePath) async {
     final content = await File(filePath).readAsString();
     final parsed = _parse(content, filePath: filePath);
@@ -156,6 +229,26 @@ class LocalBackupService {
     counts['outlet_settlements'] = await restore('outlet_settlements', OutletSettlement.fromJson, _ls.saveOutletSettlements);
     counts['credit_notes']       = await restore('credit_notes',       CreditNote.fromJson,       _ls.saveCreditNotes);
     counts['debit_notes']        = await restore('debit_notes',        DebitNote.fromJson,        _ls.saveDebitNotes);
+
+    // Restore SQLite/Drift entities using outlet_code for FK resolution.
+    // Outlets are pre-seeded so we skip re-inserting them.
+    final rawRevenues = data['outlet_revenues'] as List? ?? [];
+    for (final item in rawRevenues.whereType<Map<String, dynamic>>()) {
+      await _db.upsertOutletRevenueFromMap(item);
+    }
+    counts['outlet_revenues'] = rawRevenues.length;
+
+    final rawExpenditures = data['outlet_expenditures'] as List? ?? [];
+    for (final item in rawExpenditures.whereType<Map<String, dynamic>>()) {
+      await _db.upsertOutletExpenditureFromMap(item);
+    }
+    counts['outlet_expenditures'] = rawExpenditures.length;
+
+    final rawCommissions = data['commission_payments'] as List? ?? [];
+    for (final item in rawCommissions.whereType<Map<String, dynamic>>()) {
+      await _db.upsertCommissionPaymentFromMap(item);
+    }
+    counts['commission_payments'] = rawCommissions.length;
 
     return RestoreResult(counts: counts, exportedAt: json['exported_at'] ?? '');
   }
