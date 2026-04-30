@@ -27,6 +27,13 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
   final _numberFormat = NumberFormat('#,##0', 'en_US');
   String? _selectedOutletId;
   String _searchQuery = '';
+  bool _weeklyView = true;
+
+  /// Returns Monday of the week containing [d].
+  DateTime _weekStart(DateTime d) {
+    final daysFromMonday = d.weekday - 1;
+    return DateTime(d.year, d.month, d.day - daysFromMonday);
+  }
 
   @override
   void initState() {
@@ -71,6 +78,17 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
                     ],
                   ),
                 ),
+                ToggleButtons(
+                  isSelected: [_weeklyView, !_weeklyView],
+                  onPressed: (i) => setState(() => _weeklyView = i == 0),
+                  borderRadius: BorderRadius.circular(8),
+                  constraints: const BoxConstraints(minHeight: 36),
+                  children: const [
+                    Padding(padding: EdgeInsets.symmetric(horizontal: 14), child: Text('Weekly')),
+                    Padding(padding: EdgeInsets.symmetric(horizontal: 14), child: Text('Daily')),
+                  ],
+                ),
+                const SizedBox(width: 12),
                 FilledButton.icon(
                   onPressed: () => _showAddRevenueDialog(),
                   icon: const Icon(Icons.add),
@@ -169,14 +187,14 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
                       color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
                       border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Expanded(flex: 2, child: Text('Outlet', style: TextStyle(fontWeight: FontWeight.bold))),
-                        Expanded(child: Text('Date', style: TextStyle(fontWeight: FontWeight.bold))),
-                        Expanded(child: Text('Cash In', style: TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
-                        Expanded(child: Text('Cash Out', style: TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
-                        Expanded(child: Text('GGR', style: TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
-                        Expanded(child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+                        const Expanded(flex: 2, child: Text('Outlet', style: TextStyle(fontWeight: FontWeight.bold))),
+                        Expanded(child: Text(_weeklyView ? 'Week' : 'Date', style: const TextStyle(fontWeight: FontWeight.bold))),
+                        const Expanded(child: Text('Cash In', style: TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
+                        const Expanded(child: Text('Cash Out', style: TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
+                        const Expanded(child: Text('GGR', style: TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right)),
+                        Expanded(child: Text(_weeklyView ? 'Days' : 'Status', style: const TextStyle(fontWeight: FontWeight.bold))),
                       ],
                     ),
                   ),
@@ -184,7 +202,10 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
                     child: revenuesAsync.when(
                       data: (revenues) {
                         final outletsData = ref.watch(outletsStreamProvider).valueOrNull ?? [];
-                        final outletMap = {for (var o in outletsData) o.id: o};
+                        final outletMapById = {for (var o in outletsData) o.id: o};
+                        final outletMapByCode = {for (var o in outletsData) o.outletCode: o};
+                        Outlet? findOutlet(String id) =>
+                            outletMapById[id] ?? outletMapByCode[id];
 
                         var filtered = revenues.toList();
                         if (_selectedOutletId != null) {
@@ -192,7 +213,7 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
                         }
                         if (_searchQuery.isNotEmpty) {
                           filtered = filtered.where((r) {
-                            final outlet = outletMap[r.outletId];
+                            final outlet = findOutlet(r.outletId);
                             return outlet?.name.toLowerCase().contains(_searchQuery.toLowerCase()) == true ||
                                 outlet?.outletCode.toLowerCase().contains(_searchQuery.toLowerCase()) == true ||
                                 (r.description?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
@@ -205,21 +226,110 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.receipt_long_outlined, size: 64, color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
+                                Icon(Icons.receipt_long_outlined, size: 64,
+                                    color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
                                 const SizedBox(height: 16),
-                                Text('No revenue records found', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.outline)),
+                                Text('No revenue records found',
+                                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                        color: Theme.of(context).colorScheme.outline)),
                                 const SizedBox(height: 8),
-                                Text('Import CSV data or record revenue manually', style: Theme.of(context).textTheme.bodySmall),
+                                Text('Import CSV data or record revenue manually',
+                                    style: Theme.of(context).textTheme.bodySmall),
                               ],
                             ),
                           );
                         }
 
+                        // ── Weekly view ──────────────────────────────────────
+                        if (_weeklyView) {
+                          // Group by (outletId, week-start Monday)
+                          final groups = <String, Map<String, dynamic>>{};
+                          for (final rev in filtered) {
+                            final ws = _weekStart(rev.date);
+                            final key = '${rev.outletId}|${ws.toIso8601String()}';
+                            groups.putIfAbsent(key, () => {
+                              'outletId': rev.outletId,
+                              'weekStart': ws,
+                              'weekEnd': ws.add(const Duration(days: 6)),
+                              'cashIn': 0.0,
+                              'cashOut': 0.0,
+                              'ggr': 0.0,
+                              'count': 0,
+                            });
+                            groups[key]!['cashIn'] = (groups[key]!['cashIn'] as double) + rev.amount;
+                            groups[key]!['cashOut'] = (groups[key]!['cashOut'] as double) + rev.commissionAmount;
+                            groups[key]!['ggr'] = (groups[key]!['ggr'] as double) + rev.netAmount;
+                            groups[key]!['count'] = (groups[key]!['count'] as int) + 1;
+                          }
+                          final weeks = groups.values.toList()
+                            ..sort((a, b) => (b['weekStart'] as DateTime).compareTo(a['weekStart'] as DateTime));
+
+                          return ListView.builder(
+                            itemCount: weeks.length,
+                            itemBuilder: (context, index) {
+                              final w = weeks[index];
+                              final outlet = findOutlet(w['outletId'] as String);
+                              final ws = w['weekStart'] as DateTime;
+                              final we = w['weekEnd'] as DateTime;
+                              final ggr = w['ggr'] as double;
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: index.isEven ? null : Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.1),
+                                  border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.5))),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 2,
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(outlet?.name ?? w['outletId'] as String,
+                                              style: const TextStyle(fontWeight: FontWeight.w500)),
+                                          Text(outlet?.outletCode ?? '',
+                                              style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)),
+                                        ],
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        '${DateFormat('MMM d').format(ws)} – ${DateFormat('MMM d, yyyy').format(we)}',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    ),
+                                    Expanded(child: Text('UGX ${_numberFormat.format(w['cashIn'])}',
+                                        textAlign: TextAlign.right,
+                                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
+                                    Expanded(child: Text('UGX ${_numberFormat.format(w['cashOut'])}',
+                                        textAlign: TextAlign.right,
+                                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
+                                    Expanded(
+                                      child: Text('UGX ${_numberFormat.format(ggr)}',
+                                          textAlign: TextAlign.right,
+                                          style: TextStyle(
+                                              fontFamily: 'monospace',
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: ggr >= 0 ? AppColors.success : AppColors.error)),
+                                    ),
+                                    Expanded(
+                                      child: Text('${w['count']} day${(w['count'] as int) == 1 ? '' : 's'}',
+                                          style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          );
+                        }
+
+                        // ── Daily view ───────────────────────────────────────
                         return ListView.builder(
                           itemCount: filtered.length,
                           itemBuilder: (context, index) {
                             final rev = filtered[index];
-                            final outlet = outletMap[rev.outletId];
+                            final outlet = findOutlet(rev.outletId);
                             return Container(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                               decoration: BoxDecoration(
@@ -233,32 +343,37 @@ class _OutletRevenueScreenState extends ConsumerState<OutletRevenueScreen> {
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(outlet?.name ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.w500)),
-                                        Text(outlet?.outletCode ?? '', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)),
+                                        Text(outlet?.name ?? rev.description ?? rev.outletId,
+                                            style: const TextStyle(fontWeight: FontWeight.w500)),
+                                        Text(outlet?.outletCode ?? rev.outletId,
+                                            style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)),
                                       ],
                                     ),
                                   ),
                                   Expanded(child: Text(DateFormat('MMM d, yyyy').format(rev.date))),
-                                  Expanded(child: Text('UGX ${_numberFormat.format(rev.amount)}', textAlign: TextAlign.right, style: const TextStyle(fontFamily: 'monospace'))),
-                                  Expanded(child: Text('UGX ${_numberFormat.format(rev.commissionAmount)}', textAlign: TextAlign.right, style: const TextStyle(fontFamily: 'monospace'))),
-                                  Expanded(
-                                    child: Text(
-                                      'UGX ${_numberFormat.format(rev.netAmount)}',
+                                  Expanded(child: Text('UGX ${_numberFormat.format(rev.amount)}',
                                       textAlign: TextAlign.right,
-                                      style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w600, color: rev.netAmount >= 0 ? AppColors.success : AppColors.error),
-                                    ),
+                                      style: const TextStyle(fontFamily: 'monospace'))),
+                                  Expanded(child: Text('UGX ${_numberFormat.format(rev.commissionAmount)}',
+                                      textAlign: TextAlign.right,
+                                      style: const TextStyle(fontFamily: 'monospace'))),
+                                  Expanded(
+                                    child: Text('UGX ${_numberFormat.format(rev.netAmount)}',
+                                        textAlign: TextAlign.right,
+                                        style: TextStyle(
+                                            fontFamily: 'monospace',
+                                            fontWeight: FontWeight.w600,
+                                            color: rev.netAmount >= 0 ? AppColors.success : AppColors.error)),
                                   ),
                                   Expanded(
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: rev.status == 'recorded' ? AppColors.info.withOpacity(0.1) : AppColors.success.withOpacity(0.1),
+                                        color: AppColors.info.withOpacity(0.1),
                                         borderRadius: BorderRadius.circular(4),
                                       ),
-                                      child: Text(
-                                        rev.status,
-                                        style: TextStyle(fontSize: 12, color: rev.status == 'recorded' ? AppColors.info : AppColors.success),
-                                      ),
+                                      child: Text(rev.status,
+                                          style: TextStyle(fontSize: 12, color: AppColors.info)),
                                     ),
                                   ),
                                 ],
