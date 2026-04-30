@@ -1819,25 +1819,60 @@ final paymentsProvider = StateNotifierProvider<PaymentsNotifier, PaymentsState>(
 // Outlets Service - Database Stream
 // ============================================================================
 
-/// Stream provider that watches outlets — outlet database has been retired.
-/// Outlets now come from the server; returning empty stream until implemented.
-final outletsStreamProvider = StreamProvider<List<Outlet>>((ref) {
-  return Stream.value([]);
+/// Fetches all outlets from the server API.
+final outletsStreamProvider = StreamProvider<List<Outlet>>((ref) async* {
+  final api = ref.read(apiClientProvider);
+  try {
+    final raw = await api.getOutlets();
+    final outlets = raw.map((m) => Outlet(
+      id: m['id']?.toString() ?? '',
+      outletCode: m['outlet_code'] as String? ?? '',
+      name: m['name'] as String? ?? '',
+      address: m['address'] as String?,
+      city: m['city'] as String?,
+      postalCode: m['postal_code'] as String?,
+      region: m['region'] as String?,
+      venueType: m['venue_type'] as String?,
+      ownerName: m['owner_name'] as String?,
+      ownerContact: m['owner_contact'] as String?,
+      commissionRate: double.tryParse(m['commission_rate']?.toString() ?? '40') ?? 40,
+      isActive: m['is_active'] == true || m['is_active'] == 1,
+      notes: m['notes'] as String?,
+      createdAt: DateTime.tryParse(m['created_at']?.toString() ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(m['updated_at']?.toString() ?? '') ?? DateTime.now(),
+    )).toList();
+    yield outlets;
+  } catch (_) {
+    yield [];
+  }
 });
 
-/// Get active outlets count
+/// Active outlet count derived from the outlet stream.
 final activeOutletsCountProvider = Provider<int>((ref) {
-  return 0;
+  return ref.watch(outletsStreamProvider).when(
+    data: (list) => list.where((o) => o.isActive).length,
+    loading: () => 0,
+    error: (_, __) => 0,
+  );
 });
 
-/// Get outlets by region
+/// Outlets filtered by region.
 final outletsByRegionProvider = Provider.family<List<Outlet>, String>((ref, region) {
-  return [];
+  return ref.watch(outletsStreamProvider).when(
+    data: (list) => region == 'All' ? list : list.where((o) => o.region == region).toList(),
+    loading: () => [],
+    error: (_, __) => [],
+  );
 });
 
-/// Sorted outlets stream (by outlet code/ID)
+/// Outlets sorted by outlet code.
 final sortedOutletsStreamProvider = Provider<Stream<List<Outlet>>>((ref) {
-  return Stream.value([]);
+  final async = ref.watch(outletsStreamProvider);
+  return Stream.value(async.when(
+    data: (list) => [...list]..sort((a, b) => a.outletCode.compareTo(b.outletCode)),
+    loading: () => [],
+    error: (_, __) => [],
+  ));
 });
 
 // ============================================================================
