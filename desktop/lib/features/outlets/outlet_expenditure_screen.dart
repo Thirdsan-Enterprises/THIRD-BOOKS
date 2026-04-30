@@ -164,7 +164,7 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text('Outlet Commission Expense (40% of GGR)',
+                                        Text('Operator Fee (40% of GGR)',
                                             style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
                                         Text('Paid to location owners — calculated after carry-forward loss adjustment',
                                             style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
@@ -175,7 +175,7 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
                                   Column(
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
-                                      Text('Total Commission', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
+                                      Text('Total Operator Fee', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
                                       Text(
                                         'UGX ${_numberFormat.format(totalCommission.round())}',
                                         style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: AppColors.warning),
@@ -192,7 +192,7 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
                                 children: [
                                   Expanded(flex: 3, child: Text('Outlet', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
                                   Expanded(flex: 2, child: Text('Total GGR', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12), textAlign: TextAlign.right)),
-                                  Expanded(flex: 2, child: Text('Commission (40%)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.warning), textAlign: TextAlign.right)),
+                                  Expanded(flex: 2, child: Text('Operator Fee (40%)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.warning), textAlign: TextAlign.right)),
                                   Expanded(flex: 2, child: Text('Net Revenue (60%)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.income), textAlign: TextAlign.right)),
                                 ],
                               ),

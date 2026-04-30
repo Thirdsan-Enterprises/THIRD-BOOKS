@@ -484,7 +484,7 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
     }
 
     final rows = <List<dynamic>>[
-      ['OutletCode', 'Name', 'City', 'Region', 'OwnerName', 'OwnerContact', 'CommissionRate', 'IsActive'],
+      ['OutletCode', 'Name', 'City', 'Region', 'OwnerName', 'OwnerContact', 'OperatorRate', 'IsActive'],
       ...allOutlets.map((o) => [
             o.outletCode,
             o.name,
@@ -897,7 +897,7 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                     TextFormField(
                       controller: commissionController,
                       decoration: const InputDecoration(
-                        labelText: 'Commission Rate (%)',
+                        labelText: 'Operator Rate (%)',
                         suffix: Text('%'),
                       ),
                       keyboardType: TextInputType.number,
@@ -1000,7 +1000,7 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                 border: Border.all(color: AppColors.error.withOpacity(0.3)),
               ),
               child: const Text(
-                'This will permanently delete the outlet AND all its revenue records, expenditures, and commission payments. This cannot be undone.',
+                'This will permanently delete the outlet AND all its revenue records, expenditures, and operator payments. This cannot be undone.',
                 style: TextStyle(fontSize: 13),
               ),
             ),

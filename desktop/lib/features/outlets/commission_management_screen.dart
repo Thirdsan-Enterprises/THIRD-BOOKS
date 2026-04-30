@@ -31,12 +31,12 @@ class _CommissionManagementScreenState extends ConsumerState<CommissionManagemen
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Commission Management'),
+        title: const Text('Operator Payments'),
         actions: [
           IconButton(
             icon: const Icon(Icons.calculate),
             onPressed: _showCalculateCommissionsDialog,
-            tooltip: 'Calculate Commissions',
+            tooltip: 'Calculate Operator Payments',
           ),
           IconButton(
             icon: const Icon(Icons.payment),
@@ -62,7 +62,7 @@ class _CommissionManagementScreenState extends ConsumerState<CommissionManagemen
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showCalculateCommissionsDialog,
         icon: const Icon(Icons.calculate),
-        label: const Text('Calculate Commissions'),
+        label: const Text('Calculate Operator Payments'),
         backgroundColor: AppColors.primary,
       ),
     );
@@ -204,18 +204,18 @@ class _CommissionManagementScreenState extends ConsumerState<CommissionManagemen
           ),
           const SizedBox(height: 16),
           Text(
-            'No commission records found',
+            'No operator payment records found',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: Theme.of(context).colorScheme.outline,
                 ),
           ),
           const SizedBox(height: 8),
-          const Text('Calculate commissions to get started'),
+          const Text('Calculate operator payments to get started'),
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: _showCalculateCommissionsDialog,
             icon: const Icon(Icons.calculate),
-            label: const Text('Calculate Commissions'),
+            label: const Text('Calculate Operator Payments'),
           ),
         ],
       ),
@@ -230,7 +230,7 @@ class _CommissionManagementScreenState extends ConsumerState<CommissionManagemen
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('Calculate Commissions'),
+          title: const Text('Calculate Operator Payments'),
           content: SizedBox(
             width: 500,
             child: Column(
@@ -238,7 +238,7 @@ class _CommissionManagementScreenState extends ConsumerState<CommissionManagemen
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Select the period for commission calculation:',
+                  'Select the period for operator payment calculation:',
                   style: TextStyle(fontSize: 14),
                 ),
                 const SizedBox(height: 16),
@@ -305,14 +305,14 @@ class _CommissionManagementScreenState extends ConsumerState<CommissionManagemen
                           Icon(Icons.info_outline, color: AppColors.info, size: 20),
                           const SizedBox(width: 8),
                           const Text(
-                            'Commission Calculation',
+                            'Operator Payment Calculation',
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        '• Calculates 40% commission on all outlet revenues\n'
+                        '• Calculates 40% operator fee on all outlet revenues\n'
                         '• Groups by outlet and period\n'
                         '• Creates payment vouchers for location owners\n'
                         '• Excludes already calculated periods',
@@ -342,7 +342,7 @@ class _CommissionManagementScreenState extends ConsumerState<CommissionManagemen
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Commissions calculated successfully'),
+                      content: Text('Operator payments calculated successfully'),
                       backgroundColor: AppColors.success,
                     ),
                   );
@@ -382,7 +382,7 @@ class _CommissionManagementScreenState extends ConsumerState<CommissionManagemen
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('This will mark all pending commissions as paid.'),
+            Text('This will mark all pending operator payments as paid.'),
             SizedBox(height: 16),
             Text(
               'Are you sure you want to continue?',

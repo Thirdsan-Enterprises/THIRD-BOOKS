@@ -139,7 +139,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         // Features
                         _buildFeature(Icons.store_outlined, 'Multi-Outlet Management'),
                         const SizedBox(height: 16),
-                        _buildFeature(Icons.account_balance_wallet_outlined, 'Revenue & Commission Tracking'),
+                        _buildFeature(Icons.account_balance_wallet_outlined, 'Revenue & Operator Fee Tracking'),
                         const SizedBox(height: 16),
                         _buildFeature(Icons.analytics_outlined, 'Real-Time Performance Reports'),
                         const Spacer(),

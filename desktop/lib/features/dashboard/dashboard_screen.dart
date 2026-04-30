@@ -203,7 +203,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           child: _KPICard(
             title: 'Outlet Expense (40%)',
             value: _formatCurrency(data.totalExpenses),
-            change: 'Commission to owners',
+            change: 'Operator Fee to owners',
             isPositive: false,
             icon: Icons.handshake_outlined,
             color: AppColors.warning,

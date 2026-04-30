@@ -115,7 +115,7 @@ class _OutletAnalyticsScreenState extends ConsumerState<OutletAnalyticsScreen>
                       ?.copyWith(fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               Text(
-                'Revenue · Commission · Net — with carry-forward loss adjustment',
+                'Revenue · Operator Fee · Net — with carry-forward loss adjustment',
                 style: Theme.of(context)
                     .textTheme
                     .bodyMedium
@@ -159,7 +159,7 @@ class _OutletAnalyticsScreenState extends ConsumerState<OutletAnalyticsScreen>
             child: _KPI(
               label: 'Outlet Expense (40%)',
               value: _fc(data.totalOutletExpense),
-              sub: 'Commission to location owners',
+              sub: 'Operator Fee to location owners',
               icon: Icons.handshake_outlined,
               color: AppColors.warning,
             ),
