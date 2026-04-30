@@ -1,16 +1,6 @@
 name: Deploy Landing Page & Admin Panel to Production
 
 on:
-  push:
-    branches:
-      - master
-      - main
-      - 'claude/**'
-  pull_request:
-    branches:
-      - master
-      - main
-    types: [ closed ]
   workflow_dispatch:
     inputs:
       reason:
