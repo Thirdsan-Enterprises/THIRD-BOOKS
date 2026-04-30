@@ -117,12 +117,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   Future<void> _checkSystemStatus(DateTime startTime) async {
     setState(() {
-      _statusMessage = 'Checking connection...';
+      _statusMessage = 'Loading...';
       _isConnecting = true;
     });
 
     try {
-      // Check if user is already authenticated
       final authService = ref.read(authServiceProvider);
       final isAuthenticated = await authService.isAuthenticated();
 
@@ -130,40 +129,31 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
         setState(() => _statusMessage = 'Restoring session...');
         await Future.delayed(const Duration(milliseconds: 500));
 
-        // Validate token with API
-        final isValid = await authService.validateToken();
+        // For offline-session tokens (local users: Marion, Allan) skip the
+        // server round-trip entirely — they will never have a valid Sanctum
+        // token, so validateToken() always returns false and would redirect
+        // them to the login screen on every launch.
+        final token = await authService.getToken() ?? '';
+        final isOfflineSession = token.startsWith('offline-session-');
+
+        bool isValid = isOfflineSession;
+        if (!isOfflineSession) {
+          isValid = await authService.validateToken();
+        }
 
         if (isValid && mounted) {
-          setState(() => _statusMessage = 'Syncing latest data...');
-
-          // Kick off a background sync so the app always has fresh cloud data
-          // on startup. We do not await so it doesn't block navigation.
-          ref.read(syncServiceProvider.notifier).syncAll();
-
           setState(() => _statusMessage = 'Welcome back!');
-
-          // Ensure minimum 3 seconds total splash time
           await _ensureMinimumDuration(startTime);
-
-          if (mounted) {
-            context.go('/');
-          }
+          if (mounted) context.go('/');
           return;
         }
       }
 
       setState(() => _statusMessage = 'Ready');
-
-      // Ensure minimum 3 seconds total splash time
       await _ensureMinimumDuration(startTime);
-
-      if (mounted) {
-        context.go('/login');
-      }
+      if (mounted) context.go('/login');
     } catch (e) {
       setState(() => _statusMessage = 'Offline mode available');
-
-      // Ensure minimum 3 seconds total splash time
       await _ensureMinimumDuration(startTime);
 
       if (mounted) {

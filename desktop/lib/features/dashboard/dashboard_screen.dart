@@ -77,35 +77,43 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     return Scaffold(
       body: dashboardAsync.when(
-        data: (data) => SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(context, user?.name, data),
-              const SizedBox(height: 24),
-              _buildKPICards(context, data),
-              const SizedBox(height: 24),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(flex: 2, child: _buildRevenueChart(context, data)),
-                  const SizedBox(width: 24),
-                  Expanded(child: _buildCashFlowSummary(context, data)),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: _buildRecentTransactions(context, data)),
-                  const SizedBox(width: 24),
-                  Expanded(child: _buildAccountsReceivable(context, data)),
-                ],
-              ),
-            ],
-          ),
-        ),
+        data: (data) {
+          // No data yet — show a friendly "get started" prompt instead of zeros.
+          if (data.totalRevenue == 0 &&
+              data.cashIn == 0 &&
+              data.recentTransactions.isEmpty) {
+            return _buildEmptyState(context, user?.name);
+          }
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeader(context, user?.name, data),
+                const SizedBox(height: 24),
+                _buildKPICards(context, data),
+                const SizedBox(height: 24),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 2, child: _buildRevenueChart(context, data)),
+                    const SizedBox(width: 24),
+                    Expanded(child: _buildCashFlowSummary(context, data)),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _buildRecentTransactions(context, data)),
+                    const SizedBox(width: 24),
+                    Expanded(child: _buildAccountsReceivable(context, data)),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
         loading: () => const Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -131,6 +139,94 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(BuildContext context, String? userName) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(48),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.bar_chart_outlined, size: 80,
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
+            const SizedBox(height: 24),
+            Text(
+              'Welcome${userName != null ? ', $userName' : ''}!',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'No outlet revenue data yet. Import your CSV file to see the dashboard.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.outline),
+            ),
+            const SizedBox(height: 32),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => context.go('/outlet-upload'),
+                  icon: const Icon(Icons.upload_file, size: 20),
+                  label: const Text('Import CSV Data'),
+                ),
+                const SizedBox(width: 16),
+                OutlinedButton.icon(
+                  onPressed: () => context.go('/settings'),
+                  icon: const Icon(Icons.restore, size: 20),
+                  label: const Text('Restore Backup'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 32),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.info_outline, color: AppColors.info, size: 20),
+                      const SizedBox(width: 8),
+                      Text('How to get started', style: Theme.of(context).textTheme.titleSmall),
+                    ]),
+                    const SizedBox(height: 12),
+                    _emptyStep('1', 'Go to Outlet Upload in the sidebar'),
+                    _emptyStep('2', 'Click "Upload CSV File" and select your AccountingTotalsInOut.csv'),
+                    _emptyStep('3', 'The dashboard will populate automatically after import'),
+                    const Divider(height: 24),
+                    _emptyStep('↕', 'To share data with another computer: Settings → Export Backup'),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyStep(String step, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 24, height: 24,
+            margin: const EdgeInsets.only(right: 10),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Text(step, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary)),
+          ),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
+        ],
       ),
     );
   }
