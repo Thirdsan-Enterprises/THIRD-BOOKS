@@ -1210,11 +1210,25 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
       final db = _ref.read(databaseProvider);
       await db.clearAllData();
 
-      // Invalidate cached FutureProviders so dashboard, analytics, expenditure,
-      // and reports screens immediately reflect the cleared state without restart.
+      // Invalidate cached FutureProviders and StreamProviders so all screens
+      // immediately reflect the cleared state without needing a restart.
       _ref.invalidate(dashboardDataProvider);
       _ref.invalidate(outletAnalyticsProvider);
       _ref.invalidate(outletRevenueSummaryProvider);
+      _ref.invalidate(allOutletRevenuesProvider);
+      _ref.invalidate(allOutletExpendituresProvider);
+      // Reload core accounting StateNotifiers from now-empty JSON stores.
+      try {
+        await Future.wait([
+          _ref.read(accountsProvider.notifier).loadAccounts(),
+          _ref.read(customersProvider.notifier).loadCustomers(),
+          _ref.read(vendorsProvider.notifier).loadVendors(),
+          _ref.read(invoicesProvider.notifier).loadInvoices(),
+          _ref.read(billsProvider.notifier).loadBills(),
+          _ref.read(journalsProvider.notifier).loadJournals(),
+          _ref.read(paymentsProvider.notifier).loadPayments(),
+        ]);
+      } catch (_) {}
       // Reset StateNotifier-based local stores so their in-memory state
       // matches the now-empty disk — no restart required.
       try {
