@@ -1,59 +1,116 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
+import '../database/app_database.dart';
+import '../utils/magic_bet_setup.dart';
 import 'local_storage_service.dart';
 
 /// Initialization Service
 ///
-/// Handles first-time setup tasks and cached demo-data purge.
-/// The SQLite / AppDatabase layer has been removed — all data now comes
-/// directly from the server API.
+/// Handles first-time setup tasks:
+/// - Run MagicBet setup (import outlets, configure system)
+/// - Initialize chart of accounts
+/// - Set commission rates
+/// - Clear demo data from ThirdBooks API on upgrade
 class InitializationService {
   static const _storage = FlutterSecureStorage();
   static const _setupCompleteKey = 'magicbet_setup_complete';
   static const _setupVersionKey = 'magicbet_setup_version';
   static const _demoPurgedKey = 'demo_data_purged_v4';
-  static const currentSetupVersion = '5.0.0';
+  static const currentSetupVersion = '4.0.0';
 
+  /// Check if initial setup has been completed
   static Future<bool> isSetupComplete() async {
     final complete = await _storage.read(key: _setupCompleteKey);
     final version = await _storage.read(key: _setupVersionKey);
-    return complete == 'true' && version == currentSetupVersion;
+
+    // If setup is marked complete and version matches, return true
+    if (complete == 'true' && version == currentSetupVersion) {
+      return true;
+    }
+
+    return false;
   }
 
+  /// Mark setup as complete
   static Future<void> markSetupComplete() async {
     await _storage.write(key: _setupCompleteKey, value: 'true');
     await _storage.write(key: _setupVersionKey, value: currentSetupVersion);
   }
 
+  /// Reset setup status (for testing/re-initialization)
   static Future<void> resetSetup() async {
     await _storage.delete(key: _setupCompleteKey);
     await _storage.delete(key: _setupVersionKey);
   }
 
-  /// Purge any locally cached demo data left over from prior offline-first
-  /// builds. Runs once per install; subsequent calls are no-ops.
+  /// Purge demo data from ThirdBooks API that was cached in local storage.
+  /// This runs once on upgrade to v2.0.0 to remove all fake data
+  /// (customers, vendors, invoices, bills, journals, payments)
+  /// that was fetched from api.thirdbooks.digital.
   static Future<void> purgeDemoData() async {
     final purged = await _storage.read(key: _demoPurgedKey);
     if (purged == 'true') return;
 
+    print('Purging cached demo data from local storage...');
     final localStorage = LocalStorageService.instance;
+    await localStorage.initialize();
+
+    // Clear all entity data that came from the ThirdBooks demo API
     await localStorage.saveCustomers([]);
     await localStorage.saveVendors([]);
     await localStorage.saveInvoices([]);
     await localStorage.saveBills([]);
     await localStorage.saveJournalEntries([]);
     await localStorage.savePayments([]);
+    // Also clear accounts so MagicBet defaults get re-seeded
     await localStorage.saveAccounts([]);
 
     await _storage.write(key: _demoPurgedKey, value: 'true');
+    print('Demo data purged. System will start fresh with MagicBet defaults.');
   }
 
-  /// Called after every login. Clears demo data once, then marks setup done.
-  static Future<void> checkAndRunSetup() async {
+  /// Run the complete MagicBet initialization
+  static Future<void> runMagicBetSetup(AppDatabase db) async {
+    try {
+      print('Starting MagicBet initialization...');
+
+      // First purge any cached demo data from ThirdBooks API
+      await purgeDemoData();
+
+      // Run the main setup script (imports outlets)
+      await setupMagicBet(db);
+
+      // Mark setup as complete
+      await markSetupComplete();
+
+      print('MagicBet initialization completed successfully!');
+    } catch (e) {
+      print('MagicBet initialization failed: $e');
+      rethrow;
+    }
+  }
+
+  /// Check and run setup if needed.
+  ///
+  /// Called after every login. Always ensures the 72 outlet locations are
+  /// present in the database (idempotent — seedOutlets only inserts missing
+  /// codes, so this is fast after the first run).
+  static Future<bool> checkAndRunSetup(AppDatabase db) async {
+    // Always purge demo data on upgrade (idempotent - only runs once)
     await purgeDemoData();
 
-    if (!await isSetupComplete()) {
-      await markSetupComplete();
+    final setupComplete = await isSetupComplete();
+
+    if (!setupComplete) {
+      print('First-time setup detected. Running MagicBet initialization...');
+      await runMagicBetSetup(db);
+      return true; // Full setup was run
     }
+
+    // Even when setup is flagged complete, always ensure outlets are seeded.
+    // Handles: clearAllData() called, DB migrated with stale codes, fresh DB
+    // on a new machine where onCreate already ran but old codes were used.
+    await db.seedOutlets();
+    print('MagicBet outlets verified.');
+    return false; // Setup was already complete
   }
 }

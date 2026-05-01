@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
+import 'package:drift/drift.dart' hide Column;
 
+import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 
@@ -161,7 +164,7 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text('Outlet Commission Expense (40% of GGR)',
+                                        Text('Operator Fee (40% of GGR)',
                                             style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
                                         Text('Paid to location owners — calculated after carry-forward loss adjustment',
                                             style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
@@ -172,7 +175,7 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
                                   Column(
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
-                                      Text('Total Commission', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
+                                      Text('Total Operator Fee', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
                                       Text(
                                         'UGX ${_numberFormat.format(totalCommission.round())}',
                                         style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: AppColors.warning),
@@ -189,7 +192,7 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
                                 children: [
                                   Expanded(flex: 3, child: Text('Outlet', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
                                   Expanded(flex: 2, child: Text('Total GGR', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12), textAlign: TextAlign.right)),
-                                  Expanded(flex: 2, child: Text('Commission (40%)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.warning), textAlign: TextAlign.right)),
+                                  Expanded(flex: 2, child: Text('Operator Fee (40%)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.warning), textAlign: TextAlign.right)),
                                   Expanded(flex: 2, child: Text('Net Revenue (60%)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.income), textAlign: TextAlign.right)),
                                 ],
                               ),
@@ -464,14 +467,34 @@ class _OutletExpenditureScreenState extends ConsumerState<OutletExpenditureScree
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
 
+                final db = ref.read(databaseProvider);
                 final amount = double.parse(amountController.text.replaceAll(',', ''));
 
-                // TODO: post expense to server API when implemented
-                if (mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Expense recorded (server sync pending): ${_currencyFormat.format(amount)}'), backgroundColor: AppColors.success),
-                  );
+                try {
+                  await db.insertOutletExpenditure(OutletExpendituresCompanion.insert(
+                    id: const Uuid().v4(),
+                    outletId: selectedOutletId!,
+                    date: selectedDate,
+                    expenseType: selectedType,
+                    amount: Value(amount),
+                    description: descriptionController.text,
+                    reference: Value(referenceController.text.isEmpty ? null : referenceController.text),
+                    paidTo: Value(paidToController.text.isEmpty ? null : paidToController.text),
+                    status: Value(selectedStatus),
+                    createdAt: DateTime.now(),
+                    updatedAt: DateTime.now(),
+                  ));
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Expense added: ${_currencyFormat.format(amount)}'), backgroundColor: AppColors.success),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error));
+                  }
                 }
               },
               child: const Text('Add Expense'),

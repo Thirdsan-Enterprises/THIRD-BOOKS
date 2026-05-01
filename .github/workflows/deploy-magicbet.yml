@@ -1,26 +1,12 @@
 name: Build & Deploy MagicBet Web App
 
 on:
-  push:
-    branches:
-      - master
-      - main
-      - 'claude/**'
-  pull_request:
-    branches:
-      - master
-      - main
-    types: [closed]
   workflow_dispatch:
     inputs:
       reason:
-        description: 'Deployment reason'
+        description: 'Manual trigger reason'
         required: false
-        default: 'Manual deployment trigger'
 
-concurrency:
-  group: deploy-magicbet-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build-and-deploy:

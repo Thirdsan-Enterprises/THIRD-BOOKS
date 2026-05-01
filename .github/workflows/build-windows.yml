@@ -1,0 +1,245 @@
+name: Build Windows x64
+
+on:
+  push:
+    branches: [ main, 'claude/**', 'fix/**' ]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/build-windows.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.19.0'
+  APP_VERSION: '1.0.2'
+
+jobs:
+  build-windows:
+    name: Build Windows x64 Installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter version info
+        run: |
+          flutter --version
+          flutter doctor -v
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Check for windows folder
+        working-directory: desktop
+        run: |
+          if (Test-Path "windows") {
+            Write-Host "Windows folder exists"
+            Get-ChildItem windows
+          } else {
+            Write-Host "Windows folder does not exist, creating..."
+            flutter create --platforms=windows --org=com.thirdbooks --project-name=thirdbooks .
+          }
+
+      - name: Generate app icon
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          # Install Magick for SVG to ICO conversion
+          choco install imagemagick -y --no-progress
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+          # Convert SVG to ICO with multiple sizes for Windows
+          $svgPath = "assets/images/icon.svg"
+          $icoPath = "assets/images/app_icon.ico"
+          $pngPath = "assets/images/app_icon.png"
+
+          # Generate PNG first (256x256)
+          magick convert -background none -resize 256x256 $svgPath $pngPath
+
+          # Generate ICO with multiple sizes
+          magick convert $pngPath -define icon:auto-resize=256,128,64,48,32,16 $icoPath
+
+          Write-Host "Generated app_icon.ico and app_icon.png"
+
+          # Replace the default Flutter icon in the windows runner
+          if (Test-Path "windows/runner/resources") {
+            Copy-Item $icoPath "windows/runner/resources/app_icon.ico" -Force
+            Write-Host "Replaced windows runner icon"
+          }
+
+      - name: Get dependencies
+        working-directory: desktop
+        run: flutter pub get
+
+      - name: Cache pdfium download
+        uses: actions/cache@v4
+        with:
+          # pdfium is downloaded by the printing plugin's CMake into this path.
+          # Caching it avoids the flaky ExternalProject network fetch on every run.
+          path: desktop/build/windows/x64/flutter/ephemeral/.plugin_symlinks/printing/windows/pdfium-prefix
+          key: pdfium-win-x64-${{ hashFiles('desktop/pubspec.yaml') }}
+          restore-keys: |
+            pdfium-win-x64-
+
+      - name: Pre-download pdfium (fallback for cache miss)
+        shell: pwsh
+        run: |
+          # Locate the printing plugin in the Flutter pub cache to read its
+          # CMakeLists.txt and discover which pdfium version it needs.
+          $pubCache = (flutter pub cache path 2>$null) -replace '\s',''
+          if (-not $pubCache) { $pubCache = "$env:LOCALAPPDATA\Pub\Cache" }
+
+          $cmakeFile = Get-ChildItem -Recurse -Path "$pubCache\hosted\pub.dev" `
+            -Filter "CMakeLists.txt" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "printing.*windows" } |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          $version = $null
+          if ($cmakeFile) {
+            $content = Get-Content $cmakeFile -Raw
+            if ($content -match 'chromium[/\\%](\d+)') {
+              $version = $Matches[1]
+              Write-Host "Detected pdfium version: chromium/$version"
+            }
+          }
+
+          # Fallback versions in order of likelihood for printing ^5.11.0
+          $candidates = if ($version) { @($version, '6406', '6337') } else { @('6406', '6337', '6259') }
+
+          $destDir = "desktop\build\windows\x64\flutter\ephemeral\.plugin_symlinks\printing\windows\pdfium-prefix\src\pdfium"
+          $tgzPath = "pdfium-win-x64.tgz"
+
+          # Skip if pdfium was restored from cache
+          if (Test-Path $destDir) {
+            Write-Host "pdfium already present (cache hit) — skipping download."
+            exit 0
+          }
+
+          New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+
+          $downloaded = $false
+          foreach ($ver in $candidates) {
+            $url = "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F$ver/pdfium-win-x64.tgz"
+            Write-Host "Trying pdfium chromium/$ver ..."
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $tgzPath -TimeoutSec 120 -UseBasicParsing
+              Write-Host "Downloaded pdfium chromium/$ver"
+              $downloaded = $true
+              break
+            } catch {
+              Write-Host "  Failed: $_"
+            }
+          }
+
+          if ($downloaded) {
+            # Extract the archive so CMake's UPDATE_DISCONNECTED skips the fetch
+            tar -xzf $tgzPath -C $destDir --strip-components=0 2>$null
+            Write-Host "pdfium extracted to $destDir"
+          } else {
+            Write-Host "Pre-download failed — flutter build will attempt its own download."
+          }
+
+      - name: Generate Drift database code
+        working-directory: desktop
+        run: |
+          Write-Host "Running build_runner for code generation..."
+          dart run build_runner build --delete-conflicting-outputs
+        continue-on-error: true
+
+      - name: Verify generated files
+        working-directory: desktop
+        run: |
+          Write-Host "Checking for generated files..."
+          if (Test-Path "lib/core/database/app_database.g.dart") {
+            Write-Host "Database generated file exists"
+          } else {
+            Write-Host "WARNING: Database generated file not found"
+          }
+
+      - name: Build Windows Release
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          # Retry up to 3 times — pdfium download via CMake ExternalProject is
+          # occasionally flaky on CI due to transient network issues.
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            Write-Host "=== Build attempt $attempt/3 ==="
+            flutter build windows --release
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Build succeeded on attempt $attempt."
+              break
+            }
+            if ($attempt -lt 3) {
+              Write-Host "Build failed (exit $LASTEXITCODE). Cleaning partial pdfium downloads and retrying in 30s..."
+              Get-ChildItem -Path build -Recurse -Filter "pdfium-prefix" -ErrorAction SilentlyContinue |
+                ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+              Start-Sleep -Seconds 30
+            }
+          }
+          exit $LASTEXITCODE
+
+      - name: List build output
+        working-directory: desktop
+        run: |
+          Write-Host "Build output structure:"
+          Get-ChildItem -Recurse build/windows/x64/runner/Release | Select-Object FullName
+
+      - name: Create installer with Inno Setup
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          # Inno Setup is pre-installed on windows-latest runners
+          $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $innoPath)) {
+            # Try alternate location
+            $innoPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path $innoPath)) {
+            Write-Host "Installing Inno Setup..."
+            choco install innosetup -y --no-progress
+            $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+
+          Write-Host "Using Inno Setup at: $innoPath"
+
+          # Create output directory
+          New-Item -ItemType Directory -Path "build/installer" -Force
+
+          # Run Inno Setup compiler — pass APP_VERSION from the workflow env so the
+          # output filename always matches what the upload step expects.
+          & $innoPath "installer/thirdbooks_setup.iss" /DMyAppVersion="${{ env.APP_VERSION }}"
+
+          Write-Host "Installer created:"
+          Get-ChildItem "build/installer"
+
+      - name: Upload Windows Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ThirdBooks-Setup-x64
+          path: desktop/build/installer/ThirdBooks-Setup-*.exe
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Build Summary
+        if: always()
+        run: |
+          Write-Host "========================================"
+          Write-Host "  WINDOWS BUILD COMPLETE"
+          Write-Host "========================================"
+          Write-Host ""
+          Write-Host "Artifact: ThirdBooks-Setup-${{ env.APP_VERSION }}-x64.exe"
+          Write-Host "Platform: Windows x64"
+          Write-Host "Flutter:  ${{ env.FLUTTER_VERSION }}"
+          Write-Host "Output:   Single installer (.exe)"
+          Write-Host ""
