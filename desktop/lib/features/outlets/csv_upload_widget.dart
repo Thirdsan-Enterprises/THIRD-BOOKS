@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -5,7 +6,6 @@ import 'package:csv/csv.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../core/services/api_client.dart';
 import '../../core/services/csv_import_service.dart';
 import '../../core/services/data_service.dart';
 
@@ -44,8 +44,9 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
         withData: true,
       );
 
-      if (result != null && result.files.single.bytes != null) {
-        final csvString = String.fromCharCodes(result.files.single.bytes!);
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        final csvString = await file.readAsString();
         final csvData = const CsvToListConverter().convert(csvString);
 
         setState(() {
@@ -83,7 +84,8 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
     });
 
     try {
-      final importService = CSVImportService(ref.read(apiClientProvider));
+      final db = ref.read(databaseProvider);
+      final importService = CSVImportService(db);
 
       final result = await importService.importCSVData(
         _csvData!,
@@ -114,7 +116,6 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
 
         // Invalidate all data providers so dashboard and reports reflect new data immediately
         ref.invalidate(dashboardDataProvider);
-        ref.invalidate(allOutletRevenuesProvider);
         ref.invalidate(outletRevenueSummaryProvider);
         ref.invalidate(outletAnalyticsProvider);
         ref.invalidate(journalsProvider);

@@ -1,14 +1,15 @@
-import 'dart:convert';
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
+import 'package:drift/drift.dart' hide Column;
 import 'package:csv/csv.dart';
+import 'package:file_picker/file_picker.dart';
 
+import '../../core/database/app_database.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/services/api_client.dart';
 import '../../core/services/data_service.dart';
 
 class OutletsScreen extends ConsumerStatefulWidget {
@@ -483,7 +484,7 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
     }
 
     final rows = <List<dynamic>>[
-      ['OutletCode', 'Name', 'City', 'Region', 'OwnerName', 'OwnerContact', 'CommissionRate', 'IsActive'],
+      ['OutletCode', 'Name', 'City', 'Region', 'OwnerName', 'OwnerContact', 'OperatorRate', 'IsActive'],
       ...allOutlets.map((o) => [
             o.outletCode,
             o.name,
@@ -497,13 +498,25 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
     ];
 
     final csvContent = const ListToCsvConverter().convert(rows);
-    final bytes = utf8.encode(csvContent);
-    final blob = html.Blob([bytes], 'text/csv');
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    html.AnchorElement(href: url)
-      ..setAttribute('download', 'outlets_export.csv')
-      ..click();
-    html.Url.revokeObjectUrl(url);
+
+    final savePath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save Outlets CSV',
+      fileName: 'magicbet_outlets_${DateFormat('yyyyMMdd').format(DateTime.now())}.csv',
+      allowedExtensions: ['csv'],
+      type: FileType.custom,
+    );
+
+    if (savePath != null) {
+      await File(savePath).writeAsString(csvContent);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Exported ${allOutlets.length} outlets to CSV.'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    }
   }
 
   // ── CSV Import ────────────────────────────────────────────────────────────
@@ -511,15 +524,109 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
   // (CommissionRate and IsActive are optional — defaults are used if absent)
 
   Future<void> _importOutletsCsv() async {
-    // Outlet definition CSV import — each row creates/updates an outlet on the server.
-    // Expected columns: OutletCode, Name, City, Region, OwnerName, OwnerContact
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+      dialogTitle: 'Select Outlets CSV',
+    );
+    if (result == null) return;
+
+    final filePath = result.files.single.path;
+    if (filePath == null) return;
+
+    final content = await File(filePath).readAsString();
+    final List<List<dynamic>> rows = const CsvToListConverter(eol: '\n').convert(content);
+
+    if (rows.length < 2) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('CSV is empty or missing data rows.'), backgroundColor: AppColors.warning),
+        );
+      }
+      return;
+    }
+
+    // Map header names to column indices (case-insensitive)
+    final header = rows.first.map((h) => h.toString().trim().toLowerCase()).toList();
+    int col(String name) => header.indexOf(name);
+
+    final codeIdx = col('outletcode') >= 0 ? col('outletcode') : 0;
+    final nameIdx = col('name') >= 0 ? col('name') : 1;
+    final cityIdx = col('city') >= 0 ? col('city') : 2;
+    final regionIdx = col('region') >= 0 ? col('region') : 3;
+    final ownerNameIdx = col('ownername') >= 0 ? col('ownername') : 4;
+    final ownerContactIdx = col('ownercontact') >= 0 ? col('ownercontact') : 5;
+    final commissionIdx = col('commissionrate');
+
+    final db = ref.read(databaseProvider);
+    int inserted = 0;
+    int updated = 0;
+    int skipped = 0;
+    final now = DateTime.now();
+    const uuid = Uuid();
+
+    for (final row in rows.skip(1)) {
+      if (row.isEmpty) continue;
+      final code = row.length > codeIdx ? row[codeIdx].toString().trim() : '';
+      final name = row.length > nameIdx ? row[nameIdx].toString().trim() : '';
+      if (code.isEmpty || name.isEmpty) { skipped++; continue; }
+
+      String? city = row.length > cityIdx ? row[cityIdx].toString().trim() : null;
+      String? region = row.length > regionIdx ? row[regionIdx].toString().trim() : null;
+      String? ownerName = row.length > ownerNameIdx ? row[ownerNameIdx].toString().trim() : null;
+      String? ownerContact = row.length > ownerContactIdx ? row[ownerContactIdx].toString().trim() : null;
+      final commissionRate = commissionIdx >= 0 && row.length > commissionIdx
+          ? double.tryParse(row[commissionIdx].toString()) ?? 40.0
+          : 40.0;
+
+      // Normalize empty strings to null
+      city = city?.isEmpty == true ? null : city;
+      region = region?.isEmpty == true ? null : region;
+      ownerName = ownerName?.isEmpty == true ? null : ownerName;
+      ownerContact = ownerContact?.isEmpty == true ? null : ownerContact;
+
+      try {
+        final existing = await db.getOutletByCode(code);
+        if (existing != null) {
+          await db.updateOutlet(OutletsCompanion(
+            id: Value(existing.id),
+            outletCode: Value(code),
+            name: Value(name),
+            city: Value(city),
+            region: Value(region),
+            ownerName: Value(ownerName),
+            ownerContact: Value(ownerContact),
+            commissionRate: Value(commissionRate),
+            isActive: Value(existing.isActive),
+            createdAt: Value(existing.createdAt),
+            updatedAt: Value(now),
+          ));
+          updated++;
+        } else {
+          await db.insertOutlet(OutletsCompanion.insert(
+            id: uuid.v4(),
+            outletCode: code,
+            name: name,
+            city: Value(city),
+            region: Value(region),
+            ownerName: Value(ownerName),
+            ownerContact: Value(ownerContact),
+            commissionRate: Value(commissionRate),
+            isActive: const Value(true),
+            createdAt: now,
+            updatedAt: now,
+          ));
+          inserted++;
+        }
+      } catch (e) {
+        skipped++;
+      }
+    }
+
     if (mounted) {
+      final msg = 'Import complete: $inserted new, $updated updated${skipped > 0 ? ', $skipped skipped' : ''}.';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'To import outlet definitions, use the server admin panel or contact your administrator.',
-          ),
-        ),
+        SnackBar(content: Text(msg), backgroundColor: AppColors.success),
       );
     }
   }
@@ -646,28 +753,30 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
             FilledButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
-                Navigator.pop(context);
+
+                final db = ref.read(databaseProvider);
+                final now = DateTime.now();
+
                 try {
-                  final api = ref.read(apiClientProvider);
-                  await api.createOutlet({
-                    'outlet_code': codeController.text.trim(),
-                    'name': nameController.text.trim(),
-                    if (addressController.text.trim().isNotEmpty)
-                      'address': addressController.text.trim(),
-                    if (cityController.text.trim().isNotEmpty)
-                      'city': cityController.text.trim(),
-                    if (selectedRegion != null) 'region': selectedRegion,
-                    if (ownerController.text.trim().isNotEmpty)
-                      'owner_name': ownerController.text.trim(),
-                    if (contactController.text.trim().isNotEmpty)
-                      'owner_contact': contactController.text.trim(),
-                    'is_active': true,
-                  });
-                  ref.invalidate(outletsStreamProvider);
+                  await db.insertOutlet(OutletsCompanion.insert(
+                    id: const Uuid().v4(),
+                    outletCode: codeController.text.trim(),
+                    name: nameController.text.trim(),
+                    address: Value(addressController.text.isEmpty ? null : addressController.text.trim()),
+                    city: Value(cityController.text.isEmpty ? null : cityController.text.trim()),
+                    region: Value(selectedRegion),
+                    ownerName: Value(ownerController.text.isEmpty ? null : ownerController.text.trim()),
+                    ownerContact: Value(contactController.text.isEmpty ? null : contactController.text.trim()),
+                    isActive: const Value(true),
+                    createdAt: now,
+                    updatedAt: now,
+                  ));
+
                   if (mounted) {
+                    Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Outlet created successfully.'),
+                        content: Text('Outlet added successfully'),
                         backgroundColor: AppColors.success,
                       ),
                     );
@@ -676,7 +785,7 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Error: $e'),
+                        content: Text('Error adding outlet: $e'),
                         backgroundColor: AppColors.error,
                       ),
                     );
@@ -788,7 +897,7 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                     TextFormField(
                       controller: commissionController,
                       decoration: const InputDecoration(
-                        labelText: 'Commission Rate (%)',
+                        labelText: 'Operator Rate (%)',
                         suffix: Text('%'),
                       ),
                       keyboardType: TextInputType.number,
@@ -812,25 +921,32 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
             FilledButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
-                Navigator.pop(context);
+
+                final db = ref.read(databaseProvider);
+                final now = DateTime.now();
+
                 try {
-                  final api = ref.read(apiClientProvider);
-                  await api.updateOutlet(outlet.id, {
-                    'outlet_code': codeController.text.trim(),
-                    'name': nameController.text.trim(),
-                    'address': addressController.text.trim(),
-                    'city': cityController.text.trim(),
-                    if (selectedRegion != null) 'region': selectedRegion,
-                    'owner_name': ownerController.text.trim(),
-                    'owner_contact': contactController.text.trim(),
-                    'commission_rate':
-                        double.tryParse(commissionController.text) ?? 40.0,
-                  });
-                  ref.invalidate(outletsStreamProvider);
+                  await db.updateOutlet(OutletsCompanion(
+                    id: Value(outlet.id),
+                    outletCode: Value(codeController.text.trim()),
+                    name: Value(nameController.text.trim()),
+                    address: Value(addressController.text.isEmpty ? null : addressController.text.trim()),
+                    city: Value(cityController.text.isEmpty ? null : cityController.text.trim()),
+                    region: Value(selectedRegion),
+                    venueType: Value(outlet.venueType),
+                    ownerName: Value(ownerController.text.isEmpty ? null : ownerController.text.trim()),
+                    ownerContact: Value(contactController.text.isEmpty ? null : contactController.text.trim()),
+                    commissionRate: Value(double.parse(commissionController.text)),
+                    isActive: Value(outlet.isActive),
+                    createdAt: Value(outlet.createdAt),
+                    updatedAt: Value(now),
+                  ));
+
                   if (mounted) {
+                    Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Outlet updated successfully.'),
+                        content: Text('Outlet updated successfully'),
                         backgroundColor: AppColors.success,
                       ),
                     );
@@ -839,7 +955,7 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Error: $e'),
+                        content: Text('Error updating outlet: $e'),
                         backgroundColor: AppColors.error,
                       ),
                     );
@@ -884,7 +1000,7 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
                 border: Border.all(color: AppColors.error.withOpacity(0.3)),
               ),
               child: const Text(
-                'This will permanently delete the outlet AND all its revenue records, expenditures, and commission payments. This cannot be undone.',
+                'This will permanently delete the outlet AND all its revenue records, expenditures, and operator payments. This cannot be undone.',
                 style: TextStyle(fontSize: 13),
               ),
             ),
@@ -906,15 +1022,14 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
 
     if (confirmed != true) return;
 
+    final db = ref.read(databaseProvider);
     try {
-      final api = ref.read(apiClientProvider);
-      await api.deleteOutlet(outlet.id);
-      ref.invalidate(outletsStreamProvider);
+      await db.deleteOutletWithData(outlet.id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${outlet.name} deleted permanently.'),
-            backgroundColor: AppColors.success,
+            content: Text('${outlet.name} and all its data deleted.'),
+            backgroundColor: AppColors.error,
           ),
         );
       }
@@ -922,7 +1037,7 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error deleting outlet: $e'),
+            content: Text('Delete failed: $e'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -931,16 +1046,30 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
   }
 
   Future<void> _toggleOutletStatus(Outlet outlet) async {
+    final db = ref.read(databaseProvider);
     try {
-      final api = ref.read(apiClientProvider);
-      await api.updateOutlet(outlet.id, {'is_active': !outlet.isActive});
-      ref.invalidate(outletsStreamProvider);
+      await db.updateOutlet(OutletsCompanion(
+        id: Value(outlet.id),
+        outletCode: Value(outlet.outletCode),
+        name: Value(outlet.name),
+        address: Value(outlet.address),
+        city: Value(outlet.city),
+        postalCode: Value(outlet.postalCode),
+        region: Value(outlet.region),
+        venueType: Value(outlet.venueType),
+        ownerName: Value(outlet.ownerName),
+        ownerContact: Value(outlet.ownerContact),
+        commissionRate: Value(outlet.commissionRate),
+        isActive: Value(!outlet.isActive),
+        notes: Value(outlet.notes),
+        createdAt: Value(outlet.createdAt),
+        updatedAt: Value(DateTime.now()),
+      ));
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              '${outlet.name} ${outlet.isActive ? 'deactivated' : 'activated'}.',
-            ),
+            content: Text(outlet.isActive ? 'Outlet deactivated' : 'Outlet activated'),
             backgroundColor: AppColors.success,
           ),
         );
@@ -949,7 +1078,7 @@ class _OutletsScreenState extends ConsumerState<OutletsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error updating status: $e'),
+            content: Text('Error: $e'),
             backgroundColor: AppColors.error,
           ),
         );

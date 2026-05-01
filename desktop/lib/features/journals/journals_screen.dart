@@ -1,6 +1,6 @@
 // ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -571,13 +571,17 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
       }
 
       final bytes = const Utf8Encoder().convert(buffer.toString());
-      final blob = html.Blob([bytes], 'text/csv');
-      final url = html.Url.createObjectUrlFromBlob(blob);
       final fileName = 'journal_entries_${DateFormat('yyyyMMdd').format(DateTime.now())}.csv';
-      final anchor = html.AnchorElement(href: url)
-        ..setAttribute('download', fileName)
-        ..click();
-      html.Url.revokeObjectUrl(url);
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save CSV File',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+      );
+      if (savePath != null) {
+        final finalPath = savePath.endsWith('.csv') ? savePath : '\$savePath.csv';
+        await File(finalPath).writeAsBytes(bytes);
+      }
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
