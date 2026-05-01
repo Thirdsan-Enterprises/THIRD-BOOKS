@@ -1,16 +1,14 @@
-// AttachmentPanel — server-only multi-file attachment widget.
-// File bytes are never stored locally; metadata is tracked in the provider and
-// files are served from the server URL once synced.
+// AttachmentPanel — offline-first multi-file attachment widget.
+// Files are copied to local app storage immediately on pick and are always
+// visible regardless of connectivity. Server upload is a background concern.
 // © 2026 ThirdBooks. All rights reserved.
 
-// ignore: avoid_web_libraries_in_flutter
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -128,7 +126,7 @@ class AttachmentPanel extends ConsumerWidget {
     );
   }
 
-  // ── Pick files and register metadata ─────────────────────────────────────
+  // ── Pick files and store locally ─────────────────────────────────────────
   Future<void> _pickFiles(BuildContext context, WidgetRef ref) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -138,7 +136,7 @@ class AttachmentPanel extends ConsumerWidget {
       ],
       allowMultiple: true,
       dialogTitle: 'Attach Files',
-      withData: true, // web requires bytes — path is unavailable
+      withData: false, // we only need the path, not the bytes in memory
     );
     if (result == null || result.files.isEmpty) return;
 
@@ -146,13 +144,17 @@ class AttachmentPanel extends ConsumerWidget {
     const uuid = Uuid();
 
     for (final file in result.files) {
-      await notifier.add(
+      final path = file.path;
+      if (path == null) continue;
+
+      await notifier.addFromPath(
         id: uuid.v4(),
         attachableType: attachableType,
         localRecordId: localRecordId,
+        sourcePath: path,
         fileName: file.name,
         mimeType: _mimeFromName(file.name),
-        fileSize: file.bytes?.length ?? file.size,
+        fileSize: file.size,
       );
     }
 
@@ -167,22 +169,14 @@ class AttachmentPanel extends ConsumerWidget {
   }
 
   // ── In-app file viewer ────────────────────────────────────────────────────
-  // Opens images and PDFs inside the app via server URL.  For other file types
-  // a dialog offers Download (browser download) and Print options.
+  // Opens images and PDFs inside the app.  For other file types a dialog
+  // offers Download (save a copy to a user-chosen location) and Print options.
   Future<void> _openFile(BuildContext context, LocalAttachment att) async {
-    if (att.isPending) {
+    final file = File(att.localPath);
+    if (!await file.exists()) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('File will be available after sync.'),
-        ));
-      }
-      return;
-    }
-
-    if (att.serverUrl == null) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('File URL not available.'),
+          content: Text('File not found on this device.'),
           backgroundColor: AppColors.error,
         ));
       }
@@ -205,7 +199,7 @@ class AttachmentPanel extends ConsumerWidget {
           builder: (_) => _AttachmentViewerDialog(
             title: att.fileName,
             child: InteractiveViewer(
-              child: Image.network(att.serverUrl!, fit: BoxFit.contain),
+              child: Image.file(file, fit: BoxFit.contain),
             ),
             onDownload: () => _saveFileCopy(context, att),
             onPrint: () => _printImageFile(context, att),
@@ -223,10 +217,7 @@ class AttachmentPanel extends ConsumerWidget {
           builder: (_) => _AttachmentViewerDialog(
             title: att.fileName,
             child: PdfPreview(
-              build: (_) async {
-                final resp = await http.get(Uri.parse(att.serverUrl!));
-                return resp.bodyBytes;
-              },
+              build: (_) async => await file.readAsBytes(),
               allowPrinting: true,
               allowSharing: false,
               canChangeOrientation: false,
@@ -307,31 +298,25 @@ class AttachmentPanel extends ConsumerWidget {
     }
   }
 
-  // ── Save a copy of the locally-stored attachment file ────────────────────
+  // ── Save a copy to a user-chosen location ─────────────────────────────────
   Future<void> _saveFileCopy(BuildContext context, LocalAttachment att) async {
-    final localFile = File(att.localPath);
-    if (!await localFile.exists()) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('File not found on this device.'),
-        ));
-      }
-      return;
-    }
-
+    final ext = att.fileName.contains('.')
+        ? att.fileName.split('.').last
+        : '';
+    final savePath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save ${att.fileName}',
+      fileName: att.fileName,
+      type: ext.isNotEmpty ? FileType.custom : FileType.any,
+      allowedExtensions: ext.isNotEmpty ? [ext] : null,
+    );
+    if (savePath == null) return;
     try {
-      final savePath = await FilePicker.platform.saveFile(
-        dialogTitle: 'Save File',
-        fileName: att.fileName,
-        type: FileType.any,
-      );
-      if (savePath != null) {
-        await localFile.copy(savePath);
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Saved: ${att.fileName}')),
-          );
-        }
+      await File(att.localPath).copy(savePath);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Saved to $savePath'),
+          backgroundColor: AppColors.success,
+        ));
       }
     } catch (e) {
       if (context.mounted) {
@@ -345,18 +330,8 @@ class AttachmentPanel extends ConsumerWidget {
 
   // ── Print an image file ───────────────────────────────────────────────────
   Future<void> _printImageFile(BuildContext context, LocalAttachment att) async {
-    if (att.serverUrl == null) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('File will be available after sync.'),
-        ));
-      }
-      return;
-    }
-
     try {
-      final resp = await http.get(Uri.parse(att.serverUrl!));
-      final bytes = resp.bodyBytes;
+      final bytes = await File(att.localPath).readAsBytes();
       await Printing.layoutPdf(
         onLayout: (_) async {
           final doc = await _buildImagePdf(bytes, att.fileName);
@@ -386,29 +361,31 @@ class AttachmentPanel extends ConsumerWidget {
     return pdf.save();
   }
 
-  // ── Print other file types (treated as raw PDF bytes from server) ─────────
+  // ── Print other file types (best-effort: plain text or open-in-OS) ────────
   Future<void> _printGenericFile(BuildContext context, LocalAttachment att) async {
-    if (att.serverUrl == null) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('File will be available after sync.'),
-        ));
-      }
-      return;
-    }
-
     try {
-      final resp = await http.get(Uri.parse(att.serverUrl!));
+      final bytes = await File(att.localPath).readAsBytes();
       await Printing.layoutPdf(
-        onLayout: (_) async => resp.bodyBytes,
+        onLayout: (_) async => bytes,
         name: att.fileName,
       );
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Could not print file: $e'),
-          backgroundColor: AppColors.error,
-        ));
+    } catch (_) {
+      // Fall back: open with OS default app for printing.
+      try {
+        if (Platform.isWindows) {
+          await Process.run('cmd', ['/c', 'start', '', att.localPath]);
+        } else if (Platform.isMacOS) {
+          await Process.run('open', [att.localPath]);
+        } else {
+          await Process.run('xdg-open', [att.localPath]);
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Could not print file: $e'),
+            backgroundColor: AppColors.error,
+          ));
+        }
       }
     }
   }
@@ -495,7 +472,7 @@ class _AttachmentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final att = attachment;
-    final isPending = att.isPending;
+    final isLocal = att.isLocal;
 
     final subtitle = [
       if (att.sizeHuman.isNotEmpty) att.sizeHuman,
@@ -543,22 +520,22 @@ class _AttachmentTile extends StatelessWidget {
               padding:
                   const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: isPending
+                color: isLocal
                     ? Colors.orange.withOpacity(0.12)
                     : Colors.green.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(4),
                 border: Border.all(
-                  color: isPending
+                  color: isLocal
                       ? Colors.orange.withOpacity(0.5)
                       : Colors.green.withOpacity(0.5),
                 ),
               ),
               child: Text(
-                isPending ? 'Pending' : 'Synced',
+                isLocal ? 'Local' : 'Synced',
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
-                  color: isPending ? Colors.orange[700] : Colors.green[700],
+                  color: isLocal ? Colors.orange[700] : Colors.green[700],
                 ),
               ),
             ),

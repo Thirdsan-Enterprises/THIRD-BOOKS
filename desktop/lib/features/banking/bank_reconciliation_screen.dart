@@ -3,7 +3,7 @@
 // system records (invoices, bills, journal entries), identify discrepancies.
 // © 2026 ThirdBooks. All rights reserved.
 
-// ignore: avoid_web_libraries_in_flutter
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -15,6 +15,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/local_storage_service.dart';
 import '../../core/services/api_client.dart';
+import '../../core/database/app_database.dart' show Outlet;
 import '../../core/models/invoice.dart';
 import '../../core/models/bill.dart';
 import '../../core/models/models.dart';
@@ -129,35 +130,23 @@ class _BankReconciliationScreenState
       '1/9/2026,Cash Deposit,,10000000,DEP-009',
     ].join('\n');
 
-    final savePath = await FilePicker.platform.saveFile(
-
-
-      dialogTitle: 'Save File',
-
-
+    final result = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save Bank Reconciliation Template',
       fileName: 'bank_statement_template.csv',
-
-
-      type: FileType.any,
-
-
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
     );
 
-
-    if (savePath != null) {
-
-
-      await File(savePath).writeAsBytes(sample);
-
-
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Template downloaded'),
-          backgroundColor: AppColors.success,
-        ),
-      );
+    if (result != null) {
+      await File(result).writeAsString(sample);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Template saved to $result'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
     }
   }
 
@@ -169,12 +158,13 @@ class _BankReconciliationScreenState
       withData: true,
     );
 
-    if (result == null || result.files.single.bytes == null) return;
+    if (result == null || result.files.single.path == null) return;
 
     setState(() => _isLoading = true);
 
     try {
-      final csvString = String.fromCharCodes(result.files.single.bytes!);
+      final file = File(result.files.single.path!);
+      final csvString = await file.readAsString();
       final rows = const CsvToListConverter().convert(csvString);
 
       if (rows.length < 2) throw Exception('CSV must have header + at least one row');
@@ -908,6 +898,7 @@ class _BankReconciliationScreenState
   void _showCategorizationDialog(BankStatementLine line) {
     final isDebit = line.amount < 0;
     final accountsState = ref.read(accountsProvider);
+    final db = ref.read(databaseProvider);
     final billsState = ref.read(billsProvider);
 
     // Search query strings — live in closure, updated via setS
@@ -1098,7 +1089,7 @@ class _BankReconciliationScreenState
                                   (q) => setS(() => tab2Query = q),
                                   billSelected, billFocusNodes)
                               : _buildOutletsTab(
-                                  line, null, tab2Query, ctx,
+                                  line, db, tab2Query, ctx,
                                   (q) => setS(() => tab2Query = q),
                                   outletSelected, outletSelectedObjects,
                                   outletFocusNodes),
@@ -1151,8 +1142,7 @@ class _BankReconciliationScreenState
     // Future were created on each rebuild (inside the builder closure),
     // FutureBuilder would reset to waiting state and unmount the TextField,
     // dropping focus after every keystroke.
-    // Outlet database retired — return empty list until server API is wired up.
-    final outletsFuture = Future<List<Outlet>>.value([]);
+    final outletsFuture = db.getAllOutlets() as Future<List<Outlet>>;
 
     return StatefulBuilder(builder: (ctx2, setS2) {
       double allocatedTotal = 0;
