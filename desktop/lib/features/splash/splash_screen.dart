@@ -129,8 +129,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
         setState(() => _statusMessage = 'Restoring session...');
         await Future.delayed(const Duration(milliseconds: 500));
 
-        // Validate token with API
-        final isValid = await authService.validateToken();
+        // Offline-session tokens (local users: Marion, Allan) bypass the
+        // server round-trip — validateToken() always fails for them.
+        final token = await authService.getToken() ?? '';
+        final isOfflineSession = token.startsWith('offline-session-');
+
+        bool isValid = isOfflineSession;
+        if (!isOfflineSession) {
+          isValid = await authService.validateToken();
+        }
 
         if (isValid && mounted) {
           setState(() => _statusMessage = 'Welcome back!');
