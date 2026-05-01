@@ -125,6 +125,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> checkAuth() async {
     state = state.copyWith(isLoading: true);
 
+    // Ensure built-in local users (Marion, Allan) are always available offline.
+    await _authService.seedLocalUsers();
+
     try {
       final isAuthenticated = await _authService.isAuthenticated();
       if (isAuthenticated) {
@@ -202,6 +205,25 @@ class AuthService {
   static const _userKey = 'auth_user';
   static const _tokenExpiryKey = 'token_expiry';
   static const _credentialHashKey = 'offline_credential_hash';
+  static const _localUsersKey = 'local_users_v1';
+
+  // Pre-seeded local accounts — no internet ever needed.
+  static const _localUserDefs = [
+    {
+      'id': 1001,
+      'name': 'Marion',
+      'email': 'marion@magicbet.ug',
+      'password': 'Marion@2026',
+      'role': 'accountant',
+    },
+    {
+      'id': 1002,
+      'name': 'Allan',
+      'email': 'allan@magicbet.ug',
+      'password': 'Allan@2026',
+      'role': 'viewer',
+    },
+  ];
 
   AuthService(this._apiClient);
 
@@ -318,7 +340,12 @@ class AuthService {
       throw Exception(response.data['message'] ?? 'Login failed');
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {
-        throw Exception('Invalid email or password');
+        // Server doesn't know this user — may be a local-only account.
+        try {
+          return await _tryOfflineLogin(email, password);
+        } catch (_) {
+          throw Exception('Invalid email or password');
+        }
       }
       if (e.response?.statusCode == 422) {
         final errors = e.response?.data['errors'];
@@ -339,12 +366,27 @@ class AuthService {
     }
   }
 
-  // Offline login: verifies the entered password against the hash stored
-  // during the last successful online login, then reuses the real cached
-  // user object (with the correct tenant UUID and user ID).
-  // Requires at least one prior successful online login on this device.
+  // Offline login: first checks the pre-seeded local users store (Marion,
+  // Allan), then falls back to the credential hash cached from the last
+  // successful online login.
   Future<Map<String, dynamic>> _tryOfflineLogin(String email, String password) async {
-    final storedHash = await _storage.read(key: _credentialHashKey);
+    final inputEmail = email.toLowerCase().trim();
+    final inputHash  = _hashCredential(inputEmail, password);
+
+    // 1. Check pre-seeded local users (no internet ever needed).
+    final localUsersJson = await _storage.read(key: _localUsersKey);
+    if (localUsersJson != null) {
+      final localMap = jsonDecode(localUsersJson) as Map<String, dynamic>;
+      final entry = localMap[inputEmail] as Map<String, dynamic>?;
+      if (entry != null && entry['hash'] == inputHash) {
+        return _issueOfflineSession(
+          User.fromJson(entry['user'] as Map<String, dynamic>),
+        );
+      }
+    }
+
+    // 2. Fall back to credential cached from a previous online login.
+    final storedHash    = await _storage.read(key: _credentialHashKey);
     final cachedUserJson = await _storage.read(key: _userKey);
 
     if (storedHash == null || cachedUserJson == null) {
@@ -354,35 +396,62 @@ class AuthService {
       );
     }
 
-    if (_hashCredential(email, password) != storedHash) {
+    if (inputHash != storedHash) {
       throw Exception('Invalid email or password');
     }
 
-    final userData = jsonDecode(cachedUserJson) as Map<String, dynamic>;
+    final userData   = jsonDecode(cachedUserJson) as Map<String, dynamic>;
     final cachedEmail = userData['email'] as String?;
-    if (cachedEmail?.toLowerCase() != email.toLowerCase()) {
+    if (cachedEmail?.toLowerCase() != inputEmail) {
       throw Exception('Invalid email or password');
     }
 
-    // Issue a device-local offline token (not a Sanctum token).
-    // It is never sent to the server; real API calls will be retried
-    // once connectivity is restored using the refreshed Sanctum token.
+    return _issueOfflineSession(User.fromJson(userData));
+  }
+
+  // Writes a local offline token and returns the auth map.
+  Future<Map<String, dynamic>> _issueOfflineSession(User user) async {
     final offlineToken = 'offline-session-${DateTime.now().millisecondsSinceEpoch}';
-
     await _storage.write(key: _tokenKey, value: offlineToken);
-    // Extend offline expiry by 7 days from now
-    final expiry = DateTime.now().add(const Duration(days: 7));
+    final expiry = DateTime.now().add(const Duration(days: 30));
     await _storage.write(key: _tokenExpiryKey, value: expiry.toIso8601String());
-
-    final user = User.fromJson(userData);
+    await _storage.write(key: _userKey, value: jsonEncode(user.toJson()));
     if (user.tenantId != null) {
       _apiClient.setTenantId(user.tenantId);
     }
+    return {'token': offlineToken, 'user': user};
+  }
 
-    return {
-      'token': offlineToken,
-      'user': user,
-    };
+  // Seeds the two built-in local accounts (Marion + Allan) into secure storage
+  // on first run. Safe to call on every app start — already-seeded entries are
+  // left unchanged so passwords can be changed without being overwritten.
+  Future<void> seedLocalUsers() async {
+    final existing = await _storage.read(key: _localUsersKey);
+    final map = existing != null
+        ? jsonDecode(existing) as Map<String, dynamic>
+        : <String, dynamic>{};
+
+    bool changed = false;
+    for (final def in _localUserDefs) {
+      final email = def['email'] as String;
+      if (!map.containsKey(email)) {
+        map[email] = {
+          'hash': _hashCredential(email, def['password'] as String),
+          'user': {
+            'id': def['id'],
+            'name': def['name'],
+            'email': email,
+            'role': def['role'],
+            'is_active': true,
+            'tenant_id': null,
+          },
+        };
+        changed = true;
+      }
+    }
+    if (changed) {
+      await _storage.write(key: _localUsersKey, value: jsonEncode(map));
+    }
   }
 
   // HMAC-SHA256 of the password keyed on the email address.
