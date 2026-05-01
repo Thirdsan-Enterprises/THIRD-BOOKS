@@ -4,7 +4,7 @@
 // © 2026 ThirdBooks. All rights reserved.
 
 // ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -307,29 +307,36 @@ class AttachmentPanel extends ConsumerWidget {
     }
   }
 
-  // ── Trigger browser download ───────────────────────────────────────────────
+  // ── Save a copy of the locally-stored attachment file ────────────────────
   Future<void> _saveFileCopy(BuildContext context, LocalAttachment att) async {
-    if (att.serverUrl == null) {
+    final localFile = File(att.localPath);
+    if (!await localFile.exists()) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('File will be available after sync.'),
+          content: Text('File not found on this device.'),
         ));
       }
       return;
     }
 
     try {
-      final resp = await http.get(Uri.parse(att.serverUrl!));
-      final blob = html.Blob([resp.bodyBytes], att.mimeType ?? 'application/octet-stream');
-      final url = html.Url.createObjectUrlFromBlob(blob);
-      html.AnchorElement(href: url)
-        ..setAttribute('download', att.fileName)
-        ..click();
-      html.Url.revokeObjectUrl(url);
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save File',
+        fileName: att.fileName,
+        type: FileType.any,
+      );
+      if (savePath != null) {
+        await localFile.copy(savePath);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Saved: ${att.fileName}')),
+          );
+        }
+      }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Could not download file: $e'),
+          content: Text('Could not save file: $e'),
           backgroundColor: AppColors.error,
         ));
       }

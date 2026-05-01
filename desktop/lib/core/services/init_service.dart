@@ -76,8 +76,8 @@ class InitializationService {
       // First purge any cached demo data from ThirdBooks API
       await purgeDemoData();
 
-      // Run the main setup script (imports outlets)
-      await setupMagicBet(db);
+      // Seed the 72 MagicBet outlet locations into local SQLite
+      await db.seedOutlets();
 
       // Mark setup as complete
       await markSetupComplete();

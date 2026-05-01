@@ -4,7 +4,6 @@
 // © 2026 ThirdBooks. All rights reserved.
 
 // ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -130,12 +129,28 @@ class _BankReconciliationScreenState
       '1/9/2026,Cash Deposit,,10000000,DEP-009',
     ].join('\n');
 
-    final blob = html.Blob([sample], 'text/csv');
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    html.AnchorElement(href: url)
-      ..setAttribute('download', 'bank_statement_template.csv')
-      ..click();
-    html.Url.revokeObjectUrl(url);
+    final savePath = await FilePicker.platform.saveFile(
+
+
+      dialogTitle: 'Save File',
+
+
+      fileName: 'bank_statement_template.csv',
+
+
+      type: FileType.any,
+
+
+    );
+
+
+    if (savePath != null) {
+
+
+      await File(savePath).writeAsBytes(sample);
+
+
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

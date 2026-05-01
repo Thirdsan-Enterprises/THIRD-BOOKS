@@ -1,7 +1,8 @@
 // ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
@@ -820,12 +821,15 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     }
 
     final bytes = utf8.encode(buffer.toString());
-    final blob = html.Blob([bytes], 'text/csv');
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)
-      ..setAttribute('download', 'invoices_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv')
-      ..click();
-    html.Url.revokeObjectUrl(url);
+    final fileName = 'invoices_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv';
+    final savePath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save CSV File',
+      fileName: fileName,
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+    );
+    if (savePath == null) return;
+    await File(savePath.endsWith('.csv') ? savePath : '$savePath.csv').writeAsBytes(bytes);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

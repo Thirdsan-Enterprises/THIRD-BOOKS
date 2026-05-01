@@ -1,6 +1,6 @@
 // ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:excel/excel.dart' as xl;
@@ -475,13 +475,13 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
     try {
       final filename =
           'asset_register_${DateFormat('yyyyMMdd').format(DateTime.now())}.xlsx';
-      final blob = html.Blob([bytes],
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      final url = html.Url.createObjectUrlFromBlob(blob);
-      html.AnchorElement(href: url)
-        ..setAttribute('download', filename)
-        ..click();
-      html.Url.revokeObjectUrl(url);
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save Asset Register',
+        fileName: filename,
+        type: FileType.any,
+      );
+      if (savePath == null) return;
+      await File(savePath).writeAsBytes(bytes);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Exported: $filename'),
