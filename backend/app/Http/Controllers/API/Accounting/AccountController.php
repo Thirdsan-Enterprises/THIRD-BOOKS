@@ -57,7 +57,7 @@ class AccountController extends Controller
             'code'            => 'required|string|max:50|unique:accounts,code',
             'name'            => 'required|string|max:255',
             'type'            => 'required|in:asset,liability,equity,income,expense',
-            'category'        => 'nullable|string',
+            'category'        => 'nullable|in:bank,cash,accounts_receivable,inventory,fixed_asset,other_current_asset,accounts_payable,credit_card,long_term_liability,other_current_liability,equity,retained_earnings,income,cost_of_goods_sold,expense,other_income,other_expense,intangible_asset',
             'currency_id'     => 'required|exists:currencies,id',
             'parent_id'       => 'nullable|exists:accounts,id',
             'description'     => 'nullable|string',
@@ -69,7 +69,12 @@ class AccountController extends Controller
             return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
-        $account = Account::create($request->all());
+        $data = $request->all();
+        if (empty($data['category'])) {
+            $data['category'] = $this->deriveCategory($data['type'], $data['subtype'] ?? null);
+        }
+
+        $account = Account::create($data);
         $this->emitEvent('account.created', $account->id, $account->toArray());
 
         return response()->json(['message' => 'Account created successfully', 'account' => $account], 201);
@@ -87,7 +92,7 @@ class AccountController extends Controller
             'code'        => 'sometimes|string|max:50|unique:accounts,code,' . $id,
             'name'        => 'sometimes|string|max:255',
             'type'        => 'sometimes|in:asset,liability,equity,income,expense',
-            'category'    => 'nullable|string',
+            'category'    => 'nullable|in:bank,cash,accounts_receivable,inventory,fixed_asset,other_current_asset,accounts_payable,credit_card,long_term_liability,other_current_liability,equity,retained_earnings,income,cost_of_goods_sold,expense,other_income,other_expense,intangible_asset',
             'parent_id'   => 'nullable|exists:accounts,id',
             'description' => 'nullable|string',
             'is_active'   => 'boolean',
@@ -97,7 +102,13 @@ class AccountController extends Controller
             return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
-        $account->update($request->all());
+        $data = $request->all();
+        if (empty($data['category']) && isset($data['subtype'])) {
+            $type           = $data['type'] ?? $account->type;
+            $data['category'] = $this->deriveCategory($type, $data['subtype']);
+        }
+
+        $account->update($data);
         $this->emitEvent('account.updated', $account->id, $account->toArray());
 
         return response()->json(['message' => 'Account updated successfully', 'account' => $account]);
@@ -191,6 +202,56 @@ class AccountController extends Controller
             'accounts' => $createdAccounts,
             'errors'   => $errors,
         ], 201);
+    }
+
+    private function deriveCategory(string $type, ?string $subtype): ?string
+    {
+        if ($subtype === null) return null;
+
+        $normalized = strtolower(str_replace([' ', '-'], '_', $subtype));
+
+        $map = [
+            'asset' => [
+                'bank'                    => 'bank',
+                'cash'                    => 'cash',
+                'accounts_receivable'     => 'accounts_receivable',
+                'receivable'              => 'accounts_receivable',
+                'inventory'               => 'inventory',
+                'stock'                   => 'inventory',
+                'fixed_asset'             => 'fixed_asset',
+                'property_plant_equipment' => 'fixed_asset',
+                'ppe'                     => 'fixed_asset',
+                'intangible_asset'        => 'intangible_asset',
+                'intangible'              => 'intangible_asset',
+                'other_current_asset'     => 'other_current_asset',
+                'current_asset'           => 'other_current_asset',
+            ],
+            'liability' => [
+                'accounts_payable'        => 'accounts_payable',
+                'payable'                 => 'accounts_payable',
+                'credit_card'             => 'credit_card',
+                'long_term_liability'     => 'long_term_liability',
+                'long_term'               => 'long_term_liability',
+                'other_current_liability' => 'other_current_liability',
+                'current_liability'       => 'other_current_liability',
+            ],
+            'equity' => [
+                'equity'            => 'equity',
+                'retained_earnings' => 'retained_earnings',
+            ],
+            'income' => [
+                'income'       => 'income',
+                'other_income' => 'other_income',
+            ],
+            'expense' => [
+                'expense'            => 'expense',
+                'cost_of_goods_sold' => 'cost_of_goods_sold',
+                'cogs'               => 'cost_of_goods_sold',
+                'other_expense'      => 'other_expense',
+            ],
+        ];
+
+        return $map[$type][$normalized] ?? null;
     }
 
     private function emitEvent(string $eventType, string $aggregateId, array $data): void
