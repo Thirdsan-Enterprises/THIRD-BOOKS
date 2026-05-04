@@ -187,6 +187,8 @@ List<Account> _magicBetDefaultAccounts() {
     a('152', 'Prepayments',                             AccountType.asset,     AccountSubType.otherCurrentAsset),
     a('153', 'Accrued Income',                          AccountType.asset,     AccountSubType.otherCurrentAsset),
     a('173', 'Share Capital Receivable',                AccountType.asset,     AccountSubType.otherCurrentAsset),
+    a('179', 'Bank Guarantee',                          AccountType.asset,     AccountSubType.otherCurrentAsset,
+      desc: 'Security deposit held by bank on behalf of the company (GRB / landlord guarantee)'),
 
     // ════════════════════════════════════════════════════════════════════════
     // FIXED ASSETS  (154–159)
