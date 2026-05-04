@@ -15,6 +15,13 @@ class InitializationService {
   static const _setupCompleteKey = 'magicbet_setup_complete';
   static const _setupVersionKey = 'magicbet_setup_version';
   static const _demoPurgedKey = 'demo_data_purged_v4';
+  // All previous purge-key versions — if any of these are set the user has
+  // already gone through the one-time wipe, so we must not wipe again.
+  static const _legacyPurgeKeys = [
+    'demo_data_purged_v1',
+    'demo_data_purged_v2',
+    'demo_data_purged_v3',
+  ];
   static const currentSetupVersion = '4.0.0';
 
   /// Check if initial setup has been completed
@@ -43,29 +50,39 @@ class InitializationService {
   }
 
   /// Purge demo data from ThirdBooks API that was cached in local storage.
-  /// This runs once on upgrade to v2.0.0 to remove all fake data
-  /// (customers, vendors, invoices, bills, journals, payments)
-  /// that was fetched from api.thirdbooks.digital.
+  /// Runs once on first install to remove any fake data fetched from
+  /// api.thirdbooks.digital and seed the MagicBet Chart of Accounts.
+  ///
+  /// Only accounts are wiped — they are always re-seeded from the MagicBet
+  /// CoA.  Bills, invoices, journals, payments, customers, and vendors are
+  /// user data and must never be cleared by this migration, even when the
+  /// purge key is bumped to a new version.
   static Future<void> purgeDemoData() async {
     final purged = await _storage.read(key: _demoPurgedKey);
     if (purged == 'true') return;
 
-    print('Purging cached demo data from local storage...');
+    // If any previous-version purge key is set, the one-time wipe already ran
+    // on an older build.  Just stamp the new key so we don't repeat the wipe
+    // and destroy user data (bills, invoices, etc.).
+    for (final legacyKey in _legacyPurgeKeys) {
+      final prev = await _storage.read(key: legacyKey);
+      if (prev == 'true') {
+        await _storage.write(key: _demoPurgedKey, value: 'true');
+        print('Previous purge detected ($legacyKey) — skipping data wipe, stamping $currentSetupVersion.');
+        return;
+      }
+    }
+
+    print('First-time purge: clearing demo accounts so MagicBet CoA can be seeded...');
     final localStorage = LocalStorageService.instance;
     await localStorage.initialize();
 
-    // Clear all entity data that came from the ThirdBooks demo API
-    await localStorage.saveCustomers([]);
-    await localStorage.saveVendors([]);
-    await localStorage.saveInvoices([]);
-    await localStorage.saveBills([]);
-    await localStorage.saveJournalEntries([]);
-    await localStorage.savePayments([]);
-    // Also clear accounts so MagicBet defaults get re-seeded
+    // Only reset accounts — everything else is user-created data that must
+    // survive reinstalls and version upgrades.
     await localStorage.saveAccounts([]);
 
     await _storage.write(key: _demoPurgedKey, value: 'true');
-    print('Demo data purged. System will start fresh with MagicBet defaults.');
+    print('Demo accounts cleared. MagicBet CoA will be seeded on next load.');
   }
 
   /// Run the complete MagicBet initialization
