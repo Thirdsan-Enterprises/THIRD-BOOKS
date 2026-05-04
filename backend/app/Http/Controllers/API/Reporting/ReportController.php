@@ -142,23 +142,42 @@ class ReportController extends Controller
             ];
 
             if ($account->type === 'asset') {
-                $code = (int) $account->code;
+                $code    = (int) $account->code;
+                $cat     = $account->category;
+                $subtype = strtolower($account->subtype ?? '');
 
-                if ($account->category === 'intangible_asset') {
-                    // 1700–1899 — Intangible Assets and Accumulated Amortization
+                // Category is always the primary classifier; subtype and code ranges
+                // are fallbacks for accounts created without an explicit category.
+                if ($cat === 'intangible_asset') {
                     $intangibleAssets[]     = $row;
                     $totalIntangibleAssets += $balance;
-                } elseif ($account->category === 'fixed_asset' || ($code >= 1500 && $code < 1700)) {
-                    // 1500–1699 — PP&E and Accumulated Depreciation
-                    $fixedAssets[]      = $row;
-                    $totalFixedAssets  += $balance;
-                } elseif (in_array($account->category, ['cash', 'bank', 'accounts_receivable', 'inventory']) ||
-                          ($code >= 1000 && $code < 1500)) {
-                    $currentAssets[]       = $row;
-                    $totalCurrentAssets   += $balance;
+                } elseif ($cat === 'fixed_asset') {
+                    $fixedAssets[]     = $row;
+                    $totalFixedAssets += $balance;
+                } elseif (in_array($cat, ['cash', 'bank', 'accounts_receivable', 'inventory', 'other_current_asset', 'credit_card'])) {
+                    $currentAssets[]     = $row;
+                    $totalCurrentAssets += $balance;
+                } elseif (in_array($subtype, ['intangible_asset', 'intangible'])) {
+                    $intangibleAssets[]     = $row;
+                    $totalIntangibleAssets += $balance;
+                } elseif (in_array($subtype, ['fixed_asset', 'property_plant_equipment', 'ppe'])) {
+                    $fixedAssets[]     = $row;
+                    $totalFixedAssets += $balance;
+                } elseif (in_array($subtype, ['bank', 'cash', 'current_asset', 'other_current_asset', 'accounts_receivable', 'inventory'])) {
+                    $currentAssets[]     = $row;
+                    $totalCurrentAssets += $balance;
+                } elseif ($code >= 1700) {
+                    $intangibleAssets[]     = $row;
+                    $totalIntangibleAssets += $balance;
+                } elseif ($code >= 1500) {
+                    $fixedAssets[]     = $row;
+                    $totalFixedAssets += $balance;
+                } elseif ($code >= 1000) {
+                    $currentAssets[]     = $row;
+                    $totalCurrentAssets += $balance;
                 } else {
-                    $otherAssets[]      = $row;
-                    $totalOtherAssets  += $balance;
+                    $otherAssets[]     = $row;
+                    $totalOtherAssets += $balance;
                 }
             } elseif ($account->type === 'liability') {
                 $liabilities[]     = $row;
