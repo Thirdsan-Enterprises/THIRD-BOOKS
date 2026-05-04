@@ -12,6 +12,7 @@ import '../../core/services/sync_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/local_storage_service.dart';
 import '../../core/services/local_backup_service.dart';
+import '../../core/services/snapshot_service.dart';
 import '../../core/services/data_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -33,6 +34,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     {'title': 'Invoice Settings', 'icon': Icons.receipt_long},
     {'title': 'Sync & Backup', 'icon': Icons.sync},
     {'title': 'Appearance', 'icon': Icons.palette},
+    {'title': 'Restore Points', 'icon': Icons.history},
   ];
 
   @override
@@ -113,6 +115,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return _buildSyncSettings(context);
       case 7:
         return _buildAppearanceSettings(context);
+      case 8:
+        return _buildRestorePointsSettings(context);
       default:
         return _buildCompanyProfile(context);
     }
@@ -1836,6 +1840,248 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  Widget _buildRestorePointsSettings(BuildContext context) {
+    final snapshotsAsync = ref.watch(snapshotListProvider);
+    final fmt = DateFormat('dd MMM yyyy, HH:mm');
+
+    Future<void> createSnapshot() async {
+      final controller = TextEditingController();
+      final label = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Create Restore Point'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Give this restore point a short description so you can identify it later.',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                maxLength: 60,
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                  hintText: 'e.g. Before payroll adjustment',
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              child: const Text('Create'),
+            ),
+          ],
+        ),
+      );
+      if (label == null || label.isEmpty || !mounted) return;
+      try {
+        final svc = ref.read(snapshotServiceProvider);
+        await svc.createSnapshot(label);
+        ref.invalidate(snapshotListProvider);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Restore point "$label" created'),
+            backgroundColor: AppColors.success,
+          ));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Failed to create restore point: $e'),
+            backgroundColor: AppColors.error,
+          ));
+        }
+      }
+    }
+
+    Future<void> restoreSnapshot(SnapshotMeta snap) async {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Row(children: [
+            Icon(Icons.warning_amber_rounded, color: AppColors.warning),
+            const SizedBox(width: 8),
+            const Text('Restore this point?'),
+          ]),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('"${snap.label}"', style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text(fmt.format(snap.createdAt),
+                style: const TextStyle(fontSize: 13, color: Colors.grey)),
+            const SizedBox(height: 12),
+            Text('${snap.totalRecords} records will be restored.'),
+            const SizedBox(height: 12),
+            const Text(
+              'All data entered AFTER this restore point was created will be '
+              'overwritten. This cannot be undone.\n\n'
+              'Tip: create another restore point first if you want to keep the current state.',
+              style: TextStyle(fontSize: 13),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.warning),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Restore'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true || !mounted) return;
+      try {
+        final svc = ref.read(snapshotServiceProvider);
+        await svc.restoreSnapshot(snap.id);
+        ref.invalidate(snapshotListProvider);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Restored to "${snap.label}" — restart the app for all screens to refresh.'),
+            backgroundColor: AppColors.success,
+            duration: const Duration(seconds: 6),
+          ));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Restore failed: $e'),
+            backgroundColor: AppColors.error,
+          ));
+        }
+      }
+    }
+
+    Future<void> deleteSnapshot(SnapshotMeta snap) async {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Delete Restore Point?'),
+          content: Text('Delete "${snap.label}"? This cannot be undone.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true || !mounted) return;
+      final svc = ref.read(snapshotServiceProvider);
+      await svc.deleteSnapshot(snap.id);
+      ref.invalidate(snapshotListProvider);
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader(context, 'Restore Points',
+              'Checkpoints that let you roll back to a known-good state after a mistake'),
+          const SizedBox(height: 24),
+
+          // Info card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.history, color: AppColors.primary, size: 28),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('How restore points work',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Create a restore point before making large changes — end-of-month '
+                        'adjustments, bulk imports, or any entry you might want to undo. '
+                        'Up to 20 points are kept; the oldest is removed when the limit is reached.',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ]),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Create button
+          Row(children: [
+            FilledButton.icon(
+              onPressed: createSnapshot,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Create Restore Point'),
+            ),
+          ]),
+          const SizedBox(height: 24),
+
+          // Snapshot list
+          snapshotsAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Text('Error loading restore points: $e',
+                style: TextStyle(color: AppColors.error)),
+            data: (snapshots) {
+              if (snapshots.isEmpty) {
+                return Card(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+                    child: Center(
+                      child: Column(children: [
+                        Icon(Icons.history, size: 48,
+                            color: Theme.of(context).colorScheme.outline),
+                        const SizedBox(height: 12),
+                        Text('No restore points yet',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 4),
+                        Text('Create one before making important changes.',
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: Theme.of(context).colorScheme.outline)),
+                      ]),
+                    ),
+                  ),
+                );
+              }
+              return Card(
+                child: Column(
+                  children: [
+                    for (int i = 0; i < snapshots.length; i++) ...[
+                      if (i > 0) const Divider(height: 1),
+                      _SnapshotTile(
+                        snap: snapshots[i],
+                        fmt: fmt,
+                        onRestore: () => restoreSnapshot(snapshots[i]),
+                        onDelete: () => deleteSnapshot(snapshots[i]),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSectionHeader(BuildContext context, String title, String subtitle) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2140,6 +2386,76 @@ class _ColorOption extends StatelessWidget {
               : null,
         ),
         child: isSelected ? const Icon(Icons.check, color: Colors.white, size: 20) : null,
+      ),
+    );
+  }
+}
+
+class _SnapshotTile extends StatelessWidget {
+  final SnapshotMeta snap;
+  final DateFormat fmt;
+  final VoidCallback onRestore;
+  final VoidCallback onDelete;
+
+  const _SnapshotTile({
+    required this.snap,
+    required this.fmt,
+    required this.onRestore,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Icon(Icons.restore, color: AppColors.primary, size: 20),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(snap.label,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                const SizedBox(height: 2),
+                Text(fmt.format(snap.createdAt),
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.outline)),
+                const SizedBox(height: 2),
+                Text('${snap.totalRecords} records',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.outline)),
+              ],
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: onRestore,
+            icon: const Icon(Icons.restore, size: 16),
+            label: const Text('Restore'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              side: const BorderSide(color: AppColors.primary),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              textStyle: const TextStyle(fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: Icon(Icons.delete_outline, color: AppColors.error.withOpacity(0.8)),
+            tooltip: 'Delete restore point',
+            onPressed: onDelete,
+          ),
+        ],
       ),
     );
   }
