@@ -187,7 +187,7 @@ List<Account> _magicBetDefaultAccounts() {
     a('152', 'Prepayments',                             AccountType.asset,     AccountSubType.otherCurrentAsset),
     a('153', 'Accrued Income',                          AccountType.asset,     AccountSubType.otherCurrentAsset),
     a('173', 'Share Capital Receivable',                AccountType.asset,     AccountSubType.otherCurrentAsset),
-    a('180', 'UAP Umbrella Fund',                       AccountType.asset,     AccountSubType.otherCurrentAsset,
+    a('174', 'UAP Umbrella Fund',                       AccountType.asset,     AccountSubType.otherCurrentAsset,
       desc: 'UAP insurance umbrella savings fund — current asset, not an operational bank account'),
 
     // ════════════════════════════════════════════════════════════════════════
