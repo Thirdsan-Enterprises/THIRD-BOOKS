@@ -75,6 +75,7 @@ List<Account> _magicBetDefaultAccounts() {
       desc: 'Gross cash wagered by customers across all 72 outlets'),
     a('104', 'Other Revenue',                           AccountType.revenue,   AccountSubType.otherIncome),
     a('106', 'Interest Income',                         AccountType.revenue,   AccountSubType.otherIncome),
+    a('185', 'Outlet Premise Income',                   AccountType.revenue,   AccountSubType.otherIncome),
     a('107', 'Payouts',                                 AccountType.revenue,   AccountSubType.salesRevenue, system: true,
       desc: 'Contra-revenue: total winnings paid out to customers (debit balance reduces Stakes)'),
 
@@ -146,6 +147,10 @@ List<Account> _magicBetDefaultAccounts() {
     a('162', 'Support Services Fee',                    AccountType.expense,   AccountSubType.operatingExpense),
     a('178', 'Outlet Commission Expense',               AccountType.expense,   AccountSubType.operatingExpense, system: true,
       desc: '40% of adjusted weekly GGR owed to outlet location owners (carry-forward basis)'),
+    a('181', 'Premise Fees',                            AccountType.expense,   AccountSubType.operatingExpense),
+    a('182', 'License Application Fees',                AccountType.expense,   AccountSubType.operatingExpense),
+    a('183', 'Repairs & Maintenance',                   AccountType.expense,   AccountSubType.operatingExpense),
+    a('184', 'Domain Purchase & Hosting',               AccountType.expense,   AccountSubType.operatingExpense),
 
     // ════════════════════════════════════════════════════════════════════════
     // BANK REVALUATIONS & CURRENCY  (138–140)
