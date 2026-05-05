@@ -363,6 +363,15 @@ class _BankReconciliationScreenState
       ref.read(journalsProvider.notifier).removeEntries(stmt.jeIds);
     }
 
+    // Remove outlet settlement records created during reconciliation.
+    if (stmt.settlementIds.isNotEmpty) {
+      final ls = LocalStorageService.instance;
+      final existing = await ls.loadOutletSettlements();
+      final toRemove = stmt.settlementIds.toSet();
+      await ls.saveOutletSettlements(
+          existing.where((s) => !toRemove.contains(s.id)).toList());
+    }
+
     // Unpay bills that were paid during reconciliation.
     if (stmt.billPayments.isNotEmpty) {
       final billsNotifier = ref.read(billsProvider.notifier);
@@ -1685,6 +1694,7 @@ class _BankReconciliationScreenState
       final ls = LocalStorageService.instance;
       final existingSettlements = await ls.loadOutletSettlements();
       final newSettlements = <OutletSettlement>[];
+      final createdSettlementIds = <String>[];
       final now = DateTime.now();
       final createdJeIds = <String>[];
 
@@ -1819,8 +1829,10 @@ class _BankReconciliationScreenState
                 .replaceAll(')', '')
                 .trim();
           }
+          final settlementId = const Uuid().v4();
+          createdSettlementIds.add(settlementId);
           newSettlements.add(OutletSettlement(
-            id: const Uuid().v4(),
+            id: settlementId,
             bankTransactionId: tx.id,
             outletId: line.matchedRecordId!,
             outletCode: outletCode,
@@ -1912,6 +1924,12 @@ class _BankReconciliationScreenState
         await ref
             .read(localBankStatementsProvider.notifier)
             .updateJeIds(_savedStatementLocalId!, createdJeIds);
+      }
+      // Persist settlement IDs so deletion can remove the settlement records.
+      if (_savedStatementLocalId != null && createdSettlementIds.isNotEmpty) {
+        await ref
+            .read(localBankStatementsProvider.notifier)
+            .updateSettlementIds(_savedStatementLocalId!, createdSettlementIds);
       }
     }
 
