@@ -189,6 +189,8 @@ List<Account> _magicBetDefaultAccounts() {
     a('173', 'Share Capital Receivable',                AccountType.asset,     AccountSubType.otherCurrentAsset),
     a('174', 'UAP Umbrella Fund',                       AccountType.asset,     AccountSubType.otherCurrentAsset,
       desc: 'UAP insurance umbrella savings fund — current asset, not an operational bank account'),
+    a('167', 'Bank Guarantee',                          AccountType.asset,     AccountSubType.otherCurrentAsset,
+      desc: 'Security deposit held by bank on behalf of the company (e.g. GRB / landlord guarantee)'),
 
     // ════════════════════════════════════════════════════════════════════════
     // FIXED ASSETS  (154–159)
