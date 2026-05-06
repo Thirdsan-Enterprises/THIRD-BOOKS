@@ -6,6 +6,8 @@ import 'package:dio/dio.dart';
 
 import 'api_client.dart';
 import 'init_service.dart';
+import 'local_storage_service.dart';
+import 'snapshot_service.dart';
 import '../database/app_database.dart';
 
 // Auth state
@@ -181,6 +183,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       final db = AppDatabase();
       await InitializationService.checkAndRunSetup(db);
+      // Take one automatic restore point per calendar day so there is always
+      // a recent safety net without the accountant having to remember.
+      final snapSvc = SnapshotService(LocalStorageService.instance, db);
+      await snapSvc.maybeAutoSnapshot();
     } catch (e) {
       print('Initialization check failed: $e');
       // Don't throw - initialization is a background task
