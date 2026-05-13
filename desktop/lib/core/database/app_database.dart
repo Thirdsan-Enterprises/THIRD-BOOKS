@@ -265,6 +265,11 @@ class AppDatabase extends _$AppDatabase {
   Future<bool> updateOutletRevenue(OutletRevenuesCompanion revenue) =>
       update(outletRevenues).replace(revenue);
 
+  Future<void> deleteOutletRevenuesByIds(List<String> ids) async {
+    if (ids.isEmpty) return;
+    await (delete(outletRevenues)..where((r) => r.id.isIn(ids))).go();
+  }
+
   // ========== OUTLET EXPENDITURE OPERATIONS ==========
   Future<List<OutletExpenditure>> getAllOutletExpenditures() =>
       select(outletExpenditures).get();
