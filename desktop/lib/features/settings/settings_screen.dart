@@ -14,6 +14,13 @@ import '../../core/services/local_storage_service.dart';
 import '../../core/services/local_backup_service.dart';
 import '../../core/services/snapshot_service.dart';
 import '../../core/services/data_service.dart';
+import '../../core/providers/notes_providers.dart';
+import '../../core/providers/local_bank_statements_provider.dart';
+import '../../core/providers/asset_drafts_provider.dart';
+import '../../core/providers/depreciation_schedules_provider.dart';
+import '../../core/providers/local_attachments_provider.dart';
+import '../banking/banking_screen.dart' show bankTransactionsProvider;
+import '../outlets/outlet_settled_screen.dart' show outletSettlementsProvider;
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -1939,12 +1946,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       try {
         final svc = ref.read(snapshotServiceProvider);
         await svc.restoreSnapshot(snap.id);
+
+        // Reload every data provider so all screens reflect the restored
+        // state immediately — no app restart needed.
+        ref.invalidate(accountsProvider);
+        ref.invalidate(customersProvider);
+        ref.invalidate(vendorsProvider);
+        ref.invalidate(invoicesProvider);
+        ref.invalidate(billsProvider);
+        ref.invalidate(journalsProvider);
+        ref.invalidate(paymentsProvider);
+        ref.invalidate(bankTransactionsProvider);
+        ref.invalidate(creditNotesProvider);
+        ref.invalidate(debitNotesProvider);
+        ref.invalidate(localBankStatementsProvider);
+        ref.invalidate(assetDraftsProvider);
+        ref.invalidate(depreciationSchedulesProvider);
+        ref.invalidate(localAttachmentsProvider);
+        ref.invalidate(outletSettlementsProvider);
+        ref.invalidate(allOutletRevenuesProvider);
+        ref.invalidate(allOutletExpendituresProvider);
+        ref.invalidate(outletRevenueSummaryProvider);
+        ref.invalidate(outletAnalyticsProvider);
+        ref.invalidate(dashboardDataProvider);
         ref.invalidate(snapshotListProvider);
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Restored to "${snap.label}" — restart the app for all screens to refresh.'),
+            content: Text('Restored to "${snap.label}" successfully.'),
             backgroundColor: AppColors.success,
-            duration: const Duration(seconds: 6),
+            duration: const Duration(seconds: 4),
           ));
         }
       } catch (e) {
