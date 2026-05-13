@@ -63,6 +63,7 @@ class CSVImportService {
     int errorCount = 0;
     int skippedCount = 0;
     final errors = <String>[];
+    final revenueIds = <String>[];
 
     double totalCashIn = 0;
     double totalCashOut = 0;
@@ -148,6 +149,9 @@ class CSVImportService {
           ),
         );
 
+        // Track inserted revenue ID for upload history
+        revenueIds.add(revenueId);
+
         // Add to known keys to prevent duplicates within the same file
         existingKeys.add(dupKey);
 
@@ -171,6 +175,7 @@ class CSVImportService {
       totalCashIn: totalCashIn,
       totalCashOut: totalCashOut,
       totalGGR: totalGGR,
+      revenueIds: revenueIds,
     );
   }
 }
@@ -183,6 +188,8 @@ class CSVImportResult {
   final double totalCashIn;
   final double totalCashOut;
   final double totalGGR;
+  /// IDs of OutletRevenue rows inserted into SQLite during this import.
+  final List<String> revenueIds;
 
   CSVImportResult({
     required this.successCount,
@@ -192,6 +199,7 @@ class CSVImportResult {
     required this.totalCashIn,
     required this.totalCashOut,
     required this.totalGGR,
+    this.revenueIds = const [],
   });
 
   bool get hasErrors => errorCount > 0;

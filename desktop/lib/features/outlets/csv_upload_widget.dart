@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:csv/csv.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/csv_import_service.dart';
 import '../../core/services/data_service.dart';
+import '../../core/providers/local_outlet_csv_uploads_provider.dart';
 
 /// CSV Upload Widget with real-time progress, deduplication feedback,
 /// and per-row status reporting.
@@ -100,6 +102,10 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
       );
 
       if (mounted) {
+        // Capture references before setState clears them
+        final csvDataSnapshot = List<List<dynamic>>.from(_csvData ?? []);
+        final fileNameSnapshot = _fileName;
+
         setState(() {
           _isImporting = false;
           _lastResult = result;
@@ -111,7 +117,35 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
         // so that Stakes (103), Payouts (107), Commission Expense (178) and
         // related CoA accounts immediately reflect the uploaded data.
         if (result.successCount > 0) {
-          await ref.read(csvImportProvider.notifier).createJEsForOutletRevenues();
+          final dailyJeIds =
+              await ref.read(csvImportProvider.notifier).createJEsForOutletRevenues();
+
+          // Derive date range from CSV data rows (column index 1 is the date)
+          DateTime? fromDate, toDate;
+          for (final row in csvDataSnapshot.skip(1)) {
+            if (row.length < 2) continue;
+            final dt = _parseDate(row[1]?.toString() ?? '');
+            if (dt == null) continue;
+            if (fromDate == null || dt.isBefore(fromDate)) fromDate = dt;
+            if (toDate == null || dt.isAfter(toDate)) toDate = dt;
+          }
+
+          final upload = LocalOutletCsvUpload(
+            id: const Uuid().v4(),
+            fileName: fileNameSnapshot ?? 'outlet_data.csv',
+            uploadedAt: DateTime.now(),
+            fromDate: fromDate,
+            toDate: toDate,
+            rowCount: (csvDataSnapshot.length - 1),
+            successCount: result.successCount,
+            skippedCount: result.skippedCount,
+            totalCashIn: result.totalCashIn,
+            totalCashOut: result.totalCashOut,
+            totalGGR: result.totalGGR,
+            revenueIds: result.revenueIds,
+            dailyJeIds: dailyJeIds,
+          );
+          await ref.read(localOutletCsvUploadsProvider.notifier).add(upload);
         }
 
         // Invalidate all data providers so dashboard and reports reflect new data immediately
@@ -128,6 +162,21 @@ class _CSVUploadWidgetState extends ConsumerState<CSVUploadWidget> {
         });
       }
     }
+  }
+
+  /// Parse date in m/d/yyyy format (matching CSVImportService._parseDate).
+  DateTime? _parseDate(String raw) {
+    try {
+      final trimmed = raw.trim();
+      final parts = trimmed.split('/');
+      if (parts.length == 3) {
+        final month = int.parse(parts[0]);
+        final day = int.parse(parts[1]);
+        final year = int.parse(parts[2]);
+        return DateTime(year, month, day);
+      }
+    } catch (_) {}
+    return null;
   }
 
   String _formatCellValue(dynamic value, int columnIndex) {

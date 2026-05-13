@@ -18,6 +18,7 @@ import 'theme_service.dart';
 import '../models/models.dart';
 import '../database/app_database.dart' hide Account, Customer, Vendor, Invoice, Bill, JournalEntry, JournalLine;
 import '../providers/asset_drafts_provider.dart';
+import '../providers/local_outlet_csv_uploads_provider.dart';
 
 // Global local storage instance
 final _localStorage = LocalStorageService.instance;
@@ -2201,9 +2202,9 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
   //   Gaming tax JEs are NOT created automatically (accountant posts manually).
   // ---------------------------------------------------------------------------
 
-  Future<void> createJEsForOutletRevenues() async {
+  Future<List<String>> createJEsForOutletRevenues() async {
     final allRevenues = await _db.getAllOutletRevenues();
-    if (allRevenues.isEmpty) return;
+    if (allRevenues.isEmpty) return [];
 
     // Build outlet lookup map
     final outlets = await _db.getAllOutlets();
@@ -2297,6 +2298,44 @@ class CsvImportNotifier extends StateNotifier<CsvImportState> {
       _ref.invalidate(outletRevenueSummaryProvider);
       _ref.invalidate(outletAnalyticsProvider);
     }
+
+    // Return only the daily JE IDs created in this call (not commission JEs)
+    return newDailyJEs.map((je) => je.id).toList();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Delete an outlet CSV upload and fully reverse everything it created
+  // ---------------------------------------------------------------------------
+
+  Future<void> deleteOutletCsvUpload(LocalOutletCsvUpload upload) async {
+    // 1. Delete SQLite revenue rows
+    await _db.deleteOutletRevenuesByIds(upload.revenueIds);
+
+    // 2. Remove daily JEs + ALL commission JEs from JSON store.
+    //    Commission JEs are global aggregates; we delete them all and
+    //    regenerate from remaining revenue data in step 4.
+    final allJournals = await _localStorage.loadJournalEntries();
+    final dailyJeIdSet = upload.dailyJeIds.toSet();
+    final remaining = allJournals.where((je) {
+      if (dailyJeIdSet.contains(je.id)) return false;
+      if (je.reference?.startsWith('JE-COMM-') == true) return false;
+      return true;
+    }).toList();
+    await _localStorage.saveJournalEntries(remaining);
+    await _ref.read(journalsProvider.notifier).loadJournals();
+
+    // 3. Remove upload record
+    await _ref.read(localOutletCsvUploadsProvider.notifier).remove(upload.id);
+
+    // 4. Regenerate commission JEs from the now-smaller revenue dataset
+    await createJEsForOutletRevenues();
+
+    // 5. Invalidate UI providers
+    _ref.invalidate(allOutletRevenuesProvider);
+    _ref.invalidate(allOutletExpendituresProvider);
+    _ref.invalidate(outletRevenueSummaryProvider);
+    _ref.invalidate(outletAnalyticsProvider);
+    _ref.invalidate(dashboardDataProvider);
   }
 
   // ---------------------------------------------------------------------------

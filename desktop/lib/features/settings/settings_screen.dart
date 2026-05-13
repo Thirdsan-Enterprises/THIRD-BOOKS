@@ -16,6 +16,7 @@ import '../../core/services/snapshot_service.dart';
 import '../../core/services/data_service.dart';
 import '../../core/providers/notes_providers.dart';
 import '../../core/providers/local_bank_statements_provider.dart';
+import '../../core/providers/local_outlet_csv_uploads_provider.dart';
 import '../../core/providers/asset_drafts_provider.dart';
 import '../../core/providers/depreciation_schedules_provider.dart';
 import '../../core/providers/local_attachments_provider.dart';
@@ -1963,6 +1964,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ref.invalidate(assetDraftsProvider);
         ref.invalidate(depreciationSchedulesProvider);
         ref.invalidate(localAttachmentsProvider);
+        ref.invalidate(localOutletCsvUploadsProvider);
         ref.invalidate(outletSettlementsProvider);
         ref.invalidate(allOutletRevenuesProvider);
         ref.invalidate(allOutletExpendituresProvider);
