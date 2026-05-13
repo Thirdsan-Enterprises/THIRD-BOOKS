@@ -346,6 +346,10 @@ class SnapshotService {
     await restore('local_attachments', LocalAttachment.fromJson,
         (items) => _ls.saveData('local_attachments', items, (a) => a.toJson()));
 
+    // Wipe SQLite outlet tables before restoring so rows that were added
+    // after the snapshot was taken don't survive the restore.
+    await _db.clearOutletTransactionalData();
+
     final rawRevenues = data['outlet_revenues'] as List? ?? [];
     for (final item in rawRevenues.whereType<Map<String, dynamic>>()) {
       await _db.upsertOutletRevenueFromMap(item);
