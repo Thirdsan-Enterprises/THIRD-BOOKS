@@ -500,6 +500,21 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
+  /// Wipe only the outlet transactional tables (revenues, expenditures,
+  /// commissions, assets, depreciation) without touching accounting records
+  /// or outlet definitions. Used by snapshot restore so that rows added after
+  /// the snapshot was taken are not left behind.
+  Future<void> clearOutletTransactionalData() async {
+    await transaction(() async {
+      await delete(depreciationEntries).go();
+      await delete(assetDepreciation).go();
+      await delete(assets).go();
+      await delete(commissionPayments).go();
+      await delete(outletExpenditures).go();
+      await delete(outletRevenues).go();
+    });
+  }
+
   /// Wipe all transactional data (revenues, expenditures, etc.) and reset
   /// the sync sequence to zero — same as a fresh install.
   /// The 72 outlet location records are preserved and re-seeded automatically
