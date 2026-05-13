@@ -27,6 +27,7 @@ import '../providers/asset_drafts_provider.dart' show AssetDraft;
 import '../providers/local_bank_statements_provider.dart' show LocalBankStatement;
 import '../providers/depreciation_schedules_provider.dart' show DepreciationSchedule;
 import '../providers/local_attachments_provider.dart' show LocalAttachment;
+import '../providers/local_outlet_csv_uploads_provider.dart' show LocalOutletCsvUpload;
 import 'data_service.dart' show databaseProvider;
 
 // ---------------------------------------------------------------------------
@@ -99,6 +100,7 @@ class SnapshotService {
     final assetDrafts    = await _ls.loadData('asset_drafts', AssetDraft.fromJson);
     final deprSchedules  = await _ls.loadData('depreciation_schedules', DepreciationSchedule.fromJson);
     final attachments    = await _ls.loadData('local_attachments', LocalAttachment.fromJson);
+    final csvUploads     = await _ls.loadData('outlet_csv_uploads', LocalOutletCsvUpload.fromJson);
 
     final dbOutlets     = await _db.getAllOutlets();
     final dbRevenues    = await _db.getAllOutletRevenues();
@@ -128,6 +130,7 @@ class SnapshotService {
       'asset_drafts':          assetDrafts.length,
       'depreciation_schedules': deprSchedules.length,
       'local_attachments':     attachments.length,
+      'outlet_csv_uploads':    csvUploads.length,
       'outlets':               dbOutlets.length,
       'outlet_revenues':       dbRevenues.length,
       'outlet_expenditures':   dbExpend.length,
@@ -159,6 +162,7 @@ class SnapshotService {
         'asset_drafts':          assetDrafts.map((e) => e.toJson()).toList(),
         'depreciation_schedules': deprSchedules.map((e) => e.toJson()).toList(),
         'local_attachments':     attachments.map((e) => e.toJson()).toList(),
+        'outlet_csv_uploads':    csvUploads.map((e) => e.toJson()).toList(),
         'outlets': dbOutlets.map((o) => {
           'id':             o.id,
           'outlet_code':    o.outletCode,
@@ -348,6 +352,8 @@ class SnapshotService {
         (items) => _ls.saveData('depreciation_schedules', items, (s) => s.toJson()));
     await restore('local_attachments', LocalAttachment.fromJson,
         (items) => _ls.saveData('local_attachments', items, (a) => a.toJson()));
+    await restore('outlet_csv_uploads', LocalOutletCsvUpload.fromJson,
+        (items) => _ls.saveData('outlet_csv_uploads', items, (u) => u.toJson()));
 
     // Wipe SQLite outlet tables before restoring so rows that were added
     // after the snapshot was taken don't survive the restore.
