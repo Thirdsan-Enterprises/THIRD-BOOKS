@@ -76,6 +76,7 @@ List<Account> _magicBetDefaultAccounts() {
       desc: 'Gross cash wagered by customers across all 72 outlets'),
     a('104', 'Other Revenue',                           AccountType.revenue,   AccountSubType.otherIncome),
     a('106', 'Interest Income',                         AccountType.revenue,   AccountSubType.otherIncome),
+    a('185', 'Outlet Premise Income',                   AccountType.revenue,   AccountSubType.otherIncome),
     a('107', 'Payouts',                                 AccountType.revenue,   AccountSubType.salesRevenue, system: true,
       desc: 'Contra-revenue: total winnings paid out to customers (debit balance reduces Stakes)'),
 
@@ -147,6 +148,10 @@ List<Account> _magicBetDefaultAccounts() {
     a('162', 'Support Services Fee',                    AccountType.expense,   AccountSubType.operatingExpense),
     a('178', 'Outlet Commission Expense',               AccountType.expense,   AccountSubType.operatingExpense, system: true,
       desc: '40% of adjusted weekly GGR owed to outlet location owners (carry-forward basis)'),
+    a('181', 'Premise Fees',                            AccountType.expense,   AccountSubType.operatingExpense),
+    a('182', 'License Application Fees',                AccountType.expense,   AccountSubType.operatingExpense),
+    a('183', 'Repairs & Maintenance',                   AccountType.expense,   AccountSubType.operatingExpense),
+    a('184', 'Domain Purchase & Hosting',               AccountType.expense,   AccountSubType.operatingExpense),
 
     // ════════════════════════════════════════════════════════════════════════
     // BANK REVALUATIONS & CURRENCY  (138–140)
@@ -169,8 +174,7 @@ List<Account> _magicBetDefaultAccounts() {
     a('164', 'Accounts Payable',                        AccountType.liability, AccountSubType.accountsPayable, system: true),
     a('165', 'Wages Payable',                           AccountType.liability, AccountSubType.currentLiability),
     a('166', 'Accruals',                                AccountType.liability, AccountSubType.currentLiability),
-    a('167', 'Tax Liability',                           AccountType.liability, AccountSubType.currentLiability,
-      desc: 'General tax liability account (VAT / sales tax payable)'),
+
     a('168', 'Employee Tax Payable',                    AccountType.liability, AccountSubType.currentLiability),
     a('169', 'Income Tax Payable',                      AccountType.liability, AccountSubType.currentLiability),
     a('170', 'Suspense',                                AccountType.liability, AccountSubType.currentLiability),
@@ -190,20 +194,10 @@ List<Account> _magicBetDefaultAccounts() {
     a('152', 'Prepayments',                             AccountType.asset,     AccountSubType.otherCurrentAsset),
     a('153', 'Accrued Income',                          AccountType.asset,     AccountSubType.otherCurrentAsset),
     a('173', 'Share Capital Receivable',                AccountType.asset,     AccountSubType.otherCurrentAsset),
-    a('174', 'Accounts Payable — URA',                  AccountType.liability, AccountSubType.currentLiability,
-      desc: 'Taxes and levies payable to Uganda Revenue Authority'),
-    a('179', 'Bank Guarantee',                          AccountType.asset,     AccountSubType.otherCurrentAsset,
-      desc: 'Security deposit held by bank on behalf of the company (GRB / landlord guarantee)'),
-    a('181', 'Premise Fees',                             AccountType.expense,   AccountSubType.operatingExpense,
-      desc: 'Rent and lease costs for outlet premises'),
-    a('182', 'License Application Fees',                AccountType.expense,   AccountSubType.operatingExpense,
-      desc: 'Fees paid to regulatory bodies for gaming/operator licence applications and renewals'),
-    a('183', 'Repairs & Maintenance',                   AccountType.expense,   AccountSubType.operatingExpense,
-      desc: 'Costs of repairing and maintaining outlet equipment, fixtures, and premises'),
-    a('184', 'Domain Purchase & Hosting',               AccountType.expense,   AccountSubType.operatingExpense,
-      desc: 'Domain registration, web hosting, and related online infrastructure costs'),
-    a('185', 'Outlet Premise Income',                   AccountType.revenue,   AccountSubType.otherIncome,
-      desc: 'Income earned from subletting or licensing outlet premises to third parties'),
+    a('174', 'UAP Umbrella Fund',                       AccountType.asset,     AccountSubType.otherCurrentAsset,
+      desc: 'UAP insurance umbrella savings fund — current asset, not an operational bank account'),
+    a('167', 'Bank Guarantee',                          AccountType.asset,     AccountSubType.otherCurrentAsset,
+      desc: 'Security deposit held by bank on behalf of the company (e.g. GRB / landlord guarantee)'),
 
     // ════════════════════════════════════════════════════════════════════════
     // FIXED ASSETS  (154–159)

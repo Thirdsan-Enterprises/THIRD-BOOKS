@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 
 import 'api_client.dart';
 import 'local_storage_service.dart';
+import 'snapshot_service.dart';
 import 'data_service.dart';
 import '../models/models.dart';
 import '../models/bank_transaction.dart';
@@ -1178,6 +1179,14 @@ class SyncServiceNotifier extends StateNotifier<SyncState> {
 
   Future<void> clearLocalCache() async {
     try {
+      // Safety net: capture a restore point before wiping so the accountant
+      // can recover if the reset was triggered by mistake.
+      try {
+        final db = _ref.read(databaseProvider);
+        final snapSvc = SnapshotService(LocalStorageService.instance, db);
+        await snapSvc.createSnapshot('Auto — before data reset');
+      } catch (_) {}
+
       await _localStorage.initialize();
       // Clear JSON file cache — includes all local-only stores.
       await Future.wait([

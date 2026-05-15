@@ -662,7 +662,13 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
                         child: TextFormField(
                           controller: codeController,
                           decoration: const InputDecoration(labelText: 'Account Code'),
-                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) return 'Required';
+                            final taken = ref.read(accountsProvider).accounts
+                                .any((a) => a.code.trim() == v.trim());
+                            if (taken) return 'Code already in use';
+                            return null;
+                          },
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -804,7 +810,13 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> with SingleTick
                         child: TextFormField(
                           controller: codeController,
                           decoration: const InputDecoration(labelText: 'Account Code'),
-                          validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) return 'Required';
+                            final taken = ref.read(accountsProvider).accounts
+                                .any((a) => a.code.trim() == v.trim() && a.id != account.id);
+                            if (taken) return 'Code already in use';
+                            return null;
+                          },
                         ),
                       ),
                       const SizedBox(width: 16),

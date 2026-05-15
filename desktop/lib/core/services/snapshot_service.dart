@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -64,6 +65,8 @@ class SnapshotMeta {
 class SnapshotService {
   static const _version = '1.0';
   static const _maxSnapshots = 20;
+  static const _storage = FlutterSecureStorage();
+  static const _lastAutoSnapshotKey = 'last_auto_snapshot_date';
 
   final LocalStorageService _ls;
   final AppDatabase _db;
@@ -398,6 +401,25 @@ class SnapshotService {
         .toList();
     for (final f in files) {
       await f.delete();
+    }
+  }
+
+  // ── Daily auto-snapshot ──────────────────────────────────────────────────────
+
+  /// Called on every app launch / login. Creates one automatic snapshot per
+  /// calendar day, labelled "Auto — DD MMM YYYY". Skips silently on failure
+  /// so it never blocks startup.
+  Future<void> maybeAutoSnapshot() async {
+    try {
+      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final last = await _storage.read(key: _lastAutoSnapshotKey);
+      if (last == today) return;
+
+      final label = 'Auto — ${DateFormat('dd MMM yyyy').format(DateTime.now())}';
+      await createSnapshot(label);
+      await _storage.write(key: _lastAutoSnapshotKey, value: today);
+    } catch (_) {
+      // auto-snapshot must never crash the app
     }
   }
 
