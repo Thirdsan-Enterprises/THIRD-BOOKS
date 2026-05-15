@@ -162,4 +162,26 @@ class JournalLine {
       'description': description,
     };
   }
+
+  JournalLine copyWith({
+    String? id,
+    String? journalEntryId,
+    String? accountId,
+    String? accountName,
+    String? accountCode,
+    double? debit,
+    double? credit,
+    String? description,
+  }) {
+    return JournalLine(
+      id: id ?? this.id,
+      journalEntryId: journalEntryId ?? this.journalEntryId,
+      accountId: accountId ?? this.accountId,
+      accountName: accountName ?? this.accountName,
+      accountCode: accountCode ?? this.accountCode,
+      debit: debit ?? this.debit,
+      credit: credit ?? this.credit,
+      description: description ?? this.description,
+    );
+  }
 }

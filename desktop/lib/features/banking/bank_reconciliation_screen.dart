@@ -1870,7 +1870,10 @@ class _BankReconciliationScreenState
             ],
             createdAt: now, updatedAt: now,
           ));
-          createdJeIds.add(outJeId);
+          // Outlet settlement JEs are intentionally NOT added to createdJeIds.
+          // jeIds is the list reversed when the statement is deleted; outlet
+          // settlements represent real cash received and must survive deletion
+          // of the bank statement file (e.g. wrong file uploaded).
         }
       }
 

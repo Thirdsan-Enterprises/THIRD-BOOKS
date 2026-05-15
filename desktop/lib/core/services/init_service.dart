@@ -73,14 +73,30 @@ class InitializationService {
       }
     }
 
-    print('First-time purge: clearing demo accounts so MagicBet CoA can be seeded...');
     final localStorage = LocalStorageService.instance;
     await localStorage.initialize();
 
-    // Only reset accounts — everything else is user-created data that must
-    // survive reinstalls and version upgrades.
-    await localStorage.saveAccounts([]);
+    // Safety check: if accounts.json already contains MagicBet client data
+    // (any account with a 3-digit code in the 100–999 range), this is real
+    // client data — not ThirdBooks API demo data.  FlutterSecureStorage can
+    // lose its keys on Windows reinstalls/DPAPI rotations, so the purge key
+    // being absent does NOT reliably mean the accounts are demo data.
+    // Stamp the key and bail out without touching accounts.json.
+    final existingAccounts = await localStorage.loadAccounts();
+    final hasMagicBetAccounts = existingAccounts.any((a) {
+      final code = int.tryParse(a.code) ?? -1;
+      return code >= 100 && code < 1000;
+    });
+    if (hasMagicBetAccounts) {
+      await _storage.write(key: _demoPurgedKey, value: 'true');
+      print('MagicBet accounts detected in accounts.json — skipping wipe, stamping v4 key.');
+      return;
+    }
 
+    // Accounts are empty or contain only old IFRS 4-digit demo codes (1000+).
+    // Safe to clear so the MagicBet CoA gets properly re-seeded.
+    print('First-time purge: clearing demo accounts so MagicBet CoA can be seeded...');
+    await localStorage.saveAccounts([]);
     await _storage.write(key: _demoPurgedKey, value: 'true');
     print('Demo accounts cleared. MagicBet CoA will be seeded on next load.');
   }
