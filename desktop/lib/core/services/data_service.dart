@@ -194,10 +194,16 @@ List<Account> _magicBetDefaultAccounts() {
       desc: 'Taxes and levies payable to Uganda Revenue Authority'),
     a('179', 'Bank Guarantee',                          AccountType.asset,     AccountSubType.otherCurrentAsset,
       desc: 'Security deposit held by bank on behalf of the company (GRB / landlord guarantee)'),
-    a('181', 'Premise Income',                          AccountType.revenue,   AccountSubType.otherIncome,
+    a('181', 'Premise Fees',                             AccountType.expense,   AccountSubType.operatingExpense,
+      desc: 'Rent and lease costs for outlet premises'),
+    a('182', 'License Application Fees',                AccountType.expense,   AccountSubType.operatingExpense,
+      desc: 'Fees paid to regulatory bodies for gaming/operator licence applications and renewals'),
+    a('183', 'Repairs & Maintenance',                   AccountType.expense,   AccountSubType.operatingExpense,
+      desc: 'Costs of repairing and maintaining outlet equipment, fixtures, and premises'),
+    a('184', 'Domain Purchase & Hosting',               AccountType.expense,   AccountSubType.operatingExpense,
+      desc: 'Domain registration, web hosting, and related online infrastructure costs'),
+    a('185', 'Outlet Premise Income',                   AccountType.revenue,   AccountSubType.otherIncome,
       desc: 'Income earned from subletting or licensing outlet premises to third parties'),
-    a('182', 'Premise Expense',                         AccountType.expense,   AccountSubType.operatingExpense,
-      desc: 'Costs directly attributable to the maintenance and operation of outlet premises'),
 
     // ════════════════════════════════════════════════════════════════════════
     // FIXED ASSETS  (154–159)
