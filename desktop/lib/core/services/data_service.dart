@@ -169,6 +169,8 @@ List<Account> _magicBetDefaultAccounts() {
     a('164', 'Accounts Payable',                        AccountType.liability, AccountSubType.accountsPayable, system: true),
     a('165', 'Wages Payable',                           AccountType.liability, AccountSubType.currentLiability),
     a('166', 'Accruals',                                AccountType.liability, AccountSubType.currentLiability),
+    a('167', 'Tax Liability',                           AccountType.liability, AccountSubType.currentLiability,
+      desc: 'General tax liability account (VAT / sales tax payable)'),
     a('168', 'Employee Tax Payable',                    AccountType.liability, AccountSubType.currentLiability),
     a('169', 'Income Tax Payable',                      AccountType.liability, AccountSubType.currentLiability),
     a('170', 'Suspense',                                AccountType.liability, AccountSubType.currentLiability),
@@ -188,8 +190,14 @@ List<Account> _magicBetDefaultAccounts() {
     a('152', 'Prepayments',                             AccountType.asset,     AccountSubType.otherCurrentAsset),
     a('153', 'Accrued Income',                          AccountType.asset,     AccountSubType.otherCurrentAsset),
     a('173', 'Share Capital Receivable',                AccountType.asset,     AccountSubType.otherCurrentAsset),
+    a('174', 'Accounts Payable — URA',                  AccountType.liability, AccountSubType.currentLiability,
+      desc: 'Taxes and levies payable to Uganda Revenue Authority'),
     a('179', 'Bank Guarantee',                          AccountType.asset,     AccountSubType.otherCurrentAsset,
       desc: 'Security deposit held by bank on behalf of the company (GRB / landlord guarantee)'),
+    a('181', 'Premise Income',                          AccountType.revenue,   AccountSubType.otherIncome,
+      desc: 'Income earned from subletting or licensing outlet premises to third parties'),
+    a('182', 'Premise Expense',                         AccountType.expense,   AccountSubType.operatingExpense,
+      desc: 'Costs directly attributable to the maintenance and operation of outlet premises'),
 
     // ════════════════════════════════════════════════════════════════════════
     // FIXED ASSETS  (154–159)
