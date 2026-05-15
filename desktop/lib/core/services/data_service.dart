@@ -502,8 +502,10 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
             final merged = [...localAccounts, ...missing];
             await _localStorage.saveAccounts(merged);
             state = state.copyWith(accounts: merged, isLoading: false);
+            await _repairJournalAccountIds(merged);
           } else {
             state = state.copyWith(accounts: localAccounts, isLoading: false);
+            await _repairJournalAccountIds(localAccounts);
           }
           debugPrint('Loaded ${localAccounts.length + missing.length} accounts from local storage');
           return;
@@ -523,6 +525,7 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
       debugPrint('Warning: could not persist default accounts: $e');
     }
     state = state.copyWith(accounts: defaults, isLoading: false);
+    await _repairJournalAccountIds(defaults);
     debugPrint('Chart of Accounts ready: ${defaults.length} accounts.');
   }
 
@@ -534,6 +537,53 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
     } catch (e) {
       debugPrint('Error loading accounts: $e');
       state = state.copyWith(isLoading: false);
+    }
+  }
+
+  /// Scan all journal entries and fix any lines whose accountId no longer
+  /// matches a known account (e.g. after a purgeDemoData wipe replaced
+  /// timestamp-based custom account IDs with the hardcoded 'acct-NNN' IDs).
+  ///
+  /// Strategy: match by accountCode first (most reliable), then by
+  /// accountName (case-insensitive fallback).  Only persists if at least
+  /// one line was repaired.
+  Future<void> _repairJournalAccountIds(List<Account> accounts) async {
+    try {
+      final knownIds = accounts.map((a) => a.id).toSet();
+      // If journals reference only known IDs there is nothing to do.
+      final journals = await _localStorage.loadJournalEntries();
+      final needsRepair = journals.any((je) =>
+          je.lines.any((l) => !knownIds.contains(l.accountId)));
+      if (!needsRepair) return;
+
+      final byCode = <String, String>{for (final a in accounts) a.code: a.id};
+      final byName = <String, String>{
+        for (final a in accounts) a.name.toLowerCase(): a.id
+      };
+
+      int repairCount = 0;
+      final repairedJournals = journals.map((je) {
+        final repairedLines = je.lines.map((line) {
+          if (knownIds.contains(line.accountId)) return line;
+          final newId = (line.accountCode != null
+                  ? byCode[line.accountCode]
+                  : null) ??
+              (line.accountName != null
+                  ? byName[line.accountName!.toLowerCase()]
+                  : null);
+          if (newId == null) return line; // cannot resolve — leave as-is
+          repairCount++;
+          return line.copyWith(accountId: newId);
+        }).toList();
+        return je.copyWith(lines: repairedLines);
+      }).toList();
+
+      if (repairCount > 0) {
+        await _localStorage.saveJournalEntries(repairedJournals);
+        debugPrint('Repaired $repairCount journal line account references.');
+      }
+    } catch (e) {
+      debugPrint('Warning: journal account-ID repair failed: $e');
     }
   }
 
