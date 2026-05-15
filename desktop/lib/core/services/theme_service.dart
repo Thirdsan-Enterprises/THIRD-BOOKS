@@ -91,7 +91,7 @@ class AppSettings {
     this.enableAnimations = true,
     this.autoGamingTaxJE = true,
     this.autoPayrollNSSFJE = false,
-    this.autoWHTJE = true,
+    this.autoWHTJE = false,
   });
 
   AppSettings copyWith({
@@ -161,7 +161,7 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     final enableAnimations = await _storage.read(key: 'enable_animations') != 'false';
     final autoGamingTaxJE = await _storage.read(key: 'auto_gaming_tax_je') != 'false';
     final autoPayrollNSSFJE = await _storage.read(key: 'auto_payroll_nssf_je') == 'true';
-    final autoWHTJE = await _storage.read(key: 'auto_wht_je') != 'false';
+    final autoWHTJE = await _storage.read(key: 'auto_wht_je') == 'true';
 
     state = AppSettings(
       currency: currency,

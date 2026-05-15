@@ -23,6 +23,7 @@ class InitializationService {
     'demo_data_purged_v3',
   ];
   static const currentSetupVersion = '4.0.0';
+  static const _whtPurgedKey = 'auto_wht_je_purged_v1';
 
   /// Check if initial setup has been completed
   static Future<bool> isSetupComplete() async {
@@ -122,6 +123,32 @@ class InitializationService {
     }
   }
 
+  /// Remove all auto-generated WHT journal entries created while autoWHTJE
+  /// was on by default. Runs once — stamped by [_whtPurgedKey].
+  static Future<void> _purgeAutoWHTEntries() async {
+    final done = await _storage.read(key: _whtPurgedKey);
+    if (done == 'true') return;
+
+    try {
+      final localStorage = LocalStorageService.instance;
+      await localStorage.initialize();
+
+      final journals = await localStorage.loadJournalEntries();
+      final cleaned = journals
+          .where((je) => !je.entryNumber.startsWith('AUTO-WHT-'))
+          .toList();
+
+      if (cleaned.length < journals.length) {
+        await localStorage.saveJournalEntries(cleaned);
+        print('WHT cleanup: removed ${journals.length - cleaned.length} auto-WHT journal entries.');
+      }
+    } catch (e) {
+      print('WHT cleanup failed (non-fatal): $e');
+    }
+
+    await _storage.write(key: _whtPurgedKey, value: 'true');
+  }
+
   /// Check and run setup if needed.
   ///
   /// Called after every login. Always ensures the 72 outlet locations are
@@ -130,6 +157,9 @@ class InitializationService {
   static Future<bool> checkAndRunSetup(AppDatabase db) async {
     // Always purge demo data on upgrade (idempotent - only runs once)
     await purgeDemoData();
+
+    // One-time cleanup: remove all auto-generated WHT journal entries
+    await _purgeAutoWHTEntries();
 
     final setupComplete = await isSetupComplete();
 
