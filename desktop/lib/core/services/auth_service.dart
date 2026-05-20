@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,7 @@ import 'package:dio/dio.dart';
 import 'api_client.dart';
 import 'init_service.dart';
 import 'local_storage_service.dart';
+import 'server_sync_service.dart';
 import 'snapshot_service.dart';
 import '../database/app_database.dart';
 
@@ -187,6 +189,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // a recent safety net without the accountant having to remember.
       final snapSvc = SnapshotService(LocalStorageService.instance, db);
       await snapSvc.maybeAutoSnapshot();
+
+      // Silently push backup to sync server if configured
+      unawaited(ServerSyncService.pushBackup(db).then((r) {
+        if (r.success) print('Server sync: backup pushed at ${r.syncedAt}');
+        else if (r.error != 'Server sync not configured') print('Server sync failed: ${r.error}');
+      }));
     } catch (e) {
       print('Initialization check failed: $e');
       // Don't throw - initialization is a background task

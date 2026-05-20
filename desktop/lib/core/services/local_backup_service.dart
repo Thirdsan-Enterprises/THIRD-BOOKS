@@ -56,7 +56,27 @@ class LocalBackupService {
 
   Future<BackupResult?> exportBackup() async {
     await _ls.initialize();
+    final payload = await _buildPayloadInternal();
+    final now     = DateTime.parse(payload['exported_at'] as String);
+    final counts  = (payload['counts'] as Map).cast<String, int>();
 
+    final datePart      = DateFormat('yyyy-MM-dd').format(now);
+    final suggestedName = 'thirdbooks_backup_$datePart.thirdbooks';
+
+    final savePath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save ThirdBooks Backup',
+      fileName: suggestedName,
+      type: FileType.any,
+    );
+    if (savePath == null) return null;
+
+    final finalPath = savePath.endsWith('.thirdbooks') ? savePath : '$savePath.thirdbooks';
+    await File(finalPath).writeAsString(const JsonEncoder.withIndent('  ').convert(payload));
+
+    return BackupResult(filePath: finalPath, counts: counts, exportedAt: now);
+  }
+
+  Future<Map<String, dynamic>> _buildPayloadInternal() async {
     // JSON-store entities
     final accounts       = await _ls.loadAccounts();
     final customers      = await _ls.loadCustomers();
@@ -241,20 +261,15 @@ class LocalBackupService {
       },
     };
 
-    final datePart = DateFormat('yyyyMMdd_HHmmss').format(now);
-    final suggestedName = 'thirdbooks_backup_$datePart.thirdbooks';
+    return payload;
+  }
 
-    final savePath = await FilePicker.platform.saveFile(
-      dialogTitle: 'Save ThirdBooks Backup',
-      fileName: suggestedName,
-      type: FileType.any,
-    );
-    if (savePath == null) return null;
-
-    final finalPath = savePath.endsWith('.thirdbooks') ? savePath : '$savePath.thirdbooks';
-    await File(finalPath).writeAsString(const JsonEncoder.withIndent('  ').convert(payload));
-
-    return BackupResult(filePath: finalPath, counts: counts, exportedAt: now);
+  /// Exports the full backup as a JSON string without prompting for a file path.
+  /// Used by ServerSyncService to push the backup to the sync server.
+  Future<String> exportAsJson() async {
+    await _ls.initialize();
+    final payload = await _buildPayloadInternal();
+    return jsonEncode(payload);
   }
 
   // ── Import / Restore ────────────────────────────────────────────────────────
