@@ -78,22 +78,94 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   // Ledger helpers — compute real account balances from posted journal entries
   // ---------------------------------------------------------------------------
 
-  /// Returns {accountId → (totalDebits − totalCredits)} for every posted JE.
+  /// Returns {accountKey → (totalDebits − totalCredits)} for the given entries.
+  /// Keys are normalised to 'acct-{code}' when accountCode is stored on the
+  /// journal line; otherwise the raw accountId is used as the key.
   Map<String, double> _computeLedgerBalances(List<JournalEntry> entries) {
     final raw = <String, double>{};
     for (final entry in entries) {
       if (entry.status != JournalEntryStatus.posted) continue;
       for (final line in entry.lines) {
-        raw[line.accountId] = (raw[line.accountId] ?? 0) + line.debit - line.credit;
+        final key = line.accountCode != null ? 'acct-${line.accountCode}' : line.accountId;
+        raw[key] = (raw[key] ?? 0) + line.debit - line.credit;
       }
     }
     return raw;
   }
 
   /// Presentational balance for [account] — positive means normal direction.
+  /// Tries 'acct-{code}' first (normalised key), then raw account.id as fallback.
   double _acctBal(Account account, Map<String, double> raw) {
-    final r = raw['acct-${account.code}'] ?? 0.0;
+    final r = raw['acct-${account.code}'] ?? raw[account.id] ?? 0.0;
     return account.isDebitNormal ? r : -r;
+  }
+
+  // ── Period date helpers ────────────────────────────────────────────────────
+
+  /// Converts [_selectedPeriod] to (start, end) using a July–June fiscal year.
+  (DateTime, DateTime) _getPeriodDates() {
+    final now = DateTime.now();
+    // Fiscal year: Jul 1 → Jun 30
+    final fyStart = now.month >= 7
+        ? DateTime(now.year, 7, 1)
+        : DateTime(now.year - 1, 7, 1);
+    final fyEnd = DateTime(fyStart.year + 1, 6, 30, 23, 59, 59);
+
+    DateTime monthStart(int year, int month) => DateTime(year, month, 1);
+    DateTime monthEnd(int year, int month) =>
+        DateTime(year, month + 1, 1).subtract(const Duration(seconds: 1));
+
+    switch (_selectedPeriod) {
+      case 'Today':
+        final d = DateTime(now.year, now.month, now.day);
+        return (d, d.add(const Duration(hours: 23, minutes: 59, seconds: 59)));
+      case 'This Week':
+        final ws = now.subtract(Duration(days: now.weekday - 1));
+        return (DateTime(ws.year, ws.month, ws.day),
+                DateTime(now.year, now.month, now.day, 23, 59, 59));
+      case 'This Month':
+        return (monthStart(now.year, now.month), monthEnd(now.year, now.month));
+      case 'Last Month':
+        final lm = now.month == 1
+            ? DateTime(now.year - 1, 12)
+            : DateTime(now.year, now.month - 1);
+        return (monthStart(lm.year, lm.month), monthEnd(lm.year, lm.month));
+      case 'This Quarter':
+        final qStart = ((now.month - 1) ~/ 3) * 3 + 1;
+        return (DateTime(now.year, qStart, 1), monthEnd(now.year, qStart + 2));
+      case 'Last Quarter':
+        final cqStart = ((now.month - 1) ~/ 3) * 3 + 1;
+        final lqEnd   = DateTime(now.year, cqStart, 1).subtract(const Duration(seconds: 1));
+        final lqStart = ((lqEnd.month - 1) ~/ 3) * 3 + 1;
+        return (DateTime(lqEnd.year, lqStart, 1), lqEnd);
+      case 'Last Year':
+        return (DateTime(fyStart.year - 1, 7, 1),
+                DateTime(fyStart.year, 6, 30, 23, 59, 59));
+      case 'Custom':
+        final s = _customFrom ?? fyStart;
+        final e = _customTo != null
+            ? DateTime(_customTo!.year, _customTo!.month, _customTo!.day, 23, 59, 59)
+            : fyEnd;
+        return (s, e);
+      case 'This Year':
+      default:
+        return (fyStart, fyEnd);
+    }
+  }
+
+  /// Entries that fall within the selected period (for P&L / Cash Flow flows).
+  List<JournalEntry> _filterEntries(List<JournalEntry> entries) {
+    final (start, end) = _getPeriodDates();
+    return entries
+        .where((e) => !e.date.isBefore(start) && !e.date.isAfter(end))
+        .toList();
+  }
+
+  /// All entries up to and including the period end date (for Trial Balance /
+  /// Balance Sheet — cumulative balances as of that date).
+  List<JournalEntry> _cumulativeEntries(List<JournalEntry> entries) {
+    final (_, end) = _getPeriodDates();
+    return entries.where((e) => !e.date.isAfter(end)).toList();
   }
 
   // ---------------------------------------------------------------------------
@@ -107,40 +179,44 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   ///   Investing  = asset acquisitions / disposals
   ///   Financing  = loan proceeds / repayments / dividends
   Map<String, double> _computeCashFlowFigures() {
-    final accounts = ref.read(accountsProvider).accounts;
-    final raw      = ref.read(ledgerBalancesProvider);
+    final accounts   = ref.read(accountsProvider).accounts;
+    final allEntries = ref.read(journalsProvider).entries;
 
-    double sumRaw(Iterable<Account> accts) =>
-        accts.fold(0.0, (s, a) => s + (raw['acct-${a.code}'] ?? 0.0));
+    // P&L items use period-filtered entries; balance sheet items use cumulative.
+    final periodRaw = _computeLedgerBalances(_filterEntries(allEntries));
+    final cumRaw    = _computeLedgerBalances(_cumulativeEntries(allEntries));
 
-    // ── Cash & Bank ──────────────────────────────────────────────────────────
-    final closingCash = sumRaw(accounts.where(
-      (a) => a.subType == AccountSubType.cash || a.subType == AccountSubType.bank));
+    double sumCum(Iterable<Account> accts) =>
+        accts.fold(0.0, (s, a) => s + (cumRaw['acct-${a.code}'] ?? cumRaw[a.id] ?? 0.0));
 
-    // ── Working Capital ──────────────────────────────────────────────────────
-    final arRaw = sumRaw(accounts.where(
+    // ── Cash & Bank (cumulative as of period end — includes Bank Guarantee 167) ─
+    final closingCash = sumCum(accounts.where(
+      (a) => a.subType == AccountSubType.cash ||
+             a.subType == AccountSubType.bank ||
+             a.code == '167'));
+
+    // ── Working Capital (cumulative snapshot at period end) ──────────────────
+    final arRaw = sumCum(accounts.where(
       (a) => a.subType == AccountSubType.accountsReceivable));
-    final apRaw = sumRaw(accounts.where(
+    final apRaw = sumCum(accounts.where(
       (a) => a.subType == AccountSubType.accountsPayable));
-    // AR increase → cash decrease;  AP increase → cash increase
     final receivablesImpact = -arRaw;
     final payablesImpact    = -apRaw;
 
-    // ── Depreciation & Amortization add-back (non-cash expenses) ────────────
-    final _depAccts = accounts.where(
+    // ── Depreciation & Amortization add-back (period, non-cash) ─────────────
+    final depAccts = accounts.where(
       (a) => a.type == AccountType.expense &&
              (a.name.toLowerCase().contains('depreciation') ||
               a.name.toLowerCase().contains('amortization') ||
               a.name.toLowerCase().contains('amortisation'))).toList();
-    double depreciationAddBack = sumRaw(_depAccts);
-    // Always include acct-143 (Depreciation Expense) directly as fallback
-    // in case CoA name doesn't match the filter above.
-    if (_depAccts.every((a) => 'acct-${a.code}' != 'acct-143')) {
-      depreciationAddBack += raw['acct-143'] ?? 0.0;
+    double depreciationAddBack = depAccts.fold(
+        0.0, (s, a) => s + (periodRaw['acct-${a.code}'] ?? periodRaw[a.id] ?? 0.0));
+    if (depAccts.every((a) => a.code != '143')) {
+      depreciationAddBack += periodRaw['acct-143'] ?? 0.0;
     }
 
-    // ── Investing ────────────────────────────────────────────────────────────
-    final assetAcquisitions = sumRaw(accounts.where(
+    // ── Investing (cumulative) ────────────────────────────────────────────────
+    final assetAcquisitions = sumCum(accounts.where(
       (a) => (a.subType == AccountSubType.fixedAsset ||
                a.subType == AccountSubType.intangibleAsset) &&
              !a.name.toLowerCase().contains('depreciation') &&
@@ -148,21 +224,19 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
              !a.name.toLowerCase().contains('amortisation') &&
              !a.name.toLowerCase().contains('accumulated')));
 
-    // ── Financing ────────────────────────────────────────────────────────────
-    final loanRaw = sumRaw(accounts.where(
+    // ── Financing (cumulative) ────────────────────────────────────────────────
+    final loanRaw = sumCum(accounts.where(
       (a) => a.subType == AccountSubType.longTermLiability));
-    // Liability accounts are credit-normal → negative raw = outstanding balance
-    final loanProceeds   = loanRaw < 0 ? -loanRaw : 0.0;
-    final loanRepayment  = loanRaw > 0 ? loanRaw  : 0.0;
+    final loanProceeds  = loanRaw < 0 ? -loanRaw : 0.0;
+    final loanRepayment = loanRaw > 0 ? loanRaw  : 0.0;
 
-    // Dividends paid → debit to retained earnings or dividend payable
-    final dividendsPaid = sumRaw(accounts.where(
+    final dividendsPaid = sumCum(accounts.where(
       (a) => a.name.toLowerCase().contains('dividend') &&
              a.type == AccountType.equity));
 
-    // ── Operating profit from income statement (ledger-derived) ──────────────
-    final cfCorCodes = const {'107', '178'};
-    final cfTaxCodes = const {'108'};
+    // ── Operating profit from income statement (period-filtered) ─────────────
+    const cfCorCodes = {'107', '178'};
+    const cfTaxCodes = {'108'};
     final cfRevAccts  = accounts.where((a) => a.type == AccountType.revenue).toList();
     final cfExpAccts  = accounts.where((a) => a.type == AccountType.expense).toList();
     final cfCorAccts  = cfExpAccts.where((a) => cfCorCodes.contains(a.code)).toList();
@@ -172,7 +246,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         .toList();
 
     double cfBal(Account a) {
-      final b = raw['acct-${a.code}'] ?? 0.0;
+      final b = periodRaw['acct-${a.code}'] ?? periodRaw[a.id] ?? 0.0;
       return a.isDebitNormal ? b : -b;
     }
     double cfSum(List<Account> list) => list.fold(0.0, (s, a) => s + cfBal(a));
@@ -754,7 +828,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     } else if (reportName == 'Balance Sheet') {
       final bsAccounts = ref.read(accountsProvider).accounts;
       final bsEntries = ref.read(journalsProvider).entries;
-      final bsRaw = _computeLedgerBalances(bsEntries);
+      final bsRaw = _computeLedgerBalances(_cumulativeEntries(bsEntries));
 
       final bsAssets = bsAccounts.where((a) => a.type == AccountType.asset).toList()
         ..sort((a, b) => a.code.compareTo(b.code));
@@ -810,7 +884,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     } else if (reportName == 'Trial Balance') {
       final tbAccounts = ref.read(accountsProvider).accounts;
       final tbEntries = ref.read(journalsProvider).entries;
-      final tbRaw = _computeLedgerBalances(tbEntries);
+      final tbRaw = _computeLedgerBalances(_cumulativeEntries(tbEntries));
 
       final tbRows = <List<String>>[];
       double tbTotalDr = 0;
@@ -1195,7 +1269,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       {
         final bsAccounts2 = ref.read(accountsProvider).accounts;
         final bsEntries2 = ref.read(journalsProvider).entries;
-        final bsRaw2 = _computeLedgerBalances(bsEntries2);
+        final bsRaw2 = _computeLedgerBalances(_cumulativeEntries(bsEntries2));
 
         final bsAssets2 = bsAccounts2.where((a) => a.type == AccountType.asset).toList()
           ..sort((a, b) => a.code.compareTo(b.code));
@@ -1335,7 +1409,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
     final entries = journalsState.entries;
     final accounts = accountsState.accounts;
-    final raw = _computeLedgerBalances(entries);
+    final raw = _computeLedgerBalances(_filterEntries(entries));
 
     // Group accounts by type
     final revenueAccts = accounts.where((a) => a.type == AccountType.revenue).toList()
@@ -1456,7 +1530,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     );
   }
 
-  /// Returns { accountId → { month (1–12) → (∑debits − ∑credits) } } for posted JEs in [year].
+  /// Returns { accountKey → { month (1–12) → balance } } for posted JEs in [year].
+  /// Keys normalised to 'acct-{code}' when accountCode is present on the line.
   Map<String, Map<int, double>> _computeMonthlyLedger(
       List<JournalEntry> entries, int year) {
     final result = <String, Map<int, double>>{};
@@ -1465,8 +1540,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       if (entry.date.year != year) continue;
       final m = entry.date.month;
       for (final line in entry.lines) {
-        (result[line.accountId] ??= {})[m] =
-            (result[line.accountId]![m] ?? 0) + line.debit - line.credit;
+        final key = line.accountCode != null ? 'acct-${line.accountCode}' : line.accountId;
+        (result[key] ??= {})[m] = (result[key]![m] ?? 0) + line.debit - line.credit;
       }
     }
     return result;
@@ -1474,8 +1549,29 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
   double _monthSum(List<Account> accts, Map<String, Map<int, double>> monthly, int m) =>
       accts.fold(0.0, (s, a) {
-        final raw = monthly['acct-${a.code}']?[m] ?? 0.0;
-        return s + (a.isDebitNormal ? raw : -raw);
+        final b = monthly['acct-${a.code}']?[m] ?? monthly[a.id]?[m] ?? 0.0;
+        return s + (a.isDebitNormal ? b : -b);
+      });
+
+  /// Returns { accountKey → { yyyyMM → balance } } for posted JEs — no year filter.
+  /// Use for cross-year custom periods.
+  Map<String, Map<int, double>> _computeMonthlyLedgerFull(List<JournalEntry> entries) {
+    final result = <String, Map<int, double>>{};
+    for (final entry in entries) {
+      if (entry.status != JournalEntryStatus.posted) continue;
+      final ym = entry.date.year * 100 + entry.date.month;
+      for (final line in entry.lines) {
+        final key = line.accountCode != null ? 'acct-${line.accountCode}' : line.accountId;
+        (result[key] ??= {})[ym] = (result[key]![ym] ?? 0) + line.debit - line.credit;
+      }
+    }
+    return result;
+  }
+
+  double _monthSumFull(List<Account> accts, Map<String, Map<int, double>> monthly, int ym) =>
+      accts.fold(0.0, (s, a) {
+        final b = monthly['acct-${a.code}']?[ym] ?? monthly[a.id]?[ym] ?? 0.0;
+        return s + (a.isDebitNormal ? b : -b);
       });
 
   Widget _buildMonthlyBreakdown(
@@ -1484,153 +1580,132 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       List<Account> corAccts,
       List<Account> directTaxAccts,
       List<Account> opexAccts) {
-    // Determine year from selected period
-    final now = DateTime.now();
-    final year = _selectedPeriod == 'Last Year' ? now.year - 1 : now.year;
-    final monthly = _computeMonthlyLedger(entries, year);
+    // Filter entries to the selected period and build full monthly ledger (yyyyMM keys).
+    final filtered = _filterEntries(entries);
+    final monthly  = _computeMonthlyLedgerFull(filtered);
     final fmt = NumberFormat('#,###');
 
-    // Show Jan through Dec (or current month for current year).
-    final lastMonth = year == now.year ? now.month : 12;
-    final months = List.generate(lastMonth, (i) => i + 1);
+    // Build the list of (year, month) pairs covering the selected period.
+    final (start, end) = _getPeriodDates();
+    final periodMonths = <DateTime>[];
+    var d = DateTime(start.year, start.month, 1);
+    while (!d.isAfter(DateTime(end.year, end.month))) {
+      periodMonths.add(d);
+      d = DateTime(d.year, d.month + 1, 1);
+    }
+    if (periodMonths.isEmpty) return const SizedBox.shrink();
 
-    if (months.isEmpty) return const SizedBox.shrink();
+    int ym(DateTime dt) => dt.year * 100 + dt.month;
+
+    final periodLabel = periodMonths.length == 1
+        ? DateFormat('MMMM yyyy').format(periodMonths.first)
+        : '${DateFormat('MMM yyyy').format(periodMonths.first)} – ${DateFormat('MMM yyyy').format(periodMonths.last)}';
 
     // ── cell helpers ─────────────────────────────────────────────────────────
-    const _dash = '—';
-    final _hdrStyle = const TextStyle(fontWeight: FontWeight.bold, fontSize: 12);
-    final _sectionColor = AppColors.primary;
+    const dash = '—';
+    const hdrStyle = TextStyle(fontWeight: FontWeight.bold, fontSize: 12);
+    const sectionColor = AppColors.primary;
 
-    String _fmtAmt(double val) => val == 0 ? _dash : fmt.format(val);
-    String _fmtBracket(double val) => val == 0 ? _dash : '(${fmt.format(val)})';
+    String fmtAmt(double val) => val == 0 ? dash : fmt.format(val);
+    String fmtBracket(double val) => val == 0 ? dash : '(${fmt.format(val)})';
 
-    Widget _amtCell(double val, {bool bold = false, bool bracket = false}) {
-      final str = bracket ? _fmtBracket(val) : _fmtAmt(val);
+    Widget amtCell(double val, {bool bold = false, bool bracket = false}) {
+      final str = bracket ? fmtBracket(val) : fmtAmt(val);
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Text(
-          str,
-          textAlign: TextAlign.right,
-          style: TextStyle(
-            fontWeight: bold ? FontWeight.bold : FontWeight.normal,
-            fontSize: 12,
-            color: val < 0 && !bracket ? AppColors.error : null,
-          ),
-        ),
+        child: Text(str, textAlign: TextAlign.right,
+            style: TextStyle(
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+              fontSize: 12,
+              color: val < 0 && !bracket ? AppColors.error : null,
+            )),
       );
     }
 
-    Widget _netCell(double val) => Padding(
+    Widget netCell(double val) => Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Text(
-        _fmtAmt(val),
-        textAlign: TextAlign.right,
-        style: TextStyle(
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-          color: val >= 0 ? AppColors.success : AppColors.error,
-        ),
-      ),
+      child: Text(fmtAmt(val), textAlign: TextAlign.right,
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12,
+              color: val >= 0 ? AppColors.success : AppColors.error)),
     );
 
-    // Pre-compute monthly values
-    final revByM   = {for (final m in months) m: _monthSum(revenueAccts, monthly, m)};
-    final corByM   = {for (final m in months) m: _monthSum(corAccts, monthly, m)};
-    final taxByM   = {for (final m in months) m: _monthSum(directTaxAccts, monthly, m)};
-    final opexByM  = {for (final m in months) m: _monthSum(opexAccts, monthly, m)};
+    // Pre-compute monthly values using yyyyMM keys
+    final revByM  = {for (final dt in periodMonths) ym(dt): _monthSumFull(revenueAccts,  monthly, ym(dt))};
+    final corByM  = {for (final dt in periodMonths) ym(dt): _monthSumFull(corAccts,       monthly, ym(dt))};
+    final taxByM  = {for (final dt in periodMonths) ym(dt): _monthSumFull(directTaxAccts, monthly, ym(dt))};
+    final opexByM = {for (final dt in periodMonths) ym(dt): _monthSumFull(opexAccts,      monthly, ym(dt))};
 
-    double _ytdRev = 0, _ytdCor = 0, _ytdTax = 0, _ytdOpex = 0;
-    for (final m in months) {
-      _ytdRev  += revByM[m]!;
-      _ytdCor  += corByM[m]!;
-      _ytdTax  += taxByM[m]!;
-      _ytdOpex += opexByM[m]!;
+    double ytdRev = 0, ytdCor = 0, ytdTax = 0, ytdOpex = 0;
+    for (final dt in periodMonths) {
+      ytdRev  += revByM[ym(dt)]!;
+      ytdCor  += corByM[ym(dt)]!;
+      ytdTax  += taxByM[ym(dt)]!;
+      ytdOpex += opexByM[ym(dt)]!;
     }
 
-    // ── Table column widths ───────────────────────────────────────────────────
     const labelW = 220.0;
     const colW   = 88.0;
 
-    TableRow _sectionHeaderRow(String title) => TableRow(
-      decoration: BoxDecoration(color: _sectionColor.withOpacity(0.10)),
+    TableRow sectionHeaderRow(String title) => TableRow(
+      decoration: BoxDecoration(color: sectionColor.withOpacity(0.10)),
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           child: Text(title.toUpperCase(),
-              style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
-                  color: _sectionColor,
-                  letterSpacing: 0.5)),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11,
+                  color: sectionColor, letterSpacing: 0.5)),
         ),
-        for (int _ = 0; _ < months.length + 1; _++)
-          const SizedBox(),
+        for (int _ = 0; _ < periodMonths.length + 1; _++) const SizedBox(),
       ],
     );
 
-    TableRow _dataRow(
-      String label,
-      Map<int, double> byM,
-      double ytd, {
-      bool bracket = false,
-      bool bold = false,
-    }) =>
-        TableRow(
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(left: 16, top: 6, bottom: 6, right: 8),
-              child: Text(label, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
-            ),
-            for (final m in months)
-              _amtCell(byM[m] ?? 0, bracket: bracket, bold: bold),
-            _amtCell(ytd, bracket: bracket, bold: bold),
-          ],
-        );
+    TableRow dataRow(String label, Map<int, double> byM, double ytd,
+        {bool bracket = false, bool bold = false}) =>
+        TableRow(children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 16, top: 6, bottom: 6, right: 8),
+            child: Text(label, style: TextStyle(fontSize: 12,
+                fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
+          ),
+          for (final dt in periodMonths) amtCell(byM[ym(dt)] ?? 0, bracket: bracket, bold: bold),
+          amtCell(ytd, bracket: bracket, bold: bold),
+        ]);
 
-    TableRow _subtotalRow(
-      String label,
-      Map<int, double> byM,
-      double ytd, {
-      bool isNet = false,
-    }) =>
+    TableRow subtotalRow(String label, Map<int, double> byM, double ytd,
+        {bool isNet = false}) =>
         TableRow(
-          decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceVariant),
+          decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceVariant),
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-              child: Text(label, style: _hdrStyle),
+              child: Text(label, style: hdrStyle),
             ),
-            for (final m in months)
-              isNet ? _netCell(byM[m] ?? 0) : _amtCell(byM[m] ?? 0, bold: true),
-            isNet ? _netCell(ytd) : _amtCell(ytd, bold: true),
+            for (final dt in periodMonths)
+              isNet ? netCell(byM[ym(dt)] ?? 0) : amtCell(byM[ym(dt)] ?? 0, bold: true),
+            isNet ? netCell(ytd) : amtCell(ytd, bold: true),
           ],
         );
 
-    TableRow _dividerRow() => TableRow(
-      children: [
+    TableRow dividerRow() => TableRow(children: [
+      Divider(height: 1, color: Theme.of(context).dividerColor),
+      for (int _ = 0; _ < periodMonths.length + 1; _++)
         Divider(height: 1, color: Theme.of(context).dividerColor),
-        for (int _ = 0; _ < months.length + 1; _++)
-          Divider(height: 1, color: Theme.of(context).dividerColor),
-      ],
-    );
+    ]);
 
-    // Build computed-by-month maps for derived lines
-    final ggrByM  = {for (final m in months) m: (revByM[m]! - corByM[m]!)};
-    final ngrByM  = {for (final m in months) m: (ggrByM[m]! - taxByM[m]!)};
-    final netByM  = {for (final m in months) m: (ngrByM[m]! - opexByM[m]!)};
-    final _ytdGgr  = _ytdRev - _ytdCor;
-    final _ytdNgr  = _ytdGgr - _ytdTax;
-    final _ytdNet  = _ytdNgr - _ytdOpex;
+    final ggrByM  = {for (final dt in periodMonths) ym(dt): revByM[ym(dt)]! - corByM[ym(dt)]!};
+    final ngrByM  = {for (final dt in periodMonths) ym(dt): ggrByM[ym(dt)]! - taxByM[ym(dt)]!};
+    final netByM  = {for (final dt in periodMonths) ym(dt): ngrByM[ym(dt)]! - opexByM[ym(dt)]!};
+    final ytdGgr  = ytdRev - ytdCor;
+    final ytdNgr  = ytdGgr - ytdTax;
+    final ytdNet  = ytdNgr - ytdOpex;
 
-    // Individual opex account rows by month
-    List<TableRow> _opexAccountRows() {
+    List<TableRow> opexAccountRows() {
       final rows = <TableRow>[];
       for (final acct in opexAccts) {
-        final byM = {for (final m in months) m: _monthSum([acct], monthly, m)};
+        final byM = {for (final dt in periodMonths) ym(dt): _monthSumFull([acct], monthly, ym(dt))};
         final ytd = byM.values.fold(0.0, (s, v) => s + v);
         if (byM.values.any((v) => v != 0)) {
-          rows.add(_dataRow(acct.name, byM, ytd, bracket: true));
+          rows.add(dataRow(acct.name, byM, ytd, bracket: true));
         }
       }
       return rows;
@@ -1644,7 +1719,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           Icon(Icons.calendar_month, size: 16, color: Theme.of(context).colorScheme.primary),
           const SizedBox(width: 6),
           Text(
-            'Income Statement — Month-by-Month ($year)',
+            'Income Statement — Month-by-Month ($periodLabel)',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
         ]),
@@ -1652,11 +1727,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SizedBox(
-            width: labelW + (months.length + 1) * colW,
+            width: labelW + (periodMonths.length + 1) * colW,
             child: Table(
               columnWidths: {
                 0: const FixedColumnWidth(labelW),
-                for (int i = 1; i <= months.length + 1; i++)
+                for (int i = 1; i <= periodMonths.length + 1; i++)
                   i: const FixedColumnWidth(colW),
               },
               border: TableBorder(
@@ -1668,72 +1743,72 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                   decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surfaceVariant),
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                      child: Text('', style: _hdrStyle),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      child: Text('', style: hdrStyle),
                     ),
-                    for (final m in months)
+                    for (final dt in periodMonths)
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                         child: Text(
-                          DateFormat('MMM').format(DateTime(year, m)),
+                          DateFormat('MMM yy').format(dt),
                           textAlign: TextAlign.right,
-                          style: _hdrStyle,
+                          style: hdrStyle,
                         ),
                       ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                      child: Text('YTD', textAlign: TextAlign.right, style: _hdrStyle),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      child: Text('Total', textAlign: TextAlign.right, style: hdrStyle),
                     ),
                   ],
                 ),
 
                 // ── Revenue ─────────────────────────────────────────────────
-                _sectionHeaderRow('Revenue'),
+                sectionHeaderRow('Revenue'),
                 ...revenueAccts
-                    .where((a) => months.any((m) => _monthSum([a], monthly, m) != 0))
+                    .where((a) => periodMonths.any((dt) => _monthSumFull([a], monthly, ym(dt)) != 0))
                     .map((acct) {
-                  final byM = {for (final m in months) m: _monthSum([acct], monthly, m)};
+                  final byM = {for (final dt in periodMonths) ym(dt): _monthSumFull([acct], monthly, ym(dt))};
                   final ytd = byM.values.fold(0.0, (s, v) => s + v);
-                  return _dataRow(acct.name, byM, ytd);
+                  return dataRow(acct.name, byM, ytd);
                 }),
-                _subtotalRow('Total Revenue', revByM, _ytdRev),
+                subtotalRow('Total Revenue', revByM, ytdRev),
 
                 // ── Cost of Revenue ──────────────────────────────────────────
-                _sectionHeaderRow('Cost of Revenue'),
+                sectionHeaderRow('Cost of Revenue'),
                 ...corAccts
-                    .where((a) => months.any((m) => _monthSum([a], monthly, m) != 0))
+                    .where((a) => periodMonths.any((dt) => _monthSumFull([a], monthly, ym(dt)) != 0))
                     .map((acct) {
-                  final byM = {for (final m in months) m: _monthSum([acct], monthly, m)};
+                  final byM = {for (final dt in periodMonths) ym(dt): _monthSumFull([acct], monthly, ym(dt))};
                   final ytd = byM.values.fold(0.0, (s, v) => s + v);
-                  return _dataRow(acct.name, byM, ytd, bracket: true);
+                  return dataRow(acct.name, byM, ytd, bracket: true);
                 }),
-                _subtotalRow('Total Cost of Revenue', corByM, _ytdCor),
+                subtotalRow('Total Cost of Revenue', corByM, ytdCor),
 
                 // ── GGR ──────────────────────────────────────────────────────
-                _subtotalRow('Gross Gaming Revenue (GGR)', ggrByM, _ytdGgr, isNet: true),
+                subtotalRow('Gross Gaming Revenue (GGR)', ggrByM, ytdGgr, isNet: true),
 
                 // ── Direct Taxes ─────────────────────────────────────────────
                 if (directTaxAccts.isNotEmpty) ...[
-                  _sectionHeaderRow('Direct Taxes'),
+                  sectionHeaderRow('Direct Taxes'),
                   ...directTaxAccts
-                      .where((a) => months.any((m) => _monthSum([a], monthly, m) != 0))
+                      .where((a) => periodMonths.any((dt) => _monthSumFull([a], monthly, ym(dt)) != 0))
                       .map((acct) {
-                    final byM = {for (final m in months) m: _monthSum([acct], monthly, m)};
+                    final byM = {for (final dt in periodMonths) ym(dt): _monthSumFull([acct], monthly, ym(dt))};
                     final ytd = byM.values.fold(0.0, (s, v) => s + v);
-                    return _dataRow(acct.name, byM, ytd, bracket: true);
+                    return dataRow(acct.name, byM, ytd, bracket: true);
                   }),
-                  _subtotalRow('Net Gaming Revenue (NGR)', ngrByM, _ytdNgr, isNet: true),
+                  subtotalRow('Net Gaming Revenue (NGR)', ngrByM, ytdNgr, isNet: true),
                 ],
 
                 // ── Operating Expenses ───────────────────────────────────────
-                _sectionHeaderRow('Operating Expenses'),
-                ..._opexAccountRows(),
-                _subtotalRow('Total Operating Expenses', opexByM, _ytdOpex),
+                sectionHeaderRow('Operating Expenses'),
+                ...opexAccountRows(),
+                subtotalRow('Total Operating Expenses', opexByM, ytdOpex),
 
                 // ── Net Profit ───────────────────────────────────────────────
-                _dividerRow(),
-                _subtotalRow('Net Profit', netByM, _ytdNet, isNet: true),
+                dividerRow(),
+                subtotalRow('Net Profit', netByM, ytdNet, isNet: true),
               ],
             ),
           ),
@@ -1925,7 +2000,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
     final entries = journalsState.entries;
     final accounts = accountsState.accounts;
-    final raw = _computeLedgerBalances(entries);
+    final raw = _computeLedgerBalances(_cumulativeEntries(entries));
 
     final allAssetAccts = accounts.where((a) => a.type == AccountType.asset).toList()
       ..sort((a, b) => a.code.compareTo(b.code));
@@ -2324,7 +2399,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
     final entries = journalsState.entries;
     final accounts = accountsState.accounts;
-    final raw = _computeLedgerBalances(entries);
+    final raw = _computeLedgerBalances(_cumulativeEntries(entries));
 
     final sortedAccounts = List<Account>.from(accounts)
       ..sort((a, b) => a.code.compareTo(b.code));
@@ -2456,9 +2531,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   // ── Cash Flow Statement ────────────────────────────────────────────────────
   Widget _buildCashFlowPreview(BuildContext context) {
     final dashboardAsync = ref.watch(dashboardDataProvider);
-    // Also watch ledger balances so the report rebuilds when depreciation
-    // (or any journal entry) is posted, even without a dashboard refresh.
-    ref.watch(ledgerBalancesProvider);
+    // Watch journals so the report rebuilds whenever entries change.
+    ref.watch(journalsProvider);
     return dashboardAsync.when(
       data: (_) {
         final cf = _computeCashFlowFigures();
@@ -2784,7 +2858,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       if (reportName == 'Trial Balance') {
         final tbAccounts2 = ref.read(accountsProvider).accounts;
         final tbEntries2 = ref.read(journalsProvider).entries;
-        final tbRaw2 = _computeLedgerBalances(tbEntries2);
+        final tbRaw2 = _computeLedgerBalances(_cumulativeEntries(tbEntries2));
         final tbSorted2 = List<Account>.from(tbAccounts2)..sort((a, b) => a.code.compareTo(b.code));
         double tbDr2 = 0;
         double tbCr2 = 0;
@@ -2947,10 +3021,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       } else if (reportName == 'Balance Sheet') {
         final bsAccts2   = ref.read(accountsProvider).accounts;
         final bsEntries2 = ref.read(journalsProvider).entries;
-        final bsRaw2     = _computeLedgerBalances(bsEntries2);
+        final bsRaw2     = _computeLedgerBalances(_cumulativeEntries(bsEntries2));
 
         double bsBal2(Account a) {
-          final b = bsRaw2['acct-${a.code}'] ?? 0.0;
+          final b = bsRaw2['acct-${a.code}'] ?? bsRaw2[a.id] ?? 0.0;
           return a.isDebitNormal ? b : -b;
         }
 
@@ -3078,7 +3152,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       if (reportName == 'Trial Balance') {
         final tbAcc3 = ref.read(accountsProvider).accounts;
         final tbEnt3 = ref.read(journalsProvider).entries;
-        final tbRaw3 = _computeLedgerBalances(tbEnt3);
+        final tbRaw3 = _computeLedgerBalances(_cumulativeEntries(tbEnt3));
         final tbSorted3 = List<Account>.from(tbAcc3)..sort((a, b) => a.code.compareTo(b.code));
         double tbDr3 = 0;
         double tbCr3 = 0;
@@ -3276,10 +3350,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       } else if (reportName == 'Balance Sheet') {
         final bsAccts3   = ref.read(accountsProvider).accounts;
         final bsEntries3 = ref.read(journalsProvider).entries;
-        final bsRaw3     = _computeLedgerBalances(bsEntries3);
+        final bsRaw3     = _computeLedgerBalances(_cumulativeEntries(bsEntries3));
 
         double bsBal3(Account a) {
-          final b = bsRaw3['acct-${a.code}'] ?? 0.0;
+          final b = bsRaw3['acct-${a.code}'] ?? bsRaw3[a.id] ?? 0.0;
           return a.isDebitNormal ? b : -b;
         }
 

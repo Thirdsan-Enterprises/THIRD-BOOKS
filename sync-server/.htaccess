@@ -1,0 +1,10 @@
+# Block direct browser access to the backups/ folder
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^backups/ - [F,L]
+</IfModule>
+
+# Also deny via FilesMatch as a fallback
+<FilesMatch "\.json$">
+  Require all denied
+</FilesMatch>

@@ -20,6 +20,8 @@ import '../../core/providers/local_outlet_csv_uploads_provider.dart';
 import '../../core/providers/asset_drafts_provider.dart';
 import '../../core/providers/depreciation_schedules_provider.dart';
 import '../../core/providers/local_attachments_provider.dart';
+import '../../core/services/server_sync_service.dart';
+import '../../core/database/app_database.dart';
 import '../banking/banking_screen.dart' show bankTransactionsProvider;
 import '../outlets/outlet_settled_screen.dart' show outletSettlementsProvider;
 
@@ -1690,6 +1692,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
+          // ── Server Backup Card ────────────────────────────────────────────
+          const _ServerBackupCard(),
+          const SizedBox(height: 24),
+
           // ── Danger Zone Card ──────────────────────────────────────────────
           Card(
             shape: RoundedRectangleBorder(
@@ -2492,4 +2498,241 @@ class _SnapshotTile extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── Server Backup ─────────────────────────────────────────────────────────────
+
+class _ServerBackupCard extends StatefulWidget {
+  const _ServerBackupCard();
+  @override
+  State<_ServerBackupCard> createState() => _ServerBackupCardState();
+}
+
+class _ServerBackupCardState extends State<_ServerBackupCard> {
+  final _urlCtrl = TextEditingController();
+  final _keyCtrl = TextEditingController();
+  bool _obscureKey  = true;
+  bool _syncing     = false;
+  bool _restoring   = false;
+  String? _lastSync;
+  String? _statusMsg;
+  bool _statusOk    = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadConfig();
+  }
+
+  Future<void> _loadConfig() async {
+    final url  = await ServerSyncService.getSyncUrl();
+    final key  = await ServerSyncService.getApiKey();
+    final last = await ServerSyncService.getLastSyncedAt();
+    if (!mounted) return;
+    setState(() {
+      _urlCtrl.text = url;
+      _keyCtrl.text = key;
+      _lastSync     = last;
+    });
+  }
+
+  Future<void> _saveConfig() async {
+    await ServerSyncService.saveConfig(_urlCtrl.text, _keyCtrl.text);
+    if (!mounted) return;
+    setState(() { _statusMsg = 'Configuration saved.'; _statusOk = true; });
+  }
+
+  Future<void> _syncNow() async {
+    setState(() { _syncing = true; _statusMsg = null; });
+    final db     = AppDatabase();
+    final result = await ServerSyncService.pushBackup(db);
+    if (!mounted) return;
+    setState(() {
+      _syncing    = false;
+      _statusOk   = result.success;
+      _statusMsg  = result.success
+          ? 'Backup pushed to server successfully.'
+          : 'Sync failed: ${result.error}';
+      if (result.success) _lastSync = result.syncedAt;
+    });
+  }
+
+  Future<void> _restoreFromServer() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restore from Server?'),
+        content: const Text(
+          'This will replace all local data with the latest backup from the server.\n\n'
+          'A local restore point will be created first so you can roll back if needed.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    setState(() { _restoring = true; _statusMsg = null; });
+    final db     = AppDatabase();
+    final result = await ServerSyncService.pullAndRestore(db);
+    if (!mounted) return;
+    setState(() {
+      _restoring  = false;
+      _statusOk   = result.success;
+      _statusMsg  = result.success
+          ? 'Restore complete — ${result.counts.values.fold(0, (a, b) => a + b)} records loaded.'
+          : 'Restore failed: ${result.error}';
+    });
+  }
+
+  @override
+  void dispose() {
+    _urlCtrl.dispose();
+    _keyCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final configured = _urlCtrl.text.isNotEmpty && _keyCtrl.text.isNotEmpty;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.cloud_upload_outlined, color: AppColors.primary, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Server Backup', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 2),
+                Text(
+                  'Automatically push a backup to your server on every login.',
+                  style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.outline),
+                ),
+              ])),
+              if (_lastSync != null)
+                Chip(
+                  label: Text(
+                    'Last sync: ${_formatSync(_lastSync!)}',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  backgroundColor: Colors.green.withOpacity(0.1),
+                  side: BorderSide(color: Colors.green.withOpacity(0.3)),
+                ),
+            ]),
+            const SizedBox(height: 20),
+
+            TextField(
+              controller: _urlCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Server URL',
+                hintText: 'https://yourserver.com/sync',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _keyCtrl,
+              obscureText: _obscureKey,
+              decoration: InputDecoration(
+                labelText: 'API Key',
+                border: const OutlineInputBorder(),
+                isDense: true,
+                suffixIcon: IconButton(
+                  icon: Icon(_obscureKey ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => _obscureKey = !_obscureKey),
+                ),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 12),
+
+            Row(children: [
+              ElevatedButton(
+                onPressed: _saveConfig,
+                child: const Text('Save Config'),
+              ),
+              const SizedBox(width: 12),
+              if (configured) ...[
+                OutlinedButton.icon(
+                  icon: _syncing
+                      ? const SizedBox(width: 14, height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.cloud_upload, size: 16),
+                  label: Text(_syncing ? 'Syncing…' : 'Sync Now'),
+                  onPressed: _syncing ? null : _syncNow,
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  icon: _restoring
+                      ? const SizedBox(width: 14, height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.cloud_download, size: 16),
+                  label: Text(_restoring ? 'Restoring…' : 'Restore from Server'),
+                  onPressed: _restoring ? null : _restoreFromServer,
+                  style: OutlinedButton.styleFrom(foregroundColor: AppColors.error),
+                ),
+              ],
+            ]),
+
+            if (_statusMsg != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: (_statusOk ? Colors.green : AppColors.error).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: (_statusOk ? Colors.green : AppColors.error).withOpacity(0.3),
+                  ),
+                ),
+                child: Row(children: [
+                  Icon(
+                    _statusOk ? Icons.check_circle_outline : Icons.error_outline,
+                    size: 16,
+                    color: _statusOk ? Colors.green : AppColors.error,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(_statusMsg!, style: const TextStyle(fontSize: 13))),
+                ]),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatSync(String iso) {
+    try {
+      final dt  = DateTime.parse(iso).toLocal();
+      final now = DateTime.now();
+      if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+        return 'Today ${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}';
+      }
+      return '${dt.day} ${_months[dt.month - 1]} ${dt.year}';
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  static const _months = ['Jan','Feb','Mar','Apr','May','Jun',
+                           'Jul','Aug','Sep','Oct','Nov','Dec'];
 }
