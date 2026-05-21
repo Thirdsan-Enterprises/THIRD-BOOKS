@@ -9,6 +9,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/api_client.dart';
+import '../../core/models/account.dart';
 import '../../core/models/payment.dart';
 import '../../core/models/bill.dart';
 import '../../core/models/invoice.dart';
@@ -375,10 +376,9 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
     final invoicesState = ref.read(invoicesProvider);
 
     // Filter to cash/bank accounts
-    final paymentAccounts = accountsState.accounts.where((a) {
-      final subType = a.subType.toString().toLowerCase();
-      return subType.contains('bank') || subType.contains('cash') || subType.contains('mobile');
-    }).toList();
+    final paymentAccounts = accountsState.accounts.where((a) =>
+        a.subType == AccountSubType.bank ||
+        a.subType == AccountSubType.cash).toList();
 
     PaymentType selectedType = PaymentType.received;
     String? selectedCustomerId;

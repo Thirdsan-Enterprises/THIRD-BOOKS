@@ -1537,8 +1537,8 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
     final balance = bill.total - bill.amountPaid;
     final accountsState = ref.read(accountsProvider);
     final bankAccounts = accountsState.accounts.where((a) =>
-        a.subType.toString().contains('bank') ||
-        a.subType.toString().contains('cash')).toList();
+        a.subType == AccountSubType.bank ||
+        a.subType == AccountSubType.cash).toList();
 
     final amountCtrl = TextEditingController(text: balance.toStringAsFixed(0));
     final refCtrl = TextEditingController();
