@@ -21,6 +21,7 @@ import '../../core/providers/asset_drafts_provider.dart';
 import '../../core/providers/depreciation_schedules_provider.dart';
 import '../../core/providers/local_attachments_provider.dart';
 import '../../core/services/server_sync_service.dart';
+import '../../core/database/app_database.dart';
 import '../banking/banking_screen.dart' show bankTransactionsProvider;
 import '../outlets/outlet_settled_screen.dart' show outletSettlementsProvider;
 
