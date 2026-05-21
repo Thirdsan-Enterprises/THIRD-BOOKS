@@ -100,7 +100,37 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     return account.isDebitNormal ? r : -r;
   }
 
-  // ── Period date helpers ────────────────────────────────────────────────────
+  // ── Account ordering helpers ───────────────────────────────────────────────
+
+  /// Sorts revenue accounts: Stakes (103) first, Payouts (107) second, rest by code.
+  void _sortRevenueAccts(List<Account> list) {
+    list.sort((a, b) {
+      int order(String code) {
+        if (code == '103') return 0;
+        if (code == '107') return 1;
+        return 2;
+      }
+      final oa = order(a.code), ob = order(b.code);
+      return oa != ob ? oa.compareTo(ob) : a.code.compareTo(b.code);
+    });
+  }
+
+  /// Sorts current asset accounts: Cash → Bank+BG(167) → AR → SCR(173) → other OCA.
+  void _sortCurrentAssets(List<Account> list) {
+    list.sort((a, b) {
+      int order(Account ac) {
+        if (ac.subType == AccountSubType.cash) return 0;
+        if (ac.subType == AccountSubType.bank || ac.code == '167') return 1;
+        if (ac.subType == AccountSubType.accountsReceivable) return 2;
+        if (ac.code == '173') return 3;
+        if (ac.subType == AccountSubType.otherCurrentAsset) return 4;
+        return 5;
+      }
+      final cmp = order(a).compareTo(order(b));
+      return cmp != 0 ? cmp : a.code.compareTo(b.code);
+    });
+  }
+
 
   /// Converts [_selectedPeriod] to (start, end) using a July–June fiscal year.
   (DateTime, DateTime) _getPeriodDates() {
@@ -645,8 +675,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       const dirTaxCodesPdf = {'108'};
       final allExpPdf      = isAcctsPdf.where((a) => a.type == AccountType.expense).toList()
         ..sort((a, b) => a.code.compareTo(b.code));
-      final revAcctsPdf    = isAcctsPdf.where((a) => a.type == AccountType.revenue).toList()
-        ..sort((a, b) => a.code.compareTo(b.code));
+      final revAcctsPdf    = isAcctsPdf.where((a) => a.type == AccountType.revenue).toList();
+      _sortRevenueAccts(revAcctsPdf);
       final corAcctsPdf    = allExpPdf.where((a) => corCodesPdf.contains(a.code)).toList();
       final taxAcctsPdf    = allExpPdf.where((a) => dirTaxCodesPdf.contains(a.code)).toList();
       final opexAcctsPdf   = allExpPdf
@@ -654,7 +684,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           .toList();
 
       String fcPdf(double val, {bool br = false}) {
-        if (val == 0) return '-';
+        if (val == 0) return '0';
         return br ? '(${numFmt.format(val)})' : numFmt.format(val);
       }
 
@@ -922,7 +952,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       ));
     } else if (reportName == 'Cash Flow Statement') {
       final cf = _computeCashFlowFigures();
-      String fmt(double v) => v == 0 ? '-'
+      String fmt(double v) => v == 0 ? 'UGX 0'
           : v < 0 ? '(UGX ${numFmt.format(v.abs())})'
           : 'UGX ${numFmt.format(v)}';
 
@@ -1170,14 +1200,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         const dirTaxCodes = {'108'};
         final allExp = isAccts.where((a) => a.type == AccountType.expense).toList()
           ..sort((a, b) => a.code.compareTo(b.code));
-        final revAccts2 = isAccts.where((a) => a.type == AccountType.revenue).toList()
-          ..sort((a, b) => a.code.compareTo(b.code));
+        final revAccts2 = isAccts.where((a) => a.type == AccountType.revenue).toList();
+        _sortRevenueAccts(revAccts2);
         final corAccts2  = allExp.where((a) => corCodes.contains(a.code)).toList();
         final taxAccts2  = allExp.where((a) => dirTaxCodes.contains(a.code)).toList();
         final opexAccts2 = allExp.where((a) => !corCodes.contains(a.code) && !dirTaxCodes.contains(a.code)).toList();
 
         String fc(double val, {bool br = false}) {
-          if (val == 0) return '-';
+          if (val == 0) return '0';
           return br ? '(${numFmt.format(val)})' : numFmt.format(val);
         }
 
@@ -1411,9 +1441,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final accounts = accountsState.accounts;
     final raw = _computeLedgerBalances(_filterEntries(entries));
 
-    // Group accounts by type
-    final revenueAccts = accounts.where((a) => a.type == AccountType.revenue).toList()
-      ..sort((a, b) => a.code.compareTo(b.code));
+    // Group accounts by type — Stakes (103) first, Payouts (107) second in revenue
+    final revenueAccts = accounts.where((a) => a.type == AccountType.revenue).toList();
+    _sortRevenueAccts(revenueAccts);
     final expenseAccts = accounts.where((a) => a.type == AccountType.expense).toList()
       ..sort((a, b) => a.code.compareTo(b.code));
 
@@ -1583,6 +1613,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     // Filter entries to the selected period and build full monthly ledger (yyyyMM keys).
     final filtered = _filterEntries(entries);
     final monthly  = _computeMonthlyLedgerFull(filtered);
+    // Ensure Stakes (103) → Payouts (107) ordering within monthly table.
+    _sortRevenueAccts(revenueAccts);
     final fmt = NumberFormat('#,###');
 
     // Build the list of (year, month) pairs covering the selected period.
@@ -1602,12 +1634,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         : '${DateFormat('MMM yyyy').format(periodMonths.first)} – ${DateFormat('MMM yyyy').format(periodMonths.last)}';
 
     // ── cell helpers ─────────────────────────────────────────────────────────
-    const dash = '—';
     const hdrStyle = TextStyle(fontWeight: FontWeight.bold, fontSize: 12);
     const sectionColor = AppColors.primary;
 
-    String fmtAmt(double val) => val == 0 ? dash : fmt.format(val);
-    String fmtBracket(double val) => val == 0 ? dash : '(${fmt.format(val)})';
+    String fmtAmt(double val) => val == 0 ? '0' : fmt.format(val);
+    String fmtBracket(double val) => val == 0 ? '0' : '(${fmt.format(val)})';
 
     Widget amtCell(double val, {bool bold = false, bool bracket = false}) {
       final str = bracket ? fmtBracket(val) : fmtAmt(val);
@@ -2011,6 +2042,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         a.subType == AccountSubType.accountsReceivable ||
         a.subType == AccountSubType.inventory ||
         a.subType == AccountSubType.otherCurrentAsset).toList();
+    // Cash → Bank+BG(167) → AR → SCR(173) → other OCA
+    _sortCurrentAssets(currentAssetAccts);
     final fixedAssetAccts = allAssetAccts.where((a) =>
         a.subType == AccountSubType.fixedAsset ||
         a.subType == AccountSubType.otherAsset ||
@@ -2473,12 +2506,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                       Expanded(flex: 3, child: Padding(padding: const EdgeInsets.all(8), child: Text(row['account'] as String, style: const TextStyle(fontSize: 12)))),
                       Expanded(flex: 2, child: Padding(padding: const EdgeInsets.all(8), child: Text(row['type'] as String, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)))),
                       Expanded(flex: 2, child: Padding(padding: const EdgeInsets.all(8), child: Text(
-                        (row['debit'] as double) > 0 ? NumberFormat('#,##0').format(row['debit']) : '—',
+                        (row['debit'] as double) > 0 ? NumberFormat('#,##0').format(row['debit']) : '0',
                         style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: (row['debit'] as double) > 0 ? AppColors.debit : Theme.of(context).colorScheme.outline),
                         textAlign: TextAlign.right,
                       ))),
                       Expanded(flex: 2, child: Padding(padding: const EdgeInsets.all(8), child: Text(
-                        (row['credit'] as double) > 0 ? NumberFormat('#,##0').format(row['credit']) : '—',
+                        (row['credit'] as double) > 0 ? NumberFormat('#,##0').format(row['credit']) : '0',
                         style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: (row['credit'] as double) > 0 ? AppColors.income : Theme.of(context).colorScheme.outline),
                         textAlign: TextAlign.right,
                       ))),
@@ -2553,7 +2586,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             {bool bold = false, bool isFinal = false, bool isSection = false, bool indent = false}) {
           final isNeg = amount < 0;
           final display = amount == 0
-              ? '—'
+              ? 'UGX 0'
               : isNeg
                   ? '(UGX ${numFmt.format(amount.abs())})'
                   : 'UGX ${numFmt.format(amount)}';
@@ -2886,7 +2919,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ];
       } else if (reportName == 'Cash Flow Statement') {
         final cf = _computeCashFlowFigures();
-        String fmtCsv(double v) => v == 0 ? '—'
+        String fmtCsv(double v) => v == 0 ? '0'
             : v < 0 ? '(${numFmt.format(v.abs())})'
             : numFmt.format(v);
         csvRows = [
@@ -2941,15 +2974,15 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         const cTaxCodes3  = {'108'};
         final allExp3     = isAccts3.where((a) => a.type == AccountType.expense).toList()
           ..sort((a, b) => a.code.compareTo(b.code));
-        final revAccts3   = isAccts3.where((a) => a.type == AccountType.revenue).toList()
-          ..sort((a, b) => a.code.compareTo(b.code));
+        final revAccts3   = isAccts3.where((a) => a.type == AccountType.revenue).toList();
+        _sortRevenueAccts(revAccts3);
         final corAccts3   = allExp3.where((a) => cCorCodes3.contains(a.code)).toList();
         final taxAccts3   = allExp3.where((a) => cTaxCodes3.contains(a.code)).toList();
         final opexAccts3  = allExp3
             .where((a) => !cCorCodes3.contains(a.code) && !cTaxCodes3.contains(a.code))
             .toList();
 
-        String fmtIs3(double v) => v == 0 ? '—' : numFmt.format(v);
+        String fmtIs3(double v) => v == 0 ? '0' : numFmt.format(v);
 
         List<dynamic> pivotRow3(String label, List<Account> accts) {
           final row = <dynamic>[label];
@@ -3164,11 +3197,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           final typeName = acct.type.name[0].toUpperCase() + acct.type.name.substring(1);
           if (net > 0) {
             sheet.appendRow([xl.TextCellValue(acct.code), xl.TextCellValue(acct.name), xl.TextCellValue(typeName),
-              xl.DoubleCellValue(net), xl.TextCellValue('—')]);
+              xl.DoubleCellValue(net), xl.DoubleCellValue(0)]);
             tbDr3 += net;
           } else {
             sheet.appendRow([xl.TextCellValue(acct.code), xl.TextCellValue(acct.name), xl.TextCellValue(typeName),
-              xl.TextCellValue('—'), xl.DoubleCellValue(-net)]);
+              xl.DoubleCellValue(0), xl.DoubleCellValue(-net)]);
             tbCr3 += -net;
           }
         }
@@ -3245,8 +3278,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         const cTaxCodes4  = {'108'};
         final allExp4     = isAccts4.where((a) => a.type == AccountType.expense).toList()
           ..sort((a, b) => a.code.compareTo(b.code));
-        final revAccts4   = isAccts4.where((a) => a.type == AccountType.revenue).toList()
-          ..sort((a, b) => a.code.compareTo(b.code));
+        final revAccts4   = isAccts4.where((a) => a.type == AccountType.revenue).toList();
+        _sortRevenueAccts(revAccts4);
         final corAccts4   = allExp4.where((a) => cCorCodes4.contains(a.code)).toList();
         final taxAccts4   = allExp4.where((a) => cTaxCodes4.contains(a.code)).toList();
         final opexAccts4  = allExp4

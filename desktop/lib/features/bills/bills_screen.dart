@@ -1544,6 +1544,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
     final refCtrl = TextEditingController();
     String? selectedMethod = 'Bank Transfer';
     String? selectedAccountId = bankAccounts.isNotEmpty ? bankAccounts.first.id : null;
+    DateTime selectedPaymentDate = DateTime.now();
 
     showDialog(
       context: context,
@@ -1551,7 +1552,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
         builder: (ctx, setDialogState) => AlertDialog(
           title: Text('Pay Bill — ${bill.billNumber}'),
           content: SizedBox(
-            width: 400,
+            width: 420,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1571,10 +1572,39 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                TextFormField(
-                  controller: amountCtrl,
-                  decoration: const InputDecoration(labelText: 'Payment Amount', prefixText: 'UGX '),
-                  keyboardType: TextInputType.number,
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: amountCtrl,
+                        decoration: const InputDecoration(labelText: 'Payment Amount', prefixText: 'UGX '),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        readOnly: true,
+                        decoration: InputDecoration(
+                          labelText: 'Payment Date',
+                          suffixIcon: const Icon(Icons.calendar_today, size: 18),
+                          hintText: DateFormat('MMM d, yyyy').format(selectedPaymentDate),
+                        ),
+                        controller: TextEditingController(
+                          text: DateFormat('MMM d, yyyy').format(selectedPaymentDate),
+                        ),
+                        onTap: () async {
+                          final picked = await showDatePicker(
+                            context: ctx,
+                            initialDate: selectedPaymentDate,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime.now().add(const Duration(days: 1)),
+                          );
+                          if (picked != null) setDialogState(() => selectedPaymentDate = picked);
+                        },
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
@@ -1638,7 +1668,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                 final payment = Payment(
                   id: now.millisecondsSinceEpoch.toString(),
                   paymentNumber: 'PAY-${now.millisecondsSinceEpoch}',
-                  paymentDate: now,
+                  paymentDate: selectedPaymentDate,
                   amount: amount,
                   paymentType: PaymentType.made,
                   vendorId: bill.vendorId,
@@ -1668,7 +1698,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                 ref.read(journalsProvider.notifier).addEntry(JournalEntry(
                   id: jeId,
                   entryNumber: 'PAY-JE-${payment.paymentNumber}',
-                  date: now,
+                  date: selectedPaymentDate,
                   description: 'Bill payment: ${bill.billNumber} — ${bill.vendorName ?? ''}',
                   reference: payment.reference ?? payment.paymentNumber,
                   status: JournalEntryStatus.posted,
@@ -1728,7 +1758,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
                   // Bill payment = money leaves the bank → debit (outflow).
                   ref.read(bankingProvider.notifier).recordTransaction(
                     bankAccountId: matchedBankAccount.id as String,
-                    date: now,
+                    date: selectedPaymentDate,
                     description:
                         'Bill payment: ${bill.billNumber} — ${bill.vendorName ?? ''}',
                     type: BankTxType.debit,
