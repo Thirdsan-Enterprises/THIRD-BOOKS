@@ -100,7 +100,37 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     return account.isDebitNormal ? r : -r;
   }
 
-  // ── Period date helpers ────────────────────────────────────────────────────
+  // ── Account ordering helpers ───────────────────────────────────────────────
+
+  /// Sorts revenue accounts: Stakes (103) first, Payouts (107) second, rest by code.
+  void _sortRevenueAccts(List<Account> list) {
+    list.sort((a, b) {
+      int order(String code) {
+        if (code == '103') return 0;
+        if (code == '107') return 1;
+        return 2;
+      }
+      final oa = order(a.code), ob = order(b.code);
+      return oa != ob ? oa.compareTo(ob) : a.code.compareTo(b.code);
+    });
+  }
+
+  /// Sorts current asset accounts: Cash → Bank+BG(167) → AR → SCR(173) → other OCA.
+  void _sortCurrentAssets(List<Account> list) {
+    list.sort((a, b) {
+      int order(Account ac) {
+        if (ac.subType == AccountSubType.cash) return 0;
+        if (ac.subType == AccountSubType.bank || ac.code == '167') return 1;
+        if (ac.subType == AccountSubType.accountsReceivable) return 2;
+        if (ac.code == '173') return 3;
+        if (ac.subType == AccountSubType.otherCurrentAsset) return 4;
+        return 5;
+      }
+      final cmp = order(a).compareTo(order(b));
+      return cmp != 0 ? cmp : a.code.compareTo(b.code);
+    });
+  }
+
 
   /// Converts [_selectedPeriod] to (start, end) using a July–June fiscal year.
   (DateTime, DateTime) _getPeriodDates() {
@@ -635,18 +665,22 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     if (reportName == 'Income Statement' || reportName == 'GGR by Month') {
       final isAcctsPdf   = ref.read(accountsProvider).accounts;
       final isEntriesPdf = ref.read(journalsProvider).entries;
-      final nowPdf       = DateTime.now();
-      final isYearPdf    = _selectedPeriod == 'Last Year' ? nowPdf.year - 1 : nowPdf.year;
-      final isLastMPdf   = isYearPdf == nowPdf.year ? nowPdf.month : 12;
-      final isMonthsPdf  = List.generate(isLastMPdf, (i) => i + 1);
-      final isMonthlyPdf = _computeMonthlyLedger(isEntriesPdf, isYearPdf);
+      final isMonthlyPdf = _computeMonthlyLedgerFull(_filterEntries(isEntriesPdf));
+      final (isStartPdf, isEndPdf) = _getPeriodDates();
+      final isMonthsPdf = <int>[];
+      for (var _d = DateTime(isStartPdf.year, isStartPdf.month);
+           !_d.isAfter(DateTime(isEndPdf.year, isEndPdf.month));
+           _d = DateTime(_d.year, _d.month + 1)) {
+        isMonthsPdf.add(_d.year * 100 + _d.month);
+      }
+      final _isPdfCrossYear = isStartPdf.year != isEndPdf.year;
 
       const corCodesPdf    = {'107', '178'};
       const dirTaxCodesPdf = {'108'};
       final allExpPdf      = isAcctsPdf.where((a) => a.type == AccountType.expense).toList()
         ..sort((a, b) => a.code.compareTo(b.code));
-      final revAcctsPdf    = isAcctsPdf.where((a) => a.type == AccountType.revenue).toList()
-        ..sort((a, b) => a.code.compareTo(b.code));
+      final revAcctsPdf    = isAcctsPdf.where((a) => a.type == AccountType.revenue).toList();
+      _sortRevenueAccts(revAcctsPdf);
       final corAcctsPdf    = allExpPdf.where((a) => corCodesPdf.contains(a.code)).toList();
       final taxAcctsPdf    = allExpPdf.where((a) => dirTaxCodesPdf.contains(a.code)).toList();
       final opexAcctsPdf   = allExpPdf
@@ -654,7 +688,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           .toList();
 
       String fcPdf(double val, {bool br = false}) {
-        if (val == 0) return '-';
+        if (val == 0) return '0';
         return br ? '(${numFmt.format(val)})' : numFmt.format(val);
       }
 
@@ -662,7 +696,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         final row = <String>[label];
         double ytd = 0;
         for (final m in isMonthsPdf) {
-          final v = _monthSum(accts, isMonthlyPdf, m);
+          final v = _monthSumFull(accts, isMonthlyPdf, m);
           ytd += v;
           row.add(fcPdf(v, br: br));
         }
@@ -682,10 +716,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         return row;
       }
 
-      final revMPdf  = {for (final m in isMonthsPdf) m: _monthSum(revAcctsPdf, isMonthlyPdf, m)};
-      final corMPdf  = {for (final m in isMonthsPdf) m: _monthSum(corAcctsPdf, isMonthlyPdf, m)};
-      final taxMPdf  = {for (final m in isMonthsPdf) m: _monthSum(taxAcctsPdf, isMonthlyPdf, m)};
-      final opexMPdf = {for (final m in isMonthsPdf) m: _monthSum(opexAcctsPdf, isMonthlyPdf, m)};
+      final revMPdf  = {for (final m in isMonthsPdf) m: _monthSumFull(revAcctsPdf,  isMonthlyPdf, m)};
+      final corMPdf  = {for (final m in isMonthsPdf) m: _monthSumFull(corAcctsPdf,  isMonthlyPdf, m)};
+      final taxMPdf  = {for (final m in isMonthsPdf) m: _monthSumFull(taxAcctsPdf,  isMonthlyPdf, m)};
+      final opexMPdf = {for (final m in isMonthsPdf) m: _monthSumFull(opexAcctsPdf, isMonthlyPdf, m)};
 
       // Build rows as pw.Widget lists so we can bold specific rows reliably.
       pw.Widget isCell(String v,
@@ -775,9 +809,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           }),
           bold: true));
 
+      final _isPdfMFmt = _isPdfCrossYear ? DateFormat("MMM ''yy") : DateFormat('MMM');
       final isHeadersPdf = <String>[
         'Line Item',
-        ...isMonthsPdf.map((m) => DateFormat('MMM').format(DateTime(isYearPdf, m))),
+        ...isMonthsPdf.map((m) => _isPdfMFmt.format(DateTime(m ~/ 100, m % 100))),
         'YTD',
       ];
 
@@ -793,7 +828,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         pageFormat: PdfPageFormat.a4.landscape,
         margin: const pw.EdgeInsets.symmetric(horizontal: 36, vertical: 32),
         build: (pw.Context ctx) => [
-          buildHeader('INCOME STATEMENT — $isYearPdf'),
+          buildHeader('INCOME STATEMENT — $_selectedPeriod'),
           pw.SizedBox(height: 6),
           pw.Table(
             border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
@@ -904,25 +939,23 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       }
       tbRows.add(['', 'TOTALS', '', numFmt.format(tbTotalDr), numFmt.format(tbTotalCr)]);
 
-      pdf.addPage(pw.Page(
+      pdf.addPage(pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
-        build: (pw.Context ctx) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            buildHeader('TRIAL BALANCE'),
-            pw.TableHelper.fromTextArray(
-              headers: ['Code', 'Account Name', 'Type', 'Debit (UGX)', 'Credit (UGX)'],
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
-              cellStyle: const pw.TextStyle(fontSize: 9),
-              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
-              data: tbRows,
-            ),
-          ],
-        ),
+        margin: const pw.EdgeInsets.symmetric(horizontal: 36, vertical: 32),
+        build: (pw.Context ctx) => [
+          buildHeader('TRIAL BALANCE'),
+          pw.TableHelper.fromTextArray(
+            headers: ['Code', 'Account Name', 'Type', 'Debit (UGX)', 'Credit (UGX)'],
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+            cellStyle: const pw.TextStyle(fontSize: 9),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
+            data: tbRows,
+          ),
+        ],
       ));
     } else if (reportName == 'Cash Flow Statement') {
       final cf = _computeCashFlowFigures();
-      String fmt(double v) => v == 0 ? '-'
+      String fmt(double v) => v == 0 ? 'UGX 0'
           : v < 0 ? '(UGX ${numFmt.format(v.abs())})'
           : 'UGX ${numFmt.format(v)}';
 
@@ -1160,24 +1193,28 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       {
         final isAccts  = ref.read(accountsProvider).accounts;
         final isEntries2 = ref.read(journalsProvider).entries;
-        final now2 = DateTime.now();
-        final isYear = _selectedPeriod == 'Last Year' ? now2.year - 1 : now2.year;
-        final isLastM = isYear == now2.year ? now2.month : 12;
-        final isMonths = List.generate(isLastM, (i) => i + 1);
-        final isMonthly = _computeMonthlyLedger(isEntries2, isYear);
+        final isMonthly  = _computeMonthlyLedgerFull(_filterEntries(isEntries2));
+        final (isStart2, isEnd2) = _getPeriodDates();
+        final isMonths = <int>[];
+        for (var _d = DateTime(isStart2.year, isStart2.month);
+             !_d.isAfter(DateTime(isEnd2.year, isEnd2.month));
+             _d = DateTime(_d.year, _d.month + 1)) {
+          isMonths.add(_d.year * 100 + _d.month);
+        }
+        final _isAllCrossYear = isStart2.year != isEnd2.year;
 
         const corCodes = {'107', '178'};
         const dirTaxCodes = {'108'};
         final allExp = isAccts.where((a) => a.type == AccountType.expense).toList()
           ..sort((a, b) => a.code.compareTo(b.code));
-        final revAccts2 = isAccts.where((a) => a.type == AccountType.revenue).toList()
-          ..sort((a, b) => a.code.compareTo(b.code));
+        final revAccts2 = isAccts.where((a) => a.type == AccountType.revenue).toList();
+        _sortRevenueAccts(revAccts2);
         final corAccts2  = allExp.where((a) => corCodes.contains(a.code)).toList();
         final taxAccts2  = allExp.where((a) => dirTaxCodes.contains(a.code)).toList();
         final opexAccts2 = allExp.where((a) => !corCodes.contains(a.code) && !dirTaxCodes.contains(a.code)).toList();
 
         String fc(double val, {bool br = false}) {
-          if (val == 0) return '-';
+          if (val == 0) return '0';
           return br ? '(${numFmt.format(val)})' : numFmt.format(val);
         }
 
@@ -1185,7 +1222,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           final row = <String>[label];
           double ytd = 0;
           for (final m in isMonths) {
-            final v = _monthSum(accts, isMonthly, m);
+            final v = _monthSumFull(accts, isMonthly, m);
             ytd += v;
             row.add(fc(v, br: br));
           }
@@ -1205,10 +1242,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           return row;
         }
 
-        final revM  = {for (final m in isMonths) m: _monthSum(revAccts2, isMonthly, m)};
-        final corM  = {for (final m in isMonths) m: _monthSum(corAccts2, isMonthly, m)};
-        final taxM  = {for (final m in isMonths) m: _monthSum(taxAccts2, isMonthly, m)};
-        final opexM = {for (final m in isMonths) m: _monthSum(opexAccts2, isMonthly, m)};
+        final revM  = {for (final m in isMonths) m: _monthSumFull(revAccts2,  isMonthly, m)};
+        final corM  = {for (final m in isMonths) m: _monthSumFull(corAccts2,  isMonthly, m)};
+        final taxM  = {for (final m in isMonths) m: _monthSumFull(taxAccts2,  isMonthly, m)};
+        final opexM = {for (final m in isMonths) m: _monthSumFull(opexAccts2, isMonthly, m)};
 
         final tableData = <List<String>>[];
         for (final a in revAccts2) tableData.add(acctRow(a.name, [a]));
@@ -1230,9 +1267,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           return ngr - (opexM[m] ?? 0);
         }));
 
+        final _isAllMFmt = _isAllCrossYear ? DateFormat("MMM ''yy") : DateFormat('MMM');
         final isHeaders = <String>[
           'Line Item',
-          ...isMonths.map((m) => DateFormat('MMM').format(DateTime(isYear, m))),
+          ...isMonths.map((m) => _isAllMFmt.format(DateTime(m ~/ 100, m % 100))),
           'YTD',
         ];
 
@@ -1241,7 +1279,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           build: (pw.Context ctx) => pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              buildHeader('INCOME STATEMENT — $isYear'),
+              buildHeader('INCOME STATEMENT — $_selectedPeriod'),
               pw.Expanded(
                 child: pw.TableHelper.fromTextArray(
                   headers: isHeaders,
@@ -1411,9 +1449,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final accounts = accountsState.accounts;
     final raw = _computeLedgerBalances(_filterEntries(entries));
 
-    // Group accounts by type
-    final revenueAccts = accounts.where((a) => a.type == AccountType.revenue).toList()
-      ..sort((a, b) => a.code.compareTo(b.code));
+    // Group accounts by type — Stakes (103) first, Payouts (107) second in revenue
+    final revenueAccts = accounts.where((a) => a.type == AccountType.revenue).toList();
+    _sortRevenueAccts(revenueAccts);
     final expenseAccts = accounts.where((a) => a.type == AccountType.expense).toList()
       ..sort((a, b) => a.code.compareTo(b.code));
 
@@ -1583,6 +1621,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     // Filter entries to the selected period and build full monthly ledger (yyyyMM keys).
     final filtered = _filterEntries(entries);
     final monthly  = _computeMonthlyLedgerFull(filtered);
+    // Ensure Stakes (103) → Payouts (107) ordering within monthly table.
+    _sortRevenueAccts(revenueAccts);
     final fmt = NumberFormat('#,###');
 
     // Build the list of (year, month) pairs covering the selected period.
@@ -1602,12 +1642,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         : '${DateFormat('MMM yyyy').format(periodMonths.first)} – ${DateFormat('MMM yyyy').format(periodMonths.last)}';
 
     // ── cell helpers ─────────────────────────────────────────────────────────
-    const dash = '—';
     const hdrStyle = TextStyle(fontWeight: FontWeight.bold, fontSize: 12);
     const sectionColor = AppColors.primary;
 
-    String fmtAmt(double val) => val == 0 ? dash : fmt.format(val);
-    String fmtBracket(double val) => val == 0 ? dash : '(${fmt.format(val)})';
+    String fmtAmt(double val) => val == 0 ? '0' : fmt.format(val);
+    String fmtBracket(double val) => val == 0 ? '0' : '(${fmt.format(val)})';
 
     Widget amtCell(double val, {bool bold = false, bool bracket = false}) {
       final str = bracket ? fmtBracket(val) : fmtAmt(val);
@@ -2011,6 +2050,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         a.subType == AccountSubType.accountsReceivable ||
         a.subType == AccountSubType.inventory ||
         a.subType == AccountSubType.otherCurrentAsset).toList();
+    // Cash → Bank+BG(167) → AR → SCR(173) → other OCA
+    _sortCurrentAssets(currentAssetAccts);
     final fixedAssetAccts = allAssetAccts.where((a) =>
         a.subType == AccountSubType.fixedAsset ||
         a.subType == AccountSubType.otherAsset ||
@@ -2473,12 +2514,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                       Expanded(flex: 3, child: Padding(padding: const EdgeInsets.all(8), child: Text(row['account'] as String, style: const TextStyle(fontSize: 12)))),
                       Expanded(flex: 2, child: Padding(padding: const EdgeInsets.all(8), child: Text(row['type'] as String, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline)))),
                       Expanded(flex: 2, child: Padding(padding: const EdgeInsets.all(8), child: Text(
-                        (row['debit'] as double) > 0 ? NumberFormat('#,##0').format(row['debit']) : '—',
+                        (row['debit'] as double) > 0 ? NumberFormat('#,##0').format(row['debit']) : '0',
                         style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: (row['debit'] as double) > 0 ? AppColors.debit : Theme.of(context).colorScheme.outline),
                         textAlign: TextAlign.right,
                       ))),
                       Expanded(flex: 2, child: Padding(padding: const EdgeInsets.all(8), child: Text(
-                        (row['credit'] as double) > 0 ? NumberFormat('#,##0').format(row['credit']) : '—',
+                        (row['credit'] as double) > 0 ? NumberFormat('#,##0').format(row['credit']) : '0',
                         style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: (row['credit'] as double) > 0 ? AppColors.income : Theme.of(context).colorScheme.outline),
                         textAlign: TextAlign.right,
                       ))),
@@ -2553,7 +2594,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             {bool bold = false, bool isFinal = false, bool isSection = false, bool indent = false}) {
           final isNeg = amount < 0;
           final display = amount == 0
-              ? '—'
+              ? 'UGX 0'
               : isNeg
                   ? '(UGX ${numFmt.format(amount.abs())})'
                   : 'UGX ${numFmt.format(amount)}';
@@ -2886,7 +2927,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ];
       } else if (reportName == 'Cash Flow Statement') {
         final cf = _computeCashFlowFigures();
-        String fmtCsv(double v) => v == 0 ? '—'
+        String fmtCsv(double v) => v == 0 ? '0'
             : v < 0 ? '(${numFmt.format(v.abs())})'
             : numFmt.format(v);
         csvRows = [
@@ -2931,31 +2972,35 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       } else if (reportName == 'Income Statement' || reportName == 'GGR by Month') {
         final isAccts3   = ref.read(accountsProvider).accounts;
         final isEntries3 = ref.read(journalsProvider).entries;
-        final now3       = DateTime.now();
-        final isYear3    = _selectedPeriod == 'Last Year' ? now3.year - 1 : now3.year;
-        final isLastM3   = isYear3 == now3.year ? now3.month : 12;
-        final isMonths3  = List.generate(isLastM3, (i) => i + 1);
-        final isMonthly3 = _computeMonthlyLedger(isEntries3, isYear3);
+        final isMonthly3 = _computeMonthlyLedgerFull(_filterEntries(isEntries3));
+        final (isStart3, isEnd3) = _getPeriodDates();
+        final isMonths3  = <int>[];
+        for (var _d = DateTime(isStart3.year, isStart3.month);
+             !_d.isAfter(DateTime(isEnd3.year, isEnd3.month));
+             _d = DateTime(_d.year, _d.month + 1)) {
+          isMonths3.add(_d.year * 100 + _d.month);
+        }
+        final _isCsvCrossYear = isStart3.year != isEnd3.year;
 
         const cCorCodes3  = {'107', '178'};
         const cTaxCodes3  = {'108'};
         final allExp3     = isAccts3.where((a) => a.type == AccountType.expense).toList()
           ..sort((a, b) => a.code.compareTo(b.code));
-        final revAccts3   = isAccts3.where((a) => a.type == AccountType.revenue).toList()
-          ..sort((a, b) => a.code.compareTo(b.code));
+        final revAccts3   = isAccts3.where((a) => a.type == AccountType.revenue).toList();
+        _sortRevenueAccts(revAccts3);
         final corAccts3   = allExp3.where((a) => cCorCodes3.contains(a.code)).toList();
         final taxAccts3   = allExp3.where((a) => cTaxCodes3.contains(a.code)).toList();
         final opexAccts3  = allExp3
             .where((a) => !cCorCodes3.contains(a.code) && !cTaxCodes3.contains(a.code))
             .toList();
 
-        String fmtIs3(double v) => v == 0 ? '—' : numFmt.format(v);
+        String fmtIs3(double v) => v == 0 ? '0' : numFmt.format(v);
 
         List<dynamic> pivotRow3(String label, List<Account> accts) {
           final row = <dynamic>[label];
           double ytd = 0;
           for (final m in isMonths3) {
-            final v = _monthSum(accts, isMonthly3, m);
+            final v = _monthSumFull(accts, isMonthly3, m);
             ytd += v;
             row.add(fmtIs3(v));
           }
@@ -2975,19 +3020,20 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           return row;
         }
 
-        final revM3  = {for (final m in isMonths3) m: _monthSum(revAccts3, isMonthly3, m)};
-        final corM3  = {for (final m in isMonths3) m: _monthSum(corAccts3, isMonthly3, m)};
-        final taxM3  = {for (final m in isMonths3) m: _monthSum(taxAccts3, isMonthly3, m)};
-        final opexM3 = {for (final m in isMonths3) m: _monthSum(opexAccts3, isMonthly3, m)};
+        final revM3  = {for (final m in isMonths3) m: _monthSumFull(revAccts3,  isMonthly3, m)};
+        final corM3  = {for (final m in isMonths3) m: _monthSumFull(corAccts3,  isMonthly3, m)};
+        final taxM3  = {for (final m in isMonths3) m: _monthSumFull(taxAccts3,  isMonthly3, m)};
+        final opexM3 = {for (final m in isMonths3) m: _monthSumFull(opexAccts3, isMonthly3, m)};
 
+        final _isCsvMFmt = _isCsvCrossYear ? DateFormat("MMM ''yy") : DateFormat('MMM');
         final hdrs3 = <dynamic>[
           'Line Item',
-          ...isMonths3.map((m) => DateFormat('MMM').format(DateTime(isYear3, m))),
+          ...isMonths3.map((m) => _isCsvMFmt.format(DateTime(m ~/ 100, m % 100))),
           'YTD',
         ];
 
         csvRows = [
-          ['MAGIC BET LTD — INCOME STATEMENT ($isYear3)'],
+          ['MAGIC BET LTD — INCOME STATEMENT ($_selectedPeriod)'],
           ['Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}'],
           [],
           hdrs3,
@@ -3164,11 +3210,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           final typeName = acct.type.name[0].toUpperCase() + acct.type.name.substring(1);
           if (net > 0) {
             sheet.appendRow([xl.TextCellValue(acct.code), xl.TextCellValue(acct.name), xl.TextCellValue(typeName),
-              xl.DoubleCellValue(net), xl.TextCellValue('—')]);
+              xl.DoubleCellValue(net), xl.DoubleCellValue(0)]);
             tbDr3 += net;
           } else {
             sheet.appendRow([xl.TextCellValue(acct.code), xl.TextCellValue(acct.name), xl.TextCellValue(typeName),
-              xl.TextCellValue('—'), xl.DoubleCellValue(-net)]);
+              xl.DoubleCellValue(0), xl.DoubleCellValue(-net)]);
             tbCr3 += -net;
           }
         }
@@ -3235,33 +3281,38 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       } else if (reportName == 'Income Statement' || reportName == 'GGR by Month') {
         final isAccts4   = ref.read(accountsProvider).accounts;
         final isEntries4 = ref.read(journalsProvider).entries;
-        final now4       = DateTime.now();
-        final isYear4    = _selectedPeriod == 'Last Year' ? now4.year - 1 : now4.year;
-        final isLastM4   = isYear4 == now4.year ? now4.month : 12;
-        final isMonths4  = List.generate(isLastM4, (i) => i + 1);
-        final isMonthly4 = _computeMonthlyLedger(isEntries4, isYear4);
+        final isMonthly4 = _computeMonthlyLedgerFull(_filterEntries(isEntries4));
+        final (isStart4, isEnd4) = _getPeriodDates();
+        final isMonths4  = <int>[];
+        for (var _d = DateTime(isStart4.year, isStart4.month);
+             !_d.isAfter(DateTime(isEnd4.year, isEnd4.month));
+             _d = DateTime(_d.year, _d.month + 1)) {
+          isMonths4.add(_d.year * 100 + _d.month);
+        }
+        final _isXlCrossYear = isStart4.year != isEnd4.year;
 
         const cCorCodes4  = {'107', '178'};
         const cTaxCodes4  = {'108'};
         final allExp4     = isAccts4.where((a) => a.type == AccountType.expense).toList()
           ..sort((a, b) => a.code.compareTo(b.code));
-        final revAccts4   = isAccts4.where((a) => a.type == AccountType.revenue).toList()
-          ..sort((a, b) => a.code.compareTo(b.code));
+        final revAccts4   = isAccts4.where((a) => a.type == AccountType.revenue).toList();
+        _sortRevenueAccts(revAccts4);
         final corAccts4   = allExp4.where((a) => cCorCodes4.contains(a.code)).toList();
         final taxAccts4   = allExp4.where((a) => cTaxCodes4.contains(a.code)).toList();
         final opexAccts4  = allExp4
             .where((a) => !cCorCodes4.contains(a.code) && !cTaxCodes4.contains(a.code))
             .toList();
 
-        final revM4  = {for (final m in isMonths4) m: _monthSum(revAccts4, isMonthly4, m)};
-        final corM4  = {for (final m in isMonths4) m: _monthSum(corAccts4, isMonthly4, m)};
-        final taxM4  = {for (final m in isMonths4) m: _monthSum(taxAccts4, isMonthly4, m)};
-        final opexM4 = {for (final m in isMonths4) m: _monthSum(opexAccts4, isMonthly4, m)};
+        final revM4  = {for (final m in isMonths4) m: _monthSumFull(revAccts4,  isMonthly4, m)};
+        final corM4  = {for (final m in isMonths4) m: _monthSumFull(corAccts4,  isMonthly4, m)};
+        final taxM4  = {for (final m in isMonths4) m: _monthSumFull(taxAccts4,  isMonthly4, m)};
+        final opexM4 = {for (final m in isMonths4) m: _monthSumFull(opexAccts4, isMonthly4, m)};
 
-        addTitle('MAGIC BET LTD — INCOME STATEMENT ($isYear4)');
+        final _isXlMFmt = _isXlCrossYear ? DateFormat("MMM ''yy") : DateFormat('MMM');
+        addTitle('MAGIC BET LTD — INCOME STATEMENT ($_selectedPeriod)');
         addHeader([
           'Line Item',
-          ...isMonths4.map((m) => DateFormat('MMM').format(DateTime(isYear4, m))),
+          ...isMonths4.map((m) => _isXlMFmt.format(DateTime(m ~/ 100, m % 100))),
           'YTD',
         ]);
 
@@ -3284,7 +3335,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           final row = <xl.CellValue>[xl.TextCellValue(label)];
           double ytd = 0;
           for (final m in isMonths4) {
-            final v = _monthSum(accts, isMonthly4, m);
+            final v = _monthSumFull(accts, isMonthly4, m);
             ytd += v;
             row.add(v != 0 ? xl.DoubleCellValue(v) : xl.TextCellValue('-'));
           }

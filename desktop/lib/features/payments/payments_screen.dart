@@ -9,7 +9,10 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/api_client.dart';
+import '../../core/models/account.dart';
 import '../../core/models/payment.dart';
+import '../../core/models/bill.dart';
+import '../../core/models/invoice.dart';
 import '../../core/widgets/attachment_widget.dart';
 
 class PaymentsScreen extends ConsumerStatefulWidget {
@@ -369,16 +372,19 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
     final customersState = ref.read(customersProvider);
     final vendorsState = ref.read(vendorsProvider);
     final accountsState = ref.read(accountsProvider);
+    final billsState = ref.read(billsProvider);
+    final invoicesState = ref.read(invoicesProvider);
 
     // Filter to cash/bank accounts
-    final paymentAccounts = accountsState.accounts.where((a) {
-      final subType = a.subType.toString().toLowerCase();
-      return subType.contains('bank') || subType.contains('cash') || subType.contains('mobile');
-    }).toList();
+    final paymentAccounts = accountsState.accounts.where((a) =>
+        a.subType == AccountSubType.bank ||
+        a.subType == AccountSubType.cash).toList();
 
     PaymentType selectedType = PaymentType.received;
     String? selectedCustomerId;
     String? selectedVendorId;
+    String? selectedBillId;
+    String? selectedInvoiceId;
     String? selectedAccountId;
     String? selectedMethod;
     final amountController = TextEditingController();
@@ -390,10 +396,24 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) {
+          // Unpaid bills for selected vendor
+          final vendorBills = selectedVendorId == null ? <Bill>[] :
+              billsState.bills.where((b) =>
+                  b.vendorId == selectedVendorId &&
+                  b.status != BillStatus.paid &&
+                  b.status != BillStatus.cancelled &&
+                  b.balance > 0).toList();
+
+          // Unpaid invoices for selected customer
+          final customerInvoices = selectedCustomerId == null ? <Invoice>[] :
+              invoicesState.invoices.where((i) =>
+                  i.customerId == selectedCustomerId &&
+                  i.balance > 0).toList();
+
           return AlertDialog(
             title: const Text('Record Payment'),
             content: SizedBox(
-              width: 550,
+              width: 580,
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -403,18 +423,23 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                       value: selectedType,
                       decoration: const InputDecoration(labelText: 'Payment Type *'),
                       items: const [
-                        DropdownMenuItem(value: PaymentType.received, child: Text('Payment Received')),
-                        DropdownMenuItem(value: PaymentType.made, child: Text('Payment Made')),
+                        DropdownMenuItem(value: PaymentType.received, child: Text('Payment Received (from Customer)')),
+                        DropdownMenuItem(value: PaymentType.made, child: Text('Payment Made (to Vendor / Bill)')),
                       ],
                       onChanged: (v) {
                         setDialogState(() {
                           selectedType = v ?? PaymentType.received;
                           selectedCustomerId = null;
                           selectedVendorId = null;
+                          selectedBillId = null;
+                          selectedInvoiceId = null;
+                          amountController.clear();
                         });
                       },
                     ),
                     const SizedBox(height: 16),
+
+                    // ── CUSTOMER / VENDOR SELECTION ────────────────────────────
                     if (selectedType == PaymentType.received)
                       DropdownButtonFormField<String>(
                         value: selectedCustomerId,
@@ -422,7 +447,11 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                         items: customersState.customers
                             .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
                             .toList(),
-                        onChanged: (v) => setDialogState(() => selectedCustomerId = v),
+                        onChanged: (v) => setDialogState(() {
+                          selectedCustomerId = v;
+                          selectedInvoiceId = null;
+                          amountController.clear();
+                        }),
                       )
                     else
                       DropdownButtonFormField<String>(
@@ -431,9 +460,66 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                         items: vendorsState.vendors
                             .map((v) => DropdownMenuItem(value: v.id, child: Text(v.name)))
                             .toList(),
-                        onChanged: (v) => setDialogState(() => selectedVendorId = v),
+                        onChanged: (v) => setDialogState(() {
+                          selectedVendorId = v;
+                          selectedBillId = null;
+                          amountController.clear();
+                        }),
                       ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
+
+                    // ── BILL / INVOICE REFERENCE ───────────────────────────────
+                    if (selectedType == PaymentType.made && vendorBills.isNotEmpty)
+                      DropdownButtonFormField<String>(
+                        value: selectedBillId,
+                        decoration: const InputDecoration(
+                          labelText: 'Apply to Bill (Optional)',
+                          helperText: 'Select to auto-fill amount and mark bill paid',
+                        ),
+                        items: [
+                          const DropdownMenuItem(value: null, child: Text('— No specific bill —')),
+                          ...vendorBills.map((b) => DropdownMenuItem(
+                              value: b.id,
+                              child: Text('${b.billNumber}  •  UGX ${NumberFormat('#,##0').format(b.balance)} due'))),
+                        ],
+                        onChanged: (v) {
+                          setDialogState(() {
+                            selectedBillId = v;
+                            if (v != null) {
+                              final bill = vendorBills.firstWhere((b) => b.id == v);
+                              amountController.text = bill.balance.toStringAsFixed(0);
+                            }
+                          });
+                        },
+                      )
+                    else if (selectedType == PaymentType.received && customerInvoices.isNotEmpty)
+                      DropdownButtonFormField<String>(
+                        value: selectedInvoiceId,
+                        decoration: const InputDecoration(
+                          labelText: 'Apply to Invoice (Optional)',
+                          helperText: 'Select to auto-fill amount and mark invoice paid',
+                        ),
+                        items: [
+                          const DropdownMenuItem(value: null, child: Text('— No specific invoice —')),
+                          ...customerInvoices.map((i) => DropdownMenuItem(
+                              value: i.id,
+                              child: Text('${i.invoiceNumber}  •  UGX ${NumberFormat('#,##0').format(i.balance)} due'))),
+                        ],
+                        onChanged: (v) {
+                          setDialogState(() {
+                            selectedInvoiceId = v;
+                            if (v != null) {
+                              final inv = customerInvoices.firstWhere((i) => i.id == v);
+                              amountController.text = inv.balance.toStringAsFixed(0);
+                            }
+                          });
+                        },
+                      ),
+                    if ((selectedType == PaymentType.made && vendorBills.isNotEmpty) ||
+                        (selectedType == PaymentType.received && customerInvoices.isNotEmpty))
+                      const SizedBox(height: 12),
+
+                    // ── AMOUNT + DATE ──────────────────────────────────────────
                     Row(
                       children: [
                         Expanded(
@@ -449,9 +535,9 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                         const SizedBox(width: 16),
                         Expanded(
                           child: TextFormField(
-                            decoration: InputDecoration(
+                            decoration: const InputDecoration(
                               labelText: 'Date',
-                              suffixIcon: const Icon(Icons.calendar_today, size: 18),
+                              suffixIcon: Icon(Icons.calendar_today, size: 18),
                             ),
                             readOnly: true,
                             controller: TextEditingController(
@@ -473,6 +559,8 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                       ],
                     ),
                     const SizedBox(height: 16),
+
+                    // ── METHOD + ACCOUNT ───────────────────────────────────────
                     Row(
                       children: [
                         Expanded(
@@ -491,10 +579,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                             value: selectedAccountId,
                             decoration: const InputDecoration(labelText: 'Account *'),
                             items: paymentAccounts
-                                .map((a) => DropdownMenuItem(
-                                      value: a.id,
-                                      child: Text(a.name),
-                                    ))
+                                .map((a) => DropdownMenuItem(value: a.id, child: Text(a.name)))
                                 .toList(),
                             onChanged: (v) => setDialogState(() => selectedAccountId = v),
                           ),
@@ -523,7 +608,6 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
               ),
               FilledButton(
                 onPressed: () {
-                  // Validation
                   if (selectedType == PaymentType.received && selectedCustomerId == null) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Please select a customer')),
@@ -536,7 +620,8 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                     );
                     return;
                   }
-                  final amount = double.tryParse(amountController.text);
+                  final amount = double.tryParse(
+                      amountController.text.replaceAll(',', '').trim());
                   if (amount == null || amount <= 0) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Please enter a valid amount')),
@@ -556,7 +641,6 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                     return;
                   }
 
-                  // Get names
                   String? customerName;
                   String? vendorName;
                   if (selectedType == PaymentType.received) {
@@ -570,6 +654,13 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                   }
                   final account = paymentAccounts.firstWhere((a) => a.id == selectedAccountId);
 
+                  final billRef = selectedBillId != null
+                      ? vendorBills.firstWhere((b) => b.id == selectedBillId)
+                      : null;
+                  final invRef = selectedInvoiceId != null
+                      ? customerInvoices.firstWhere((i) => i.id == selectedInvoiceId)
+                      : null;
+
                   final payment = Payment(
                     id: DateTime.now().millisecondsSinceEpoch.toString(),
                     paymentNumber: '${selectedType == PaymentType.received ? 'REC' : 'PAY'}-${DateFormat('yyyyMMdd').format(selectedDate)}-${DateTime.now().millisecondsSinceEpoch % 1000}',
@@ -582,7 +673,15 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                     amount: amount,
                     paymentMethod: selectedMethod!,
                     reference: referenceController.text.isEmpty ? null : referenceController.text,
-                    notes: notesController.text.isEmpty ? null : notesController.text,
+                    notes: () {
+                      final parts = [
+                        if (billRef != null) 'Applied to ${billRef.billNumber}',
+                        if (invRef != null) 'Applied to ${invRef.invoiceNumber}',
+                        if (notesController.text.isNotEmpty) notesController.text,
+                      ];
+                      final joined = parts.join(' • ');
+                      return joined.isEmpty ? null : joined;
+                    }(),
                     accountId: selectedAccountId,
                     accountName: account.name,
                     status: PaymentStatus.completed,
@@ -591,11 +690,25 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                   );
 
                   ref.read(paymentsProvider.notifier).addPayment(payment);
-                  Navigator.pop(ctx);
 
+                  // Mark bill / invoice as paid if one was selected
+                  if (selectedBillId != null) {
+                    ref.read(billsProvider.notifier).recordPayment(selectedBillId!, amount);
+                  }
+                  if (selectedInvoiceId != null) {
+                    ref.read(invoicesProvider.notifier).recordPayment(selectedInvoiceId!, amount);
+                  }
+
+                  Navigator.pop(ctx);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: const Text('Payment recorded (will sync when online)'),
+                      content: Text(
+                        billRef != null
+                            ? 'Payment recorded and applied to ${billRef.billNumber}'
+                            : invRef != null
+                                ? 'Payment recorded and applied to ${invRef.invoiceNumber}'
+                                : 'Payment recorded',
+                      ),
                       backgroundColor: AppColors.income,
                     ),
                   );
