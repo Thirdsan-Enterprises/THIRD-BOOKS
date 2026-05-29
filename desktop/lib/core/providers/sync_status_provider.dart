@@ -1,0 +1,158 @@
+import 'dart:async';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../services/auth_service.dart';
+import '../services/server_sync_service.dart';
+import '../services/local_storage_service.dart';
+import '../database/app_database.dart';
+
+class SyncStatusState {
+  final bool isSyncing;
+  final String? lastSyncAt;   // ISO-8601 string from secure storage
+  final String? syncError;
+  final bool needsInitialRestore;
+
+  const SyncStatusState({
+    this.isSyncing = false,
+    this.lastSyncAt,
+    this.syncError,
+    this.needsInitialRestore = false,
+  });
+
+  SyncStatusState copyWith({
+    bool? isSyncing,
+    String? lastSyncAt,
+    String? syncError,
+    bool? needsInitialRestore,
+    bool clearError = false,
+  }) =>
+      SyncStatusState(
+        isSyncing:           isSyncing          ?? this.isSyncing,
+        lastSyncAt:          lastSyncAt         ?? this.lastSyncAt,
+        syncError:           clearError ? null  : (syncError ?? this.syncError),
+        needsInitialRestore: needsInitialRestore ?? this.needsInitialRestore,
+      );
+
+  /// True when the last sync was less than 25 hours ago.
+  bool get isFresh {
+    if (lastSyncAt == null) return false;
+    final dt = DateTime.tryParse(lastSyncAt!);
+    if (dt == null) return false;
+    return DateTime.now().difference(dt).inHours < 25;
+  }
+
+  /// True when last synced but more than 25 hours ago (stale).
+  bool get isStale {
+    if (lastSyncAt == null) return false;
+    final dt = DateTime.tryParse(lastSyncAt!);
+    if (dt == null) return false;
+    return DateTime.now().difference(dt).inHours >= 25;
+  }
+}
+
+class SyncStatusNotifier extends StateNotifier<SyncStatusState> {
+  final Ref _ref;
+  Timer? _timer;
+  bool _loginHandled = false;
+
+  SyncStatusNotifier(this._ref) : super(const SyncStatusState()) {
+    _loadLastSync();
+
+    // Watch auth state changes — start/stop periodic sync accordingly.
+    _ref.listen<AuthState>(authStateProvider, (prev, next) {
+      if (next.isAuthenticated && !(prev?.isAuthenticated ?? false)) {
+        _handleLogin();
+      } else if (!next.isAuthenticated && (prev?.isAuthenticated ?? false)) {
+        _handleLogout();
+      }
+    });
+
+    // Handle already-authenticated state (e.g., app restarted with saved session).
+    Future.microtask(() {
+      if (_ref.read(authStateProvider).isAuthenticated) {
+        _handleLogin();
+      }
+    });
+  }
+
+  Future<void> _loadLastSync() async {
+    final last = await ServerSyncService.getLastSyncedAt();
+    if (mounted && last != null) {
+      state = state.copyWith(lastSyncAt: last);
+    }
+  }
+
+  Future<void> _handleLogin() async {
+    if (_loginHandled) return;
+    _loginHandled = true;
+
+    await _checkNeedsInitialRestore();
+
+    // Periodic push every 2 hours while the app is running.
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(hours: 2), (_) => _autoPush());
+  }
+
+  void _handleLogout() {
+    _timer?.cancel();
+    _timer = null;
+    _loginHandled = false;
+    state = state.copyWith(needsInitialRestore: false);
+  }
+
+  /// Detect a fresh install with no local data — offer restore from server.
+  Future<void> _checkNeedsInitialRestore() async {
+    if (!await ServerSyncService.isConfigured()) return;
+    try {
+      final ls = LocalStorageService.instance;
+      await ls.initialize();
+      final journals = await ls.loadJournalEntries();
+      if (journals.isEmpty && mounted) {
+        state = state.copyWith(needsInitialRestore: true);
+      }
+    } catch (_) {}
+  }
+
+  /// Background push triggered by the 2-hour timer.
+  Future<void> _autoPush() async {
+    if (!mounted || state.isSyncing) return;
+    final db = AppDatabase();
+    await _push(db);
+  }
+
+  /// Manual push (called from UI or settings screen).
+  Future<void> push() async {
+    if (state.isSyncing) return;
+    final db = AppDatabase();
+    await _push(db);
+  }
+
+  Future<void> _push(AppDatabase db) async {
+    if (!mounted) return;
+    state = state.copyWith(isSyncing: true, clearError: true);
+    final result = await ServerSyncService.pushBackup(db);
+    if (!mounted) return;
+    state = state.copyWith(
+      isSyncing:  false,
+      lastSyncAt: result.success ? result.syncedAt : state.lastSyncAt,
+      syncError:  result.success ? null : result.error,
+      clearError: result.success,
+    );
+  }
+
+  /// Dismiss the initial-restore banner without restoring.
+  void dismissRestorePrompt() {
+    state = state.copyWith(needsInitialRestore: false);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+}
+
+final syncStatusProvider =
+    StateNotifierProvider<SyncStatusNotifier, SyncStatusState>(
+  (ref) => SyncStatusNotifier(ref),
+);

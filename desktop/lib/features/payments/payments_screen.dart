@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 
+import 'package:uuid/uuid.dart';
+
 import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/api_client.dart';
@@ -14,6 +16,7 @@ import '../../core/models/payment.dart';
 import '../../core/models/bill.dart';
 import '../../core/models/invoice.dart';
 import '../../core/widgets/attachment_widget.dart';
+import '../banking/banking_screen.dart' show bankingProvider, BankTxType;
 
 class PaymentsScreen extends ConsumerStatefulWidget {
   const PaymentsScreen({super.key});
@@ -697,6 +700,106 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>
                   }
                   if (selectedInvoiceId != null) {
                     ref.read(invoicesProvider.notifier).recordPayment(selectedInvoiceId!, amount);
+                  }
+
+                  // ── GL journal entry ────────────────────────────────────────
+                  const uuid = Uuid();
+                  final jeId = uuid.v4();
+                  final payAccCode = account.id.replaceAll('acct-', '');
+                  if (selectedType == PaymentType.received) {
+                    // Payment Received: DR Bank/Cash, CR Accounts Receivable (150)
+                    ref.read(journalsProvider.notifier).addEntry(JournalEntry(
+                      id: jeId,
+                      entryNumber: 'PAY-JE-${payment.paymentNumber}',
+                      date: selectedDate,
+                      description: 'Payment received: ${customerName ?? ''} — ${payment.paymentNumber}',
+                      reference: payment.reference ?? payment.paymentNumber,
+                      status: JournalEntryStatus.posted,
+                      lines: [
+                        JournalLine(
+                          id: '$jeId-bank',
+                          journalEntryId: jeId,
+                          accountId: account.id,
+                          accountCode: payAccCode,
+                          accountName: account.name,
+                          debit: amount,
+                          credit: 0,
+                        ),
+                        JournalLine(
+                          id: '$jeId-ar',
+                          journalEntryId: jeId,
+                          accountId: 'acct-150',
+                          accountCode: '150',
+                          accountName: 'Accounts Receivable',
+                          debit: 0,
+                          credit: amount,
+                        ),
+                      ],
+                      createdAt: DateTime.now(),
+                      updatedAt: DateTime.now(),
+                    ));
+                  } else {
+                    // Payment Made: DR Accounts Payable (164), CR Bank/Cash
+                    ref.read(journalsProvider.notifier).addEntry(JournalEntry(
+                      id: jeId,
+                      entryNumber: 'PAY-JE-${payment.paymentNumber}',
+                      date: selectedDate,
+                      description: 'Payment made: ${vendorName ?? ''} — ${payment.paymentNumber}',
+                      reference: payment.reference ?? payment.paymentNumber,
+                      status: JournalEntryStatus.posted,
+                      lines: [
+                        JournalLine(
+                          id: '$jeId-ap',
+                          journalEntryId: jeId,
+                          accountId: 'acct-164',
+                          accountCode: '164',
+                          accountName: 'Accounts Payable',
+                          debit: amount,
+                          credit: 0,
+                        ),
+                        JournalLine(
+                          id: '$jeId-bank',
+                          journalEntryId: jeId,
+                          accountId: account.id,
+                          accountCode: payAccCode,
+                          accountName: account.name,
+                          debit: 0,
+                          credit: amount,
+                        ),
+                      ],
+                      createdAt: DateTime.now(),
+                      updatedAt: DateTime.now(),
+                    ));
+                  }
+
+                  // ── Banking transaction (updates running balance) ────────────
+                  final bankState = ref.read(bankingProvider);
+                  final matchedBank = bankState.accounts.cast<dynamic>().firstWhere(
+                    (a) {
+                      final n = (a.bankName as String).toLowerCase();
+                      if (account.id == 'acct-102') return n.contains('mtn') || n.contains('mobile money') || n.contains('momo');
+                      if (account.id == 'acct-101') return n.contains('absa');
+                      if (account.id == 'acct-100') return n.contains('petty') || (n.contains('cash') && !n.contains('stan'));
+                      return false;
+                    },
+                    orElse: () => null,
+                  );
+                  if (matchedBank != null) {
+                    ref.read(bankingProvider.notifier).recordTransaction(
+                      bankAccountId: matchedBank.id as String,
+                      date: selectedDate,
+                      description: selectedType == PaymentType.received
+                          ? 'Payment received: ${customerName ?? ''}'
+                          : 'Payment made: ${vendorName ?? ''}',
+                      type: selectedType == PaymentType.received
+                          ? BankTxType.credit
+                          : BankTxType.debit,
+                      amount: amount,
+                      reference: payment.reference ?? payment.paymentNumber,
+                      sourceType: 'payment',
+                      sourceId: payment.id,
+                      sourceLabel: payment.paymentNumber,
+                    );
                   }
 
                   Navigator.pop(ctx);

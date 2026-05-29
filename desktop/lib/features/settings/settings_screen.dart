@@ -2641,7 +2641,7 @@ class _ServerBackupCardState extends State<_ServerBackupCard> {
               controller: _urlCtrl,
               decoration: const InputDecoration(
                 labelText: 'Server URL',
-                hintText: 'https://yourserver.com/sync',
+                hintText: 'https://magicbet.thirdbooks.digital/sync',
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
