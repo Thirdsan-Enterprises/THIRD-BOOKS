@@ -1,7 +1,71 @@
 <?php
 // ── dashboard.php — admin view, open in any browser ──────────────────────────
 require 'config.php';
+session_start();
 
+// ── Authentication ────────────────────────────────────────────────────────────
+$authError = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['password'])) {
+    if ($_POST['password'] === DASHBOARD_PASSWORD) {
+        $_SESSION['tb_dashboard_auth'] = true;
+    } else {
+        $authError = 'Incorrect password.';
+    }
+}
+
+if (empty($_SESSION['tb_dashboard_auth'])) {
+    ?><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ThirdBooks — Dashboard Login</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #f1f5f9; display: flex; align-items: center;
+         justify-content: center; min-height: 100vh; }
+  .card { background: #fff; border-radius: 12px; padding: 36px 40px;
+          box-shadow: 0 4px 16px rgba(0,0,0,.10); width: 340px; }
+  h1 { font-size: 20px; font-weight: 700; color: #1e293b; margin-bottom: 6px; }
+  p  { font-size: 13px; color: #64748b; margin-bottom: 24px; }
+  label { font-size: 13px; font-weight: 600; color: #475569; display: block; margin-bottom: 6px; }
+  input[type=password] { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1;
+                         border-radius: 8px; font-size: 14px; outline: none; }
+  input[type=password]:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+  button { width: 100%; padding: 11px; background: #1e40af; color: #fff;
+           border: none; border-radius: 8px; font-size: 14px; font-weight: 600;
+           cursor: pointer; margin-top: 16px; }
+  button:hover { background: #1d4ed8; }
+  .error { background: #fee2e2; color: #991b1b; padding: 10px 14px;
+           border-radius: 8px; font-size: 13px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>ThirdBooks</h1>
+  <p>Sync Dashboard — enter password to continue.</p>
+  <form method="POST">
+    <label for="pw">Password</label>
+    <input type="password" id="pw" name="password" autofocus placeholder="Dashboard password">
+    <button type="submit">Sign In</button>
+    <?php if ($authError): ?><div class="error"><?= htmlspecialchars($authError) ?></div><?php endif; ?>
+  </form>
+</div>
+</body>
+</html>
+<?php
+    exit;
+}
+
+// ── Logout ─────────────────────────────────────────────────────────────────────
+if (isset($_GET['logout'])) {
+    session_destroy();
+    header('Location: dashboard.php');
+    exit;
+}
+
+// ── Data ──────────────────────────────────────────────────────────────────────
 $files = glob(BACKUP_DIR . '*_backup.json');
 rsort($files);
 $latest     = $files ? $files[0] : null;
@@ -16,7 +80,7 @@ if ($latest) {
     $exportedAt = $raw['exported_at'] ?? null;
 }
 
-$syncedToday = $latest && date('Y-m-d', filemtime($latest)) === date('Y-m-d');
+$syncedToday    = $latest && date('Y-m-d', filemtime($latest)) === date('Y-m-d');
 $syncedThisWeek = $latest && (time() - filemtime($latest)) < 7 * 86400;
 ?>
 <!DOCTYPE html>
@@ -30,21 +94,24 @@ $syncedThisWeek = $latest && (time() - filemtime($latest)) < 7 * 86400;
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
          background: #f1f5f9; color: #1e293b; min-height: 100vh; }
   header { background: #1e293b; color: #fff; padding: 18px 32px;
-           display: flex; align-items: center; gap: 12px; }
+           display: flex; align-items: center; justify-content: space-between; }
   header h1 { font-size: 18px; font-weight: 600; }
   header span { font-size: 13px; opacity: .6; }
+  .logout { font-size: 12px; color: #94a3b8; text-decoration: none; padding: 6px 12px;
+            border: 1px solid #475569; border-radius: 6px; }
+  .logout:hover { background: #334155; color: #fff; }
   .container { max-width: 860px; margin: 36px auto; padding: 0 24px; }
   .card { background: #fff; border-radius: 12px; padding: 24px;
           box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 20px; }
   .status-bar { border-radius: 10px; padding: 16px 20px;
                 display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
-  .status-bar.ok  { background: #dcfce7; color: #166534; }
+  .status-bar.ok   { background: #dcfce7; color: #166534; }
   .status-bar.warn { background: #fef9c3; color: #854d0e; }
-  .status-bar.bad { background: #fee2e2; color: #991b1b; }
+  .status-bar.bad  { background: #fee2e2; color: #991b1b; }
   .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .ok .dot  { background: #16a34a; }
+  .ok .dot   { background: #16a34a; }
   .warn .dot { background: #ca8a04; }
-  .bad .dot { background: #dc2626; }
+  .bad .dot  { background: #dc2626; }
   .status-bar .label { font-weight: 600; font-size: 15px; }
   .status-bar .sub   { font-size: 13px; opacity: .75; margin-top: 2px; }
   h2 { font-size: 15px; font-weight: 600; margin-bottom: 14px; color: #475569; }
@@ -62,6 +129,8 @@ $syncedThisWeek = $latest && (time() - filemtime($latest)) < 7 * 86400;
          padding: 10px 20px; border-radius: 8px; text-decoration: none;
          font-size: 13px; font-weight: 600; margin-top: 4px; }
   .btn:hover { background: #1d4ed8; }
+  .btn.danger { background: #dc2626; }
+  .btn.danger:hover { background: #b91c1c; }
   .history-row td:first-child { color: #475569; }
   .badge { display:inline-block; padding: 2px 8px; border-radius: 99px;
            font-size: 11px; font-weight: 600; background: #dbeafe; color: #1e40af; }
@@ -74,6 +143,7 @@ $syncedThisWeek = $latest && (time() - filemtime($latest)) < 7 * 86400;
     <h1>ThirdBooks — Sync Dashboard</h1>
     <span>Client backup monitor</span>
   </div>
+  <a class="logout" href="?logout=1">Sign Out</a>
 </header>
 
 <div class="container">
@@ -146,10 +216,7 @@ $syncedThisWeek = $latest && (time() - filemtime($latest)) < 7 * 86400;
       <tr><td>File size</td><td><?= htmlspecialchars($size) ?></td></tr>
     </table>
     <br>
-    <a class="btn" href="pull.php" style="margin-right:8px"
-       onclick="this.href='pull.php?_k=<?= urlencode(API_KEY) ?>'">
-      ⬇ Download for Restore
-    </a>
+    <a class="btn" href="download.php">⬇ Download for Restore</a>
   </div>
 
   <div class="card">

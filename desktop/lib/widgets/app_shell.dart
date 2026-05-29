@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../core/theme/app_theme.dart';
 import '../core/services/auth_service.dart';
+import '../core/services/server_sync_service.dart';
+import '../core/database/app_database.dart';
+import '../core/providers/sync_status_provider.dart';
 
 class AppShell extends ConsumerStatefulWidget {
   final Widget child;
@@ -16,6 +20,66 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   bool _isCollapsed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Ensure the SyncStatusNotifier is alive for the whole shell lifetime.
+    Future.microtask(() {
+      if (!mounted) return;
+      ref.read(syncStatusProvider); // warm up
+      // Listen for initial-restore prompt after first build.
+      ref.listenManual<SyncStatusState>(syncStatusProvider, (prev, next) {
+        if (next.needsInitialRestore && !(prev?.needsInitialRestore ?? false)) {
+          _showRestorePrompt();
+        }
+      });
+    });
+  }
+
+  Future<void> _showRestorePrompt() async {
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restore from Server?'),
+        content: const Text(
+          'No local data was found on this machine, but a backup exists on the '
+          'sync server.\n\nWould you like to restore it now?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Skip'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+
+    ref.read(syncStatusProvider.notifier).dismissRestorePrompt();
+    if (confirmed == true && mounted) {
+      _runServerRestore();
+    }
+  }
+
+  Future<void> _runServerRestore() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final db = AppDatabase();
+    final result = await ServerSyncService.pullAndRestore(db);
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(
+      content: Text(result.success
+          ? 'Restore complete — data loaded from server.'
+          : 'Restore failed: ${result.error}'),
+      backgroundColor: result.success ? AppColors.success : AppColors.error,
+      duration: const Duration(seconds: 4),
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -77,29 +141,8 @@ class _AppShellState extends ConsumerState<AppShell> {
             ),
           ),
           const Spacer(),
-          // Connection status — always online
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: AppColors.income.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.cloud_done, size: 14, color: AppColors.income),
-                const SizedBox(width: 6),
-                Text(
-                  'Live',
-                  style: TextStyle(
-                    color: AppColors.income,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          // Sync status badge
+          _SyncStatusBadge(),
         ],
       ),
     );
@@ -609,6 +652,88 @@ class _AppShellState extends ConsumerState<AppShell> {
                 ],
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Sync status badge shown in the top bar ────────────────────────────────────
+
+class _SyncStatusBadge extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sync = ref.watch(syncStatusProvider);
+
+    Color bg, fg;
+    IconData icon;
+    String label;
+    String tooltip;
+
+    if (sync.isSyncing) {
+      bg = Colors.blue.withOpacity(0.15);
+      fg = Colors.blue.shade200;
+      icon = Icons.cloud_sync;
+      label = 'Syncing…';
+      tooltip = 'Backup push in progress';
+    } else if (sync.syncError != null) {
+      bg = AppColors.error.withOpacity(0.15);
+      fg = Colors.red.shade300;
+      icon = Icons.cloud_off;
+      label = 'Sync error';
+      tooltip = sync.syncError!;
+    } else if (sync.isFresh) {
+      bg = AppColors.income.withOpacity(0.15);
+      fg = AppColors.income;
+      icon = Icons.cloud_done;
+      final dt = DateTime.tryParse(sync.lastSyncAt!);
+      label = dt != null ? 'Synced ${DateFormat('HH:mm').format(dt)}' : 'Synced';
+      tooltip = 'Last backup: ${dt != null ? DateFormat('d MMM yyyy, HH:mm').format(dt) : sync.lastSyncAt}';
+    } else if (sync.isStale) {
+      bg = Colors.orange.withOpacity(0.15);
+      fg = Colors.orange.shade300;
+      icon = Icons.cloud_upload_outlined;
+      final dt = DateTime.tryParse(sync.lastSyncAt!);
+      label = 'Stale backup';
+      tooltip = 'Last backup: ${dt != null ? DateFormat('d MMM yyyy, HH:mm').format(dt) : sync.lastSyncAt}';
+    } else {
+      bg = Colors.grey.withOpacity(0.15);
+      fg = Colors.grey.shade400;
+      icon = Icons.cloud_off_outlined;
+      label = 'Not synced';
+      tooltip = 'No server backup yet. Configure in Settings.';
+    }
+
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: sync.isSyncing ? null : () => ref.read(syncStatusProvider.notifier).push(),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              sync.isSyncing
+                  ? SizedBox(
+                      width: 14, height: 14,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 1.5, color: fg))
+                  : Icon(icon, size: 14, color: fg),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: fg,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
         ),
       ),

@@ -28,8 +28,10 @@ class ServerSyncService {
 
   // ── Configuration ──────────────────────────────────────────────────────────
 
+  static const _defaultSyncUrl = 'https://magicbet.thirdbooks.digital/sync';
+
   static Future<String> getSyncUrl() async =>
-      await _storage.read(key: _urlKey) ?? '';
+      await _storage.read(key: _urlKey) ?? _defaultSyncUrl;
 
   static Future<String> getApiKey() async =>
       await _storage.read(key: _keyKey) ?? '';
