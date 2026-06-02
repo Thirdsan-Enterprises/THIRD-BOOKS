@@ -1,0 +1,57 @@
+name: Deploy Sync Server PHP
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+    paths:
+      - 'sync-server/**'
+      - '.github/workflows/deploy-sync-server.yml'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Manual trigger reason'
+        required: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy sync-server to magicbet.thirdbooks.digital/sync/
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./sync-server/
+          server-dir: /magicbet.thirdbooks.digital/public_html/sync/
+          dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.DS_Store
+            **/backups/**
+            **/.gitkeep
+
+      - name: Verify deployment
+        run: |
+          sleep 8
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://magicbet.thirdbooks.digital/sync/dashboard.php" \
+            --max-time 20 2>/dev/null || echo "000")
+          echo "Dashboard HTTP: $HTTP"
+          if [ "$HTTP" = "200" ]; then
+            echo "Sync server deployed successfully"
+          else
+            echo "WARNING: dashboard returned HTTP $HTTP"
+          fi
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "URL: https://magicbet.thirdbooks.digital/sync/dashboard.php"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Time:   $(date -u)"
