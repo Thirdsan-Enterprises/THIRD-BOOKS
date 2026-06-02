@@ -64,6 +64,7 @@ class _BillsScreenState extends ConsumerState<BillsScreen> {
   @override
   Widget build(BuildContext context) {
     final billsState = ref.watch(billsProvider);
+    ref.watch(accountsProvider); // ensure accounts are loaded before payment dialog opens
 
     return Scaffold(
       body: Padding(
