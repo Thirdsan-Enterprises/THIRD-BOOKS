@@ -1,17 +1,17 @@
 <?php
-// ── download.php — session-gated backup download (dashboard only) ─────────────
+// ── download.php — admin-only backup download ─────────────────────────────────
 require 'config.php';
 session_start();
 
-if (empty($_SESSION['tb_dashboard_auth'])) {
+if (empty($_SESSION['tb_user']) || $_SESSION['tb_role'] !== 'admin') {
     http_response_code(403);
-    die('Forbidden — please log in via dashboard.php');
+    die('Forbidden — administrator access required.');
 }
 
 $files = glob(BACKUP_DIR . '*_backup.json');
 if (!$files) {
     http_response_code(404);
-    die('No backup found');
+    die('No backup found on server.');
 }
 
 rsort($files);

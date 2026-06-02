@@ -1,56 +1,127 @@
 <?php
-// ── dashboard.php — admin view, open in any browser ──────────────────────────
+// ── dashboard.php — ThirdBooks Sync Dashboard ────────────────────────────────
 require 'config.php';
 session_start();
 
-// ── Authentication ────────────────────────────────────────────────────────────
+// ── Logout ────────────────────────────────────────────────────────────────────
+if (isset($_GET['logout'])) {
+    session_destroy();
+    header('Location: dashboard.php');
+    exit;
+}
+
+// ── Login ─────────────────────────────────────────────────────────────────────
 $authError = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['password'])) {
-    if ($_POST['password'] === DASHBOARD_PASSWORD) {
-        $_SESSION['tb_dashboard_auth'] = true;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['username'], $_POST['password'])) {
+    $u = strtolower(trim($_POST['username']));
+    $p = $_POST['password'];
+    $users = DASHBOARD_USERS;
+    if (isset($users[$u]) && $users[$u]['password'] === $p) {
+        $_SESSION['tb_user']  = $u;
+        $_SESSION['tb_role']  = $users[$u]['role'];
+        $_SESSION['tb_name']  = $users[$u]['name'];
     } else {
-        $authError = 'Incorrect password.';
+        $authError = 'Incorrect username or password.';
     }
 }
 
-if (empty($_SESSION['tb_dashboard_auth'])) {
-    ?><!DOCTYPE html>
+// ── Show login if not authenticated ──────────────────────────────────────────
+if (empty($_SESSION['tb_user'])) {
+?><!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ThirdBooks — Dashboard Login</title>
+<title>ThirdBooks — Dashboard</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-         background: #f1f5f9; display: flex; align-items: center;
-         justify-content: center; min-height: 100vh; }
-  .card { background: #fff; border-radius: 12px; padding: 36px 40px;
-          box-shadow: 0 4px 16px rgba(0,0,0,.10); width: 340px; }
-  h1 { font-size: 20px; font-weight: 700; color: #1e293b; margin-bottom: 6px; }
-  p  { font-size: 13px; color: #64748b; margin-bottom: 24px; }
-  label { font-size: 13px; font-weight: 600; color: #475569; display: block; margin-bottom: 6px; }
-  input[type=password] { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1;
-                         border-radius: 8px; font-size: 14px; outline: none; }
-  input[type=password]:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
-  button { width: 100%; padding: 11px; background: #1e40af; color: #fff;
-           border: none; border-radius: 8px; font-size: 14px; font-weight: 600;
-           cursor: pointer; margin-top: 16px; }
-  button:hover { background: #1d4ed8; }
-  .error { background: #fee2e2; color: #991b1b; padding: 10px 14px;
-           border-radius: 8px; font-size: 13px; margin-top: 14px; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #0f172a 100%);
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .login-wrap {
+    width: 100%; max-width: 420px; padding: 24px;
+  }
+  .brand {
+    text-align: center; margin-bottom: 32px;
+  }
+  .brand-icon {
+    width: 60px; height: 60px; border-radius: 16px;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-bottom: 14px;
+    box-shadow: 0 8px 24px rgba(59,130,246,.35);
+  }
+  .brand-icon svg { width: 30px; height: 30px; }
+  .brand h1 { color: #fff; font-size: 22px; font-weight: 700; letter-spacing: -.3px; }
+  .brand p  { color: #94a3b8; font-size: 13px; margin-top: 4px; }
+  .card {
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.10);
+    backdrop-filter: blur(12px);
+    border-radius: 16px;
+    padding: 32px 36px;
+  }
+  .field { margin-bottom: 18px; }
+  label { display: block; font-size: 12px; font-weight: 600;
+          color: #94a3b8; letter-spacing: .05em; text-transform: uppercase; margin-bottom: 7px; }
+  input[type=text], input[type=password] {
+    width: 100%; padding: 11px 14px;
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 9px; font-size: 14px; color: #f1f5f9; outline: none;
+  }
+  input::placeholder { color: #475569; }
+  input:focus { border-color: #3b82f6; background: rgba(59,130,246,.08); }
+  .btn-login {
+    width: 100%; padding: 12px;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    color: #fff; border: none; border-radius: 9px;
+    font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 4px;
+    letter-spacing: .02em;
+    box-shadow: 0 4px 14px rgba(59,130,246,.30);
+    transition: opacity .15s;
+  }
+  .btn-login:hover { opacity: .9; }
+  .error {
+    background: rgba(239,68,68,.15); border: 1px solid rgba(239,68,68,.3);
+    color: #fca5a5; padding: 10px 14px; border-radius: 8px;
+    font-size: 13px; margin-top: 14px; text-align: center;
+  }
+  .footer { text-align: center; color: #475569; font-size: 12px; margin-top: 20px; }
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>ThirdBooks</h1>
-  <p>Sync Dashboard — enter password to continue.</p>
-  <form method="POST">
-    <label for="pw">Password</label>
-    <input type="password" id="pw" name="password" autofocus placeholder="Dashboard password">
-    <button type="submit">Sign In</button>
-    <?php if ($authError): ?><div class="error"><?= htmlspecialchars($authError) ?></div><?php endif; ?>
-  </form>
+<div class="login-wrap">
+  <div class="brand">
+    <div class="brand-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+      </svg>
+    </div>
+    <h1>ThirdBooks</h1>
+    <p>MagicBet — Sync Dashboard</p>
+  </div>
+  <div class="card">
+    <form method="POST">
+      <div class="field">
+        <label>Username</label>
+        <input type="text" name="username" autocomplete="username" placeholder="Enter username" autofocus
+               value="<?= htmlspecialchars($_POST['username'] ?? '') ?>">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" name="password" autocomplete="current-password" placeholder="Enter password">
+      </div>
+      <button class="btn-login" type="submit">Sign In</button>
+      <?php if ($authError): ?>
+        <div class="error"><?= htmlspecialchars($authError) ?></div>
+      <?php endif; ?>
+    </form>
+  </div>
+  <div class="footer">© 2026 MagicBet Ltd · ThirdBooks Accounting</div>
 </div>
 </body>
 </html>
@@ -58,30 +129,31 @@ if (empty($_SESSION['tb_dashboard_auth'])) {
     exit;
 }
 
-// ── Logout ─────────────────────────────────────────────────────────────────────
-if (isset($_GET['logout'])) {
-    session_destroy();
-    header('Location: dashboard.php');
-    exit;
-}
+// ── Authenticated — load data ─────────────────────────────────────────────────
+$isAdmin  = $_SESSION['tb_role'] === 'admin';
+$userName = $_SESSION['tb_name'] ?? 'User';
 
-// ── Data ──────────────────────────────────────────────────────────────────────
-$files = glob(BACKUP_DIR . '*_backup.json');
+$files      = glob(BACKUP_DIR . '*_backup.json') ?: [];
 rsort($files);
 $latest     = $files ? $files[0] : null;
 $lastSync   = $latest ? date('d M Y, H:i', filemtime($latest)) : null;
-$size       = $latest ? round(filesize($latest) / 1024) . ' KB' : null;
+$size       = $latest ? round(filesize($latest) / 1024, 1) . ' KB' : null;
 $counts     = [];
 $exportedAt = null;
 
 if ($latest) {
-    $raw = json_decode(file_get_contents($latest), true);
+    $raw        = json_decode(file_get_contents($latest), true);
     $counts     = $raw['counts']      ?? [];
     $exportedAt = $raw['exported_at'] ?? null;
 }
 
 $syncedToday    = $latest && date('Y-m-d', filemtime($latest)) === date('Y-m-d');
 $syncedThisWeek = $latest && (time() - filemtime($latest)) < 7 * 86400;
+
+if      ($syncedToday)    { $statusClass = 'ok';   $statusIcon = '✓'; $statusText = 'Synced today'; $statusSub = 'Last backup: ' . $lastSync; }
+elseif  ($syncedThisWeek) { $statusClass = 'warn'; $statusIcon = '⚠'; $statusText = 'Last sync: ' . $lastSync; $statusSub = 'No sync today — check the client machine.'; }
+elseif  ($latest)         { $statusClass = 'bad';  $statusIcon = '✗'; $statusText = 'Last sync: ' . $lastSync; $statusSub = 'No sync in over a week.'; }
+else                      { $statusClass = 'bad';  $statusIcon = '✗'; $statusText = 'No backup received yet'; $statusSub = 'The desktop app has not synced to this server.'; }
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -90,170 +162,282 @@ $syncedThisWeek = $latest && (time() - filemtime($latest)) < 7 * 86400;
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ThirdBooks — Sync Dashboard</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-         background: #f1f5f9; color: #1e293b; min-height: 100vh; }
-  header { background: #1e293b; color: #fff; padding: 18px 32px;
-           display: flex; align-items: center; justify-content: space-between; }
-  header h1 { font-size: 18px; font-weight: 600; }
-  header span { font-size: 13px; opacity: .6; }
-  .logout { font-size: 12px; color: #94a3b8; text-decoration: none; padding: 6px 12px;
-            border: 1px solid #475569; border-radius: 6px; }
-  .logout:hover { background: #334155; color: #fff; }
-  .container { max-width: 860px; margin: 36px auto; padding: 0 24px; }
-  .card { background: #fff; border-radius: 12px; padding: 24px;
-          box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 20px; }
-  .status-bar { border-radius: 10px; padding: 16px 20px;
-                display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
-  .status-bar.ok   { background: #dcfce7; color: #166534; }
-  .status-bar.warn { background: #fef9c3; color: #854d0e; }
-  .status-bar.bad  { background: #fee2e2; color: #991b1b; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .ok .dot   { background: #16a34a; }
-  .warn .dot { background: #ca8a04; }
-  .bad .dot  { background: #dc2626; }
-  .status-bar .label { font-weight: 600; font-size: 15px; }
-  .status-bar .sub   { font-size: 13px; opacity: .75; margin-top: 2px; }
-  h2 { font-size: 15px; font-weight: 600; margin-bottom: 14px; color: #475569; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f0f4f9; color: #1e293b; min-height: 100vh;
+  }
+
+  /* ── Top bar ── */
+  .topbar {
+    background: linear-gradient(135deg, #0f172a, #1e3a5f);
+    height: 58px; padding: 0 28px;
+    display: flex; align-items: center; justify-content: space-between;
+    box-shadow: 0 2px 12px rgba(0,0,0,.25);
+  }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .topbar-icon {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .topbar-icon svg { width: 17px; height: 17px; }
+  .topbar-title { color: #fff; font-size: 16px; font-weight: 700; letter-spacing: -.2px; }
+  .topbar-sub   { color: #64748b; font-size: 12px; margin-left: 4px; }
+  .topbar-right { display: flex; align-items: center; gap: 14px; }
+  .user-chip {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.10);
+    border-radius: 8px; padding: 5px 12px;
+  }
+  .user-avatar {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: linear-gradient(135deg, #3b82f6, #7c3aed);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: #fff;
+  }
+  .user-name  { color: #e2e8f0; font-size: 13px; font-weight: 600; }
+  .user-role  { color: #64748b; font-size: 11px; }
+  .btn-logout {
+    color: #94a3b8; font-size: 12px; text-decoration: none;
+    padding: 6px 12px; border: 1px solid rgba(255,255,255,.12);
+    border-radius: 7px; transition: all .15s;
+  }
+  .btn-logout:hover { background: rgba(239,68,68,.15); color: #fca5a5; border-color: rgba(239,68,68,.3); }
+
+  /* ── Layout ── */
+  .page { max-width: 940px; margin: 32px auto; padding: 0 20px; }
+
+  /* ── Status bar ── */
+  .status-bar {
+    border-radius: 12px; padding: 18px 22px;
+    display: flex; align-items: center; gap: 16px; margin-bottom: 24px;
+    border: 1px solid transparent;
+  }
+  .status-bar.ok   { background: #dcfce7; border-color: #bbf7d0; color: #166534; }
+  .status-bar.warn { background: #fef9c3; border-color: #fde68a; color: #854d0e; }
+  .status-bar.bad  { background: #fee2e2; border-color: #fecaca; color: #991b1b; }
+  .status-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .ok   .status-dot { background: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.2); }
+  .warn .status-dot { background: #ca8a04; box-shadow: 0 0 0 3px rgba(202,138,4,.2); }
+  .bad  .status-dot { background: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,.2); }
+  .status-text .title { font-weight: 700; font-size: 15px; }
+  .status-text .sub   { font-size: 13px; opacity: .75; margin-top: 2px; }
+
+  /* ── Stat grid ── */
+  .stat-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;
+  }
+  @media(max-width:680px) { .stat-grid { grid-template-columns: 1fr 1fr; } }
+  .stat-card {
+    background: #fff; border-radius: 12px; padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07); border: 1px solid #e2e8f0;
+  }
+  .stat-card .icon {
+    width: 38px; height: 38px; border-radius: 9px;
+    display: flex; align-items: center; justify-content: center; margin-bottom: 12px;
+  }
+  .stat-card .icon svg { width: 18px; height: 18px; }
+  .stat-card .val  { font-size: 28px; font-weight: 800; color: #0f172a; line-height: 1; }
+  .stat-card .lbl  { font-size: 12px; color: #64748b; margin-top: 4px; font-weight: 500; }
+  .icon-blue   { background: #dbeafe; color: #1d4ed8; }
+  .icon-purple { background: #ede9fe; color: #7c3aed; }
+  .icon-green  { background: #dcfce7; color: #16a34a; }
+  .icon-orange { background: #ffedd5; color: #ea580c; }
+
+  /* ── Cards ── */
+  .card {
+    background: #fff; border-radius: 12px; padding: 24px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07); border: 1px solid #e2e8f0;
+    margin-bottom: 20px;
+  }
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;
+  }
+  .card-title { font-size: 14px; font-weight: 700; color: #374151; text-transform: uppercase;
+                letter-spacing: .06em; }
   table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; font-size: 12px; color: #94a3b8;
-       font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
-       padding: 0 0 8px; border-bottom: 1px solid #e2e8f0; }
-  td { padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
-  .num { font-weight: 600; color: #0f172a; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-  .stat { background: #f8fafc; border-radius: 8px; padding: 16px; }
-  .stat .val { font-size: 26px; font-weight: 700; color: #0f172a; }
-  .stat .lbl { font-size: 12px; color: #94a3b8; margin-top: 2px; }
-  .btn { display: inline-block; background: #1e40af; color: #fff;
-         padding: 10px 20px; border-radius: 8px; text-decoration: none;
-         font-size: 13px; font-weight: 600; margin-top: 4px; }
-  .btn:hover { background: #1d4ed8; }
-  .btn.danger { background: #dc2626; }
-  .btn.danger:hover { background: #b91c1c; }
-  .history-row td:first-child { color: #475569; }
-  .badge { display:inline-block; padding: 2px 8px; border-radius: 99px;
-           font-size: 11px; font-weight: 600; background: #dbeafe; color: #1e40af; }
-  .none { color: #94a3b8; font-style: italic; font-size: 14px; margin-top: 8px; }
+  th { text-align: left; font-size: 11px; color: #94a3b8; font-weight: 700;
+       text-transform: uppercase; letter-spacing: .07em; padding: 0 0 10px; border-bottom: 1px solid #e2e8f0; }
+  td { padding: 11px 0; border-bottom: 1px solid #f8fafc; font-size: 14px; color: #374151; }
+  tr:last-child td { border-bottom: none; }
+  td.val { font-weight: 700; color: #0f172a; }
+  .badge-latest {
+    display: inline-block; padding: 2px 8px; border-radius: 99px;
+    font-size: 11px; font-weight: 700; background: #dbeafe; color: #1e40af; margin-left: 6px;
+  }
+
+  /* ── Download btn ── */
+  .btn-download {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: linear-gradient(135deg, #1e40af, #1d4ed8);
+    color: #fff; padding: 10px 20px; border-radius: 9px;
+    text-decoration: none; font-size: 13px; font-weight: 700;
+    box-shadow: 0 3px 10px rgba(29,78,216,.25); transition: opacity .15s;
+  }
+  .btn-download:hover { opacity: .88; }
+  .btn-download svg { width: 15px; height: 15px; }
+  .admin-only { display: <?= $isAdmin ? 'block' : 'none' ?>; }
+
+  /* ── Viewer notice ── */
+  .viewer-notice {
+    display: <?= $isAdmin ? 'none' : 'flex' ?>;
+    align-items: center; gap: 10px;
+    background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px;
+    padding: 10px 14px; font-size: 13px; color: #0369a1; margin-top: 12px;
+  }
+
+  .none { color: #94a3b8; font-style: italic; font-size: 14px; }
 </style>
 </head>
 <body>
-<header>
-  <div>
-    <h1>ThirdBooks — Sync Dashboard</h1>
-    <span>Client backup monitor</span>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="topbar-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+      </svg>
+    </div>
+    <span class="topbar-title">ThirdBooks</span>
+    <span class="topbar-sub">/ Sync Dashboard</span>
   </div>
-  <a class="logout" href="?logout=1">Sign Out</a>
-</header>
+  <div class="topbar-right">
+    <div class="user-chip">
+      <div class="user-avatar"><?= strtoupper(substr($userName, 0, 1)) ?></div>
+      <div>
+        <div class="user-name"><?= htmlspecialchars($userName) ?></div>
+        <div class="user-role"><?= $isAdmin ? 'Administrator' : 'Viewer' ?></div>
+      </div>
+    </div>
+    <a class="btn-logout" href="?logout=1">Sign Out</a>
+  </div>
+</div>
 
-<div class="container">
+<div class="page">
 
-  <?php if (!$latest): ?>
-  <div class="status-bar bad">
-    <div class="dot"></div>
-    <div>
-      <div class="label">No backup received yet</div>
-      <div class="sub">The desktop app has not synced to this server.</div>
+  <!-- Status -->
+  <div class="status-bar <?= $statusClass ?>">
+    <div class="status-dot"></div>
+    <div class="status-text">
+      <div class="title"><?= $statusIcon ?> <?= htmlspecialchars($statusText) ?></div>
+      <div class="sub"><?= htmlspecialchars($statusSub) ?></div>
     </div>
   </div>
 
-  <?php elseif ($syncedToday): ?>
-  <div class="status-bar ok">
-    <div class="dot"></div>
-    <div>
-      <div class="label">✓ Synced today — <?= htmlspecialchars($lastSync) ?></div>
-      <div class="sub">Backup size: <?= htmlspecialchars($size) ?></div>
-    </div>
-  </div>
-
-  <?php elseif ($syncedThisWeek): ?>
-  <div class="status-bar warn">
-    <div class="dot"></div>
-    <div>
-      <div class="label">⚠ Last sync: <?= htmlspecialchars($lastSync) ?></div>
-      <div class="sub">App has not synced today — check the client machine.</div>
-    </div>
-  </div>
-
-  <?php else: ?>
-  <div class="status-bar bad">
-    <div class="dot"></div>
-    <div>
-      <div class="label">✗ Last sync: <?= htmlspecialchars($lastSync) ?></div>
-      <div class="sub">No sync in over a week — client machine may be offline or reinstalled.</div>
-    </div>
-  </div>
-  <?php endif; ?>
-
+  <!-- Stats -->
   <?php if ($counts): ?>
-  <div class="grid">
-    <div class="stat">
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="icon icon-blue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+        </svg>
+      </div>
       <div class="val"><?= number_format($counts['journals'] ?? 0) ?></div>
       <div class="lbl">Journal Entries</div>
     </div>
-    <div class="stat">
+    <div class="stat-card">
+      <div class="icon icon-purple">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>
+        </svg>
+      </div>
       <div class="val"><?= number_format($counts['bills'] ?? 0) ?></div>
       <div class="lbl">Bills</div>
     </div>
-    <div class="stat">
+    <div class="stat-card">
+      <div class="icon icon-green">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+        </svg>
+      </div>
       <div class="val"><?= number_format($counts['outlet_revenues'] ?? 0) ?></div>
-      <div class="lbl">Outlet Revenue Records</div>
+      <div class="lbl">Revenue Records</div>
     </div>
-    <div class="stat">
+    <div class="stat-card">
+      <div class="icon icon-orange">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+      </div>
       <div class="val"><?= number_format($counts['accounts'] ?? 0) ?></div>
       <div class="lbl">Chart of Accounts</div>
     </div>
   </div>
   <?php endif; ?>
 
+  <!-- Backup details -->
   <?php if ($latest): ?>
   <div class="card">
-    <h2>Latest Backup</h2>
+    <div class="card-header">
+      <div class="card-title">Latest Backup</div>
+      <div class="admin-only">
+        <a class="btn-download" href="download.php">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download for Restore
+        </a>
+      </div>
+    </div>
     <table>
       <tr><th>Field</th><th>Value</th></tr>
-      <tr><td>Synced at</td><td class="num"><?= htmlspecialchars($lastSync) ?></td></tr>
-      <tr><td>Exported at (app time)</td><td><?= htmlspecialchars($exportedAt ?? '—') ?></td></tr>
-      <tr><td>File size</td><td><?= htmlspecialchars($size) ?></td></tr>
+      <tr><td>Synced at</td><td class="val"><?= htmlspecialchars($lastSync) ?></td></tr>
+      <tr><td>Exported by app</td><td><?= htmlspecialchars($exportedAt ?? '—') ?></td></tr>
+      <tr><td>Backup size</td><td><?= htmlspecialchars($size) ?></td></tr>
+      <tr><td>Total backups kept</td><td><?= count($files) ?> of <?= MAX_BACKUPS ?></td></tr>
     </table>
-    <br>
-    <a class="btn" href="download.php">⬇ Download for Restore</a>
+    <div class="viewer-notice">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      Backup download is restricted to administrators only.
+    </div>
   </div>
 
+  <!-- Record counts -->
+  <?php if ($counts): ?>
   <div class="card">
-    <h2>Record Counts</h2>
+    <div class="card-header"><div class="card-title">Record Counts</div></div>
     <table>
       <tr><th>Entity</th><th>Count</th></tr>
       <?php foreach ($counts as $key => $val): ?>
       <tr>
         <td><?= htmlspecialchars(ucwords(str_replace('_', ' ', $key))) ?></td>
-        <td class="num"><?= number_format($val) ?></td>
+        <td class="val"><?= number_format($val) ?></td>
       </tr>
       <?php endforeach; ?>
     </table>
   </div>
+  <?php endif; ?>
 
+  <!-- Backup history -->
   <div class="card">
-    <h2>Backup History (last <?= count($files) ?>)</h2>
-    <?php if (count($files) === 0): ?>
+    <div class="card-header">
+      <div class="card-title">Backup History</div>
+      <span style="font-size:12px;color:#94a3b8;"><?= count($files) ?> backups stored</span>
+    </div>
+    <?php if (!$files): ?>
       <div class="none">No backups yet.</div>
     <?php else: ?>
     <table>
-      <tr><th>Date</th><th>Size</th><th></th></tr>
-      <?php foreach (array_slice($files, 0, 15) as $i => $f): ?>
-      <tr class="history-row">
+      <tr><th>Date &amp; Time</th><th>Size</th></tr>
+      <?php foreach (array_slice($files, 0, 20) as $i => $f): ?>
+      <tr>
         <td>
           <?= date('d M Y, H:i', filemtime($f)) ?>
-          <?php if ($i === 0): ?><span class="badge">latest</span><?php endif; ?>
+          <?php if ($i === 0): ?><span class="badge-latest">latest</span><?php endif; ?>
         </td>
-        <td><?= round(filesize($f) / 1024) ?> KB</td>
-        <td></td>
+        <td><?= round(filesize($f) / 1024, 1) ?> KB</td>
       </tr>
       <?php endforeach; ?>
     </table>
     <?php endif; ?>
   </div>
-  <?php endif; ?>
 
-</div>
+  <?php endif; // end $latest ?>
+
+</div><!-- /page -->
 </body>
 </html>
