@@ -21,7 +21,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy sync-server to magicbet.thirdbooks.digital/sync/
+      - name: Deploy sync-server PHP to /sync/
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
@@ -35,23 +35,38 @@ jobs:
             **/.DS_Store
             **/backups/**
             **/.gitkeep
+            **/webroot/**
+
+      - name: Deploy root index redirect
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./sync-server/webroot/
+          server-dir: /magicbet.thirdbooks.digital/public_html/
+          dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.DS_Store
 
       - name: Verify deployment
         run: |
           sleep 8
-          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+          ROOT=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://magicbet.thirdbooks.digital" \
+            --max-time 20 -L 2>/dev/null || echo "000")
+          DASH=$(curl -s -o /dev/null -w "%{http_code}" \
             "https://magicbet.thirdbooks.digital/sync/dashboard.php" \
             --max-time 20 2>/dev/null || echo "000")
-          echo "Dashboard HTTP: $HTTP"
-          if [ "$HTTP" = "200" ]; then
-            echo "Sync server deployed successfully"
-          else
-            echo "WARNING: dashboard returned HTTP $HTTP"
-          fi
+          echo "Root redirect HTTP: $ROOT"
+          echo "Dashboard HTTP:     $DASH"
+          [ "$DASH" = "200" ] && echo "Deploy PASSED" || echo "WARNING: dashboard HTTP $DASH"
 
       - name: Deployment summary
         if: always()
         run: |
-          echo "URL: https://magicbet.thirdbooks.digital/sync/dashboard.php"
+          echo "Root:      https://magicbet.thirdbooks.digital"
+          echo "Dashboard: https://magicbet.thirdbooks.digital/sync/dashboard.php"
           echo "Branch: ${{ github.ref_name }}"
           echo "Time:   $(date -u)"
