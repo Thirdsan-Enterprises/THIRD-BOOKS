@@ -16,7 +16,9 @@ import '../../core/models/payment.dart';
 import '../../core/models/bill.dart';
 import '../../core/models/invoice.dart';
 import '../../core/widgets/attachment_widget.dart';
-import '../banking/banking_screen.dart' show bankingProvider, BankTxType;
+import '../banking/banking_screen.dart' show bankingProvider;
+import '../../core/models/bank_transaction.dart' show BankTxType;
+import '../../core/models/models.dart' show JournalEntry, JournalLine, JournalEntryStatus;
 
 class PaymentsScreen extends ConsumerStatefulWidget {
   const PaymentsScreen({super.key});
