@@ -154,6 +154,18 @@ if      ($syncedToday)    { $statusClass = 'ok';   $statusIcon = '✓'; $statusT
 elseif  ($syncedThisWeek) { $statusClass = 'warn'; $statusIcon = '⚠'; $statusText = 'Last sync: ' . $lastSync; $statusSub = 'No sync today — check the client machine.'; }
 elseif  ($latest)         { $statusClass = 'bad';  $statusIcon = '✗'; $statusText = 'Last sync: ' . $lastSync; $statusSub = 'No sync in over a week.'; }
 else                      { $statusClass = 'bad';  $statusIcon = '✗'; $statusText = 'No backup received yet'; $statusSub = 'The desktop app has not synced to this server.'; }
+
+// ── Heartbeat / online status ─────────────────────────────────────────────────
+$hbFile   = BACKUP_DIR . 'heartbeat.json';
+$hbData   = file_exists($hbFile) ? json_decode(file_get_contents($hbFile), true) : null;
+$hbAge    = $hbData ? (time() - ($hbData['ts'] ?? 0)) : null;
+$hbUser   = $hbData['user'] ?? 'unknown';
+$hbAt     = $hbData ? date('d M Y, H:i', $hbData['ts']) : null;
+
+if      ($hbAge === null)    { $onlineClass = 'offline'; $onlineLabel = 'Offline'; $onlineSub = 'App has never connected.'; }
+elseif  ($hbAge < 900)       { $onlineClass = 'online';  $onlineLabel = 'Online';  $onlineSub = htmlspecialchars($hbUser) . ' — last seen ' . $hbAt; }
+elseif  ($hbAge < 7200)      { $onlineClass = 'away';    $onlineLabel = 'Away';    $onlineSub = 'Last seen: ' . $hbAt . ' (' . round($hbAge/60) . ' min ago)'; }
+else                          { $onlineClass = 'offline'; $onlineLabel = 'Offline'; $onlineSub = 'Last seen: ' . ($hbAt ?? 'never') . ' (' . round($hbAge/3600, 1) . ' hrs ago)'; }
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -288,6 +300,29 @@ else                      { $statusClass = 'bad';  $statusIcon = '✗'; $statusT
   }
 
   .none { color: #94a3b8; font-style: italic; font-size: 14px; }
+
+  /* ── Online indicator ── */
+  .online-bar {
+    border-radius: 12px; padding: 14px 20px;
+    display: flex; align-items: center; gap: 14px; margin-bottom: 20px;
+    border: 1px solid transparent;
+  }
+  .online-bar.online  { background: #dcfce7; border-color: #bbf7d0; color: #166534; }
+  .online-bar.away    { background: #fef9c3; border-color: #fde68a; color: #854d0e; }
+  .online-bar.offline { background: #f1f5f9; border-color: #e2e8f0; color: #64748b; }
+  .pulse-dot {
+    width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; position: relative;
+  }
+  .online  .pulse-dot { background: #16a34a; animation: pulse 2s infinite; }
+  .away    .pulse-dot { background: #ca8a04; }
+  .offline .pulse-dot { background: #94a3b8; }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(22,163,74,.5); }
+    70%  { box-shadow: 0 0 0 8px rgba(22,163,74,0); }
+    100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+  }
+  .online-bar .label { font-weight: 700; font-size: 14px; }
+  .online-bar .sub   { font-size: 12px; opacity: .75; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -316,7 +351,16 @@ else                      { $statusClass = 'bad';  $statusIcon = '✗'; $statusT
 
 <div class="page">
 
-  <!-- Status -->
+  <!-- Online / heartbeat indicator -->
+  <div class="online-bar <?= $onlineClass ?>">
+    <div class="pulse-dot"></div>
+    <div>
+      <div class="label"><?= $onlineLabel ?> — Desktop App</div>
+      <div class="sub"><?= $onlineSub ?></div>
+    </div>
+  </div>
+
+  <!-- Backup status -->
   <div class="status-bar <?= $statusClass ?>">
     <div class="status-dot"></div>
     <div class="status-text">

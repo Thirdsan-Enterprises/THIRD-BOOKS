@@ -53,6 +53,7 @@ class SyncStatusState {
 class SyncStatusNotifier extends StateNotifier<SyncStatusState> {
   final Ref _ref;
   Timer? _timer;
+  Timer? _heartbeatTimer;
   bool _loginHandled = false;
 
   SyncStatusNotifier(this._ref) : super(const SyncStatusState()) {
@@ -91,18 +92,24 @@ class SyncStatusNotifier extends StateNotifier<SyncStatusState> {
     // Periodic push every 2 hours while the app is running.
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(hours: 2), (_) => _autoPush());
+
+    // Heartbeat every 10 minutes — send one immediately then on schedule.
+    _sendHeartbeat();
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(const Duration(minutes: 10), (_) => _sendHeartbeat());
   }
 
   void _handleLogout() {
     _timer?.cancel();
     _timer = null;
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
     _loginHandled = false;
     state = state.copyWith(needsInitialRestore: false);
   }
 
-  /// Detect a fresh install with no local data — offer restore from server.
+  /// Detect a fresh install with no local data — trigger automatic restore.
   Future<void> _checkNeedsInitialRestore() async {
-    if (!await ServerSyncService.isConfigured()) return;
     try {
       final ls = LocalStorageService.instance;
       await ls.initialize();
@@ -111,6 +118,11 @@ class SyncStatusNotifier extends StateNotifier<SyncStatusState> {
         state = state.copyWith(needsInitialRestore: true);
       }
     } catch (_) {}
+  }
+
+  void _sendHeartbeat() {
+    final userName = _ref.read(authStateProvider).user?.name ?? 'unknown';
+    ServerSyncService.sendHeartbeat(userName);
   }
 
   /// Background push triggered by the 2-hour timer.
@@ -148,6 +160,7 @@ class SyncStatusNotifier extends StateNotifier<SyncStatusState> {
   @override
   void dispose() {
     _timer?.cancel();
+    _heartbeatTimer?.cancel();
     super.dispose();
   }
 }

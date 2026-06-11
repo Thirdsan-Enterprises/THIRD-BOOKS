@@ -29,26 +29,45 @@ class ServerSyncService {
   // ── Configuration ──────────────────────────────────────────────────────────
 
   static const _defaultSyncUrl = 'https://magicbet.thirdbooks.digital/sync';
+  static const _defaultApiKey  = 'tb-sync-magicbet-2026';
 
   static Future<String> getSyncUrl() async =>
       await _storage.read(key: _urlKey) ?? _defaultSyncUrl;
 
   static Future<String> getApiKey() async =>
-      await _storage.read(key: _keyKey) ?? '';
+      await _storage.read(key: _keyKey) ?? _defaultApiKey;
 
   static Future<void> saveConfig(String url, String apiKey) async {
     await _storage.write(key: _urlKey, value: url.trimRight().replaceAll(RegExp(r'/$'), ''));
     await _storage.write(key: _keyKey, value: apiKey.trim());
   }
 
-  static Future<bool> isConfigured() async {
-    final url = await getSyncUrl();
-    final key = await getApiKey();
-    return url.isNotEmpty && key.isNotEmpty;
-  }
+  // Always configured — defaults are baked in.
+  static Future<bool> isConfigured() async => true;
 
   static Future<String?> getLastSyncedAt() async =>
       _storage.read(key: _lastSyncKey);
+
+  // ── Heartbeat ─────────────────────────────────────────────────────────────
+
+  static Future<void> sendHeartbeat(String userName) async {
+    try {
+      final url    = await getSyncUrl();
+      final apiKey = await getApiKey();
+      final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+      ));
+      await dio.post(
+        '$url/heartbeat.php',
+        data: {'user': userName},
+        options: Options(headers: {
+          'X-API-Key':    apiKey,
+          'Content-Type': 'application/json',
+        }),
+      );
+    } catch (_) {} // silent — never block the app for a heartbeat failure
+  }
 
   // ── Push backup to server ──────────────────────────────────────────────────
 
