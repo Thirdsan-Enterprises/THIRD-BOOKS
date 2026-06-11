@@ -14,6 +14,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/data_service.dart';
 import '../../core/models/models.dart';
 import '../../core/database/app_database.dart' hide Account, Customer, Vendor, Invoice, Bill, JournalEntry, JournalLine;
+import '../outlets/outlet_settled_screen.dart' show outletSettlementsProvider;
 
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({super.key});
@@ -70,6 +71,17 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         {'name': 'GGR by Month', 'description': 'Monthly GGR comparison', 'icon': Icons.calendar_month},
         {'name': 'Payout Ratio Analysis', 'description': 'Total Out vs Total In ratio', 'icon': Icons.pie_chart},
         {'name': 'Revenue Trend', 'description': 'Revenue trend over time', 'icon': Icons.show_chart},
+      ],
+    },
+    {
+      'category': 'Receivables & Payables',
+      'icon': Icons.account_balance_wallet,
+      'color': Colors.teal,
+      'reports': [
+        {'name': 'AR Schedule',    'description': 'Outstanding receivables by outlet (60% of weekly GGR)', 'icon': Icons.arrow_downward},
+        {'name': 'AP Schedule',    'description': 'Outstanding payables by vendor',                        'icon': Icons.arrow_upward},
+        {'name': 'AR Ageing',      'description': 'Receivables aged by days outstanding',                  'icon': Icons.hourglass_bottom},
+        {'name': 'AP Ageing',      'description': 'Payables aged by days outstanding',                     'icon': Icons.hourglass_top},
       ],
     },
   ];
@@ -1094,6 +1106,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ],
         ),
       ));
+    } else if (reportName == 'AR Schedule') {
+      await _buildARSchedulePdf(pdf, numFmt, buildHeader);
+    } else if (reportName == 'AP Schedule') {
+      await _buildAPSchedulePdf(pdf, numFmt, buildHeader);
+    } else if (reportName == 'AR Ageing') {
+      await _buildARAgeingPdf(pdf, numFmt, buildHeader);
+    } else if (reportName == 'AP Ageing') {
+      await _buildAPAgeingPdf(pdf, numFmt, buildHeader);
     } else {
       // Generic placeholder page for reports without detailed preview
       pdf.addPage(pw.Page(
@@ -1424,6 +1444,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       return _buildDailyPerformancePreview(context);
     } else if (reportName == 'Payout Ratio Analysis') {
       return _buildPayoutRatioPreview(context);
+    } else if (reportName == 'AR Schedule') {
+      return _buildARSchedulePreview(context);
+    } else if (reportName == 'AP Schedule') {
+      return _buildAPSchedulePreview(context);
+    } else if (reportName == 'AR Ageing') {
+      return _buildARAgeingPreview(context);
+    } else if (reportName == 'AP Ageing') {
+      return _buildAPAgeingPreview(context);
     } else {
       return Center(
         child: Column(
@@ -3113,6 +3141,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           [],
           ['', '', 'TOTAL LIABILITIES + EQUITY', numFmt.format(totalLiabs2 + totalEquity2)],
         ];
+      } else if (reportName == 'AR Schedule') {
+        csvRows = _buildARScheduleCsvRows(numFmt);
+      } else if (reportName == 'AP Schedule') {
+        csvRows = _buildAPScheduleCsvRows(numFmt);
+      } else if (reportName == 'AR Ageing') {
+        csvRows = _buildARAgeingCsvRows(numFmt);
+      } else if (reportName == 'AP Ageing') {
+        csvRows = _buildAPAgeingCsvRows(numFmt);
       } else {
         // Outlet performance for all other reports
         final sortedEntries = (summary?.entries.toList() ?? [])
