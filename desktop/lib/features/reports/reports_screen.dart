@@ -3603,13 +3603,21 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       final recs = List<OutletRevenue>.from(entry.value)
         ..sort((a, b) => a.date.compareTo(b.date));
 
-      // 60% receivable per record (only positive netAmount)
+      // Running-balance rule (Marion):
+      // Negatives carry forward and must be recovered before 60% is applied.
+      // 60% is taken on the incremental positive territory each week creates.
+      // Example: Week1 = -500K, Week2 = +1M → net = +500K → receivable = 300K (not 600K).
+      double runningNet = 0;
+      double previousReceivable = 0;
       double totalReceivable = 0;
       final recordDetails = <Map<String, dynamic>>[];
       for (final r in recs) {
-        final rec = r.netAmount > 0 ? r.netAmount * 0.60 : 0.0;
-        totalReceivable += rec;
-        recordDetails.add({'date': r.date, 'receivable': rec, 'netAmount': r.netAmount});
+        runningNet += r.netAmount;
+        final currentReceivable = runningNet > 0 ? runningNet * 0.60 : 0.0;
+        final incremental = (currentReceivable - previousReceivable).clamp(0.0, double.infinity);
+        previousReceivable = currentReceivable > previousReceivable ? currentReceivable : previousReceivable;
+        totalReceivable += incremental;
+        recordDetails.add({'date': r.date, 'receivable': incremental, 'netAmount': r.netAmount, 'runningNet': runningNet});
       }
 
       final totalSettled = settledByOutlet[outletId] ?? 0.0;
