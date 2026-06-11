@@ -3570,6 +3570,885 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       }
     }
   }
+
+  // ===========================================================================
+  // AR / AP — data helpers
+  // ===========================================================================
+
+  /// Returns a list of per-outlet AR data maps.
+  /// Each map: outletId, outletName, totalReceivable, totalSettled, balance, records[]
+  /// records[] are sorted oldest-first; each has: date, receivable, netAmount, settled, outstanding
+  List<Map<String, dynamic>> _computeARData() {
+    final revenues = ref.read(allOutletRevenuesProvider).valueOrNull ?? [];
+    final settlements = ref.read(outletSettlementsProvider).valueOrNull ?? [];
+
+    // Group revenues by outlet
+    final byOutlet = <String, List<OutletRevenue>>{};
+    for (final r in revenues) {
+      byOutlet.putIfAbsent(r.outletId, () => []).add(r);
+    }
+
+    // Aggregate settlements and capture outlet names
+    final settledByOutlet = <String, double>{};
+    final outletNames = <String, String>{};
+    for (final s in settlements) {
+      settledByOutlet[s.outletId] = (settledByOutlet[s.outletId] ?? 0) + s.amount;
+      outletNames[s.outletId] = s.outletName;
+    }
+
+    final result = <Map<String, dynamic>>[];
+
+    for (final entry in byOutlet.entries) {
+      final outletId = entry.key;
+      final recs = List<OutletRevenue>.from(entry.value)
+        ..sort((a, b) => a.date.compareTo(b.date));
+
+      // 60% receivable per record (only positive netAmount)
+      double totalReceivable = 0;
+      final recordDetails = <Map<String, dynamic>>[];
+      for (final r in recs) {
+        final rec = r.netAmount > 0 ? r.netAmount * 0.60 : 0.0;
+        totalReceivable += rec;
+        recordDetails.add({'date': r.date, 'receivable': rec, 'netAmount': r.netAmount});
+      }
+
+      final totalSettled = settledByOutlet[outletId] ?? 0.0;
+      final balance = (totalReceivable - totalSettled).clamp(0.0, double.infinity);
+
+      // FIFO allocation: apply settlements to oldest records first
+      double remainingSettled = totalSettled;
+      for (final rec in recordDetails) {
+        final rec60 = rec['receivable'] as double;
+        final applied = rec60 <= remainingSettled ? rec60 : remainingSettled;
+        remainingSettled -= applied;
+        rec['settled'] = applied;
+        rec['outstanding'] = rec60 - applied;
+      }
+
+      if (totalReceivable > 0) {
+        result.add({
+          'outletId': outletId,
+          'outletName': outletNames[outletId] ?? recs.first.outletId,
+          'totalReceivable': totalReceivable,
+          'totalSettled': totalSettled.clamp(0.0, totalReceivable),
+          'balance': balance,
+          'records': recordDetails,
+        });
+      }
+    }
+
+    result.sort((a, b) => (b['balance'] as double).compareTo(a['balance'] as double));
+    return result;
+  }
+
+  /// Returns a list of per-vendor AP data maps.
+  /// Each map: vendorName, bills[], totalOwed
+  List<Map<String, dynamic>> _computeAPData() {
+    final billsState = ref.read(billsProvider);
+    const excluded = {BillStatus.paid, BillStatus.cancelled};
+    final openBills = billsState.bills.where((b) => !excluded.contains(b.status)).toList();
+
+    final byVendor = <String, List<Bill>>{};
+    for (final b in openBills) {
+      final name = b.vendorName ?? b.vendorId;
+      byVendor.putIfAbsent(name, () => []).add(b);
+    }
+
+    final result = <Map<String, dynamic>>[];
+    for (final entry in byVendor.entries) {
+      final bills = entry.value..sort((a, b) => a.date.compareTo(b.date));
+      final totalOwed = bills.fold(0.0, (s, b) => s + (b.total - b.amountPaid));
+      if (totalOwed > 0) {
+        result.add({
+          'vendorName': entry.key,
+          'bills': bills,
+          'totalOwed': totalOwed,
+        });
+      }
+    }
+    result.sort((a, b) => (b['totalOwed'] as double).compareTo(a['totalOwed'] as double));
+    return result;
+  }
+
+  /// Returns the ageing bucket label for [days] overdue.
+  String _ageBucket(int days) {
+    if (days <= 30)  return 'Current (0-30)';
+    if (days <= 60)  return '31-60 days';
+    if (days <= 90)  return '61-90 days';
+    if (days <= 120) return '91-120 days';
+    return '120+ days';
+  }
+
+  // ===========================================================================
+  // AR / AP — preview widgets
+  // ===========================================================================
+
+  Widget _buildARSchedulePreview(BuildContext context) {
+    // Watch providers so the widget rebuilds when data changes.
+    ref.watch(allOutletRevenuesProvider);
+    ref.watch(outletSettlementsProvider);
+    final data = _computeARData();
+    final fmt = _currencyFormat;
+    if (data.isEmpty) {
+      return const Center(child: Text('No outstanding receivables'));
+    }
+    final totalBal = data.fold(0.0, (s, d) => s + (d['balance'] as double));
+    final totalRec = data.fold(0.0, (s, d) => s + (d['totalReceivable'] as double));
+    final totalSet = data.fold(0.0, (s, d) => s + (d['totalSettled'] as double));
+
+    return SingleChildScrollView(
+      child: DataTable(
+        columnSpacing: 20,
+        headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+        columns: const [
+          DataColumn(label: Text('Outlet')),
+          DataColumn(label: Text('Total Receivable\n(60% GGR)'), numeric: true),
+          DataColumn(label: Text('Settled'), numeric: true),
+          DataColumn(label: Text('Outstanding'), numeric: true),
+        ],
+        rows: [
+          ...data.map((d) => DataRow(cells: [
+            DataCell(Text(d['outletName'] as String,
+                style: const TextStyle(fontWeight: FontWeight.w500))),
+            DataCell(Text(fmt.format(d['totalReceivable']),
+                style: const TextStyle(fontFamily: 'monospace'))),
+            DataCell(Text(fmt.format(d['totalSettled']),
+                style: const TextStyle(fontFamily: 'monospace', color: Colors.green))),
+            DataCell(Text(fmt.format(d['balance']),
+                style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                    color: (d['balance'] as double) > 0
+                        ? Colors.red.shade700
+                        : Colors.green))),
+          ])),
+          DataRow(cells: [
+            const DataCell(Text('TOTAL',
+                style: TextStyle(fontWeight: FontWeight.bold))),
+            DataCell(Text(fmt.format(totalRec),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'monospace'))),
+            DataCell(Text(fmt.format(totalSet),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'monospace'))),
+            DataCell(Text(fmt.format(totalBal),
+                style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace',
+                    color: totalBal > 0 ? Colors.red.shade700 : Colors.green))),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAPSchedulePreview(BuildContext context) {
+    ref.watch(billsProvider);
+    final data = _computeAPData();
+    final fmt = _currencyFormat;
+    if (data.isEmpty) {
+      return const Center(child: Text('No outstanding payables'));
+    }
+    final grandTotal = data.fold(0.0, (s, d) => s + (d['totalOwed'] as double));
+    return SingleChildScrollView(
+      child: DataTable(
+        columnSpacing: 20,
+        headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+        columns: const [
+          DataColumn(label: Text('Vendor')),
+          DataColumn(label: Text('Open Bills'), numeric: true),
+          DataColumn(label: Text('Total Owed'), numeric: true),
+        ],
+        rows: [
+          ...data.map((d) => DataRow(cells: [
+            DataCell(Text(d['vendorName'] as String,
+                style: const TextStyle(fontWeight: FontWeight.w500))),
+            DataCell(Text('${(d['bills'] as List).length}')),
+            DataCell(Text(fmt.format(d['totalOwed']),
+                style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red.shade700))),
+          ])),
+          DataRow(cells: [
+            const DataCell(Text('TOTAL',
+                style: TextStyle(fontWeight: FontWeight.bold))),
+            const DataCell(Text('')),
+            DataCell(Text(fmt.format(grandTotal),
+                style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace',
+                    color: Colors.red.shade700))),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildARAgeingPreview(BuildContext context) {
+    ref.watch(allOutletRevenuesProvider);
+    ref.watch(outletSettlementsProvider);
+    final data = _computeARData();
+    final fmt = _currencyFormat;
+    final today = DateTime.now();
+    final buckets = ['Current (0-30)', '31-60 days', '61-90 days', '91-120 days', '120+ days'];
+    final totals = <String, double>{for (final b in buckets) b: 0.0};
+
+    final rows = data.map((d) {
+      final outletBuckets = <String, double>{for (final b in buckets) b: 0.0};
+      for (final rec in d['records'] as List<Map<String, dynamic>>) {
+        final outstanding = rec['outstanding'] as double;
+        if (outstanding <= 0) continue;
+        final days = today.difference(rec['date'] as DateTime).inDays;
+        final bucket = _ageBucket(days);
+        outletBuckets[bucket] = (outletBuckets[bucket] ?? 0) + outstanding;
+        totals[bucket] = (totals[bucket] ?? 0) + outstanding;
+      }
+      return MapEntry(d['outletName'] as String, outletBuckets);
+    }).toList();
+
+    if (rows.isEmpty) return const Center(child: Text('No outstanding receivables to age'));
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: SingleChildScrollView(
+        child: DataTable(
+          columnSpacing: 16,
+          headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+          columns: [
+            const DataColumn(label: Text('Outlet')),
+            ...buckets.map((b) => DataColumn(
+                label: Text(b, style: const TextStyle(fontSize: 11)), numeric: true)),
+            const DataColumn(label: Text('Total'), numeric: true),
+          ],
+          rows: [
+            ...rows.map((e) {
+              final rowTotal = e.value.values.fold(0.0, (s, v) => s + v);
+              return DataRow(cells: [
+                DataCell(Text(e.key,
+                    style: const TextStyle(fontWeight: FontWeight.w500))),
+                ...buckets.map((b) => DataCell(Text(
+                      e.value[b]! > 0 ? fmt.format(e.value[b]!) : '—',
+                      style: TextStyle(
+                          fontFamily: 'monospace',
+                          color: b != 'Current (0-30)' && e.value[b]! > 0
+                              ? Colors.red.shade700
+                              : null),
+                    ))),
+                DataCell(Text(fmt.format(rowTotal),
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontFamily: 'monospace'))),
+              ]);
+            }),
+            DataRow(cells: [
+              const DataCell(Text('TOTAL',
+                  style: TextStyle(fontWeight: FontWeight.bold))),
+              ...buckets.map((b) => DataCell(Text(fmt.format(totals[b]!),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                      color: b != 'Current (0-30)' && totals[b]! > 0
+                          ? Colors.red.shade700
+                          : null)))),
+              DataCell(Text(
+                  fmt.format(totals.values.fold(0.0, (s, v) => s + v)),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontFamily: 'monospace'))),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAPAgeingPreview(BuildContext context) {
+    ref.watch(billsProvider);
+    final data = _computeAPData();
+    final fmt = _currencyFormat;
+    final today = DateTime.now();
+    final buckets = ['Current (0-30)', '31-60 days', '61-90 days', '91-120 days', '120+ days'];
+    final totals = <String, double>{for (final b in buckets) b: 0.0};
+
+    final rows = data.map((d) {
+      final vendorBuckets = <String, double>{for (final b in buckets) b: 0.0};
+      for (final bill in d['bills'] as List<Bill>) {
+        final outstanding = bill.total - bill.amountPaid;
+        if (outstanding <= 0) continue;
+        final refDate = bill.dueDate;
+        final days = today.difference(refDate).inDays;
+        final bucket = _ageBucket(days);
+        vendorBuckets[bucket] = (vendorBuckets[bucket] ?? 0) + outstanding;
+        totals[bucket] = (totals[bucket] ?? 0) + outstanding;
+      }
+      return MapEntry(d['vendorName'] as String, vendorBuckets);
+    }).toList();
+
+    if (rows.isEmpty) return const Center(child: Text('No outstanding payables to age'));
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: SingleChildScrollView(
+        child: DataTable(
+          columnSpacing: 16,
+          headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+          columns: [
+            const DataColumn(label: Text('Vendor')),
+            ...buckets.map((b) => DataColumn(
+                label: Text(b, style: const TextStyle(fontSize: 11)), numeric: true)),
+            const DataColumn(label: Text('Total'), numeric: true),
+          ],
+          rows: [
+            ...rows.map((e) {
+              final rowTotal = e.value.values.fold(0.0, (s, v) => s + v);
+              return DataRow(cells: [
+                DataCell(Text(e.key,
+                    style: const TextStyle(fontWeight: FontWeight.w500))),
+                ...buckets.map((b) => DataCell(Text(
+                      e.value[b]! > 0 ? fmt.format(e.value[b]!) : '—',
+                      style: TextStyle(
+                          fontFamily: 'monospace',
+                          color: b != 'Current (0-30)' && e.value[b]! > 0
+                              ? Colors.red.shade700
+                              : null),
+                    ))),
+                DataCell(Text(fmt.format(rowTotal),
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontFamily: 'monospace'))),
+              ]);
+            }),
+            DataRow(cells: [
+              const DataCell(Text('TOTAL',
+                  style: TextStyle(fontWeight: FontWeight.bold))),
+              ...buckets.map((b) => DataCell(Text(fmt.format(totals[b]!),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                      color: b != 'Current (0-30)' && totals[b]! > 0
+                          ? Colors.red.shade700
+                          : null)))),
+              DataCell(Text(
+                  fmt.format(totals.values.fold(0.0, (s, v) => s + v)),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontFamily: 'monospace'))),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // AR / AP — PDF builders (called from _buildPdfDocument)
+  // ===========================================================================
+
+  Future<void> _buildARSchedulePdf(
+    pw.Document pdf,
+    NumberFormat numFmt,
+    pw.Widget Function(String) buildHeader,
+  ) async {
+    final data = _computeARData();
+    final dateFmt = DateFormat('MMM d, yyyy');
+    final totalRec = data.fold(0.0, (s, d) => s + (d['totalReceivable'] as double));
+    final totalSet = data.fold(0.0, (s, d) => s + (d['totalSettled'] as double));
+    final totalBal = data.fold(0.0, (s, d) => s + (d['balance'] as double));
+
+    pdf.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.symmetric(horizontal: 36, vertical: 32),
+      build: (pw.Context ctx) => [
+        buildHeader('AR SCHEDULE — ACCOUNTS RECEIVABLE'),
+        pw.SizedBox(height: 4),
+        pw.Text('Business rule: 60% of weekly GGR is receivable from each outlet.',
+            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+        pw.SizedBox(height: 8),
+        if (data.isEmpty)
+          pw.Text('No outstanding receivables.',
+              style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey600))
+        else
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+            columnWidths: {
+              0: const pw.FlexColumnWidth(3),
+              1: const pw.FlexColumnWidth(2),
+              2: const pw.FlexColumnWidth(2),
+              3: const pw.FlexColumnWidth(2),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
+                children: ['Outlet', 'Total Receivable\n(60% GGR)', 'Settled', 'Outstanding']
+                    .map((h) => pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: pw.Text(h,
+                              style: pw.TextStyle(
+                                  fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                        ))
+                    .toList(),
+              ),
+              ...data.map((d) => pw.TableRow(children: [
+                    pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(d['outletName'] as String,
+                            style: const pw.TextStyle(fontSize: 9))),
+                    pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(numFmt.format(d['totalReceivable']),
+                            style: const pw.TextStyle(fontSize: 9),
+                            textAlign: pw.TextAlign.right)),
+                    pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(numFmt.format(d['totalSettled']),
+                            style: const pw.TextStyle(fontSize: 9),
+                            textAlign: pw.TextAlign.right)),
+                    pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(numFmt.format(d['balance']),
+                            style: pw.TextStyle(
+                                fontWeight: pw.FontWeight.bold,
+                                fontSize: 9,
+                                color: (d['balance'] as double) > 0
+                                    ? PdfColors.red700
+                                    : PdfColors.green700),
+                            textAlign: pw.TextAlign.right)),
+                  ])),
+              // Totals row
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                children: [
+                  pw.Padding(
+                      padding: const pw.EdgeInsets.all(4),
+                      child: pw.Text('TOTAL',
+                          style: pw.TextStyle(
+                              fontWeight: pw.FontWeight.bold, fontSize: 9))),
+                  pw.Padding(
+                      padding: const pw.EdgeInsets.all(4),
+                      child: pw.Text(numFmt.format(totalRec),
+                          style: pw.TextStyle(
+                              fontWeight: pw.FontWeight.bold, fontSize: 9),
+                          textAlign: pw.TextAlign.right)),
+                  pw.Padding(
+                      padding: const pw.EdgeInsets.all(4),
+                      child: pw.Text(numFmt.format(totalSet),
+                          style: pw.TextStyle(
+                              fontWeight: pw.FontWeight.bold, fontSize: 9),
+                          textAlign: pw.TextAlign.right)),
+                  pw.Padding(
+                      padding: const pw.EdgeInsets.all(4),
+                      child: pw.Text(numFmt.format(totalBal),
+                          style: pw.TextStyle(
+                              fontWeight: pw.FontWeight.bold,
+                              fontSize: 9,
+                              color: totalBal > 0
+                                  ? PdfColors.red700
+                                  : PdfColors.green700),
+                          textAlign: pw.TextAlign.right)),
+                ],
+              ),
+            ],
+          ),
+        pw.SizedBox(height: 8),
+        pw.Text(
+            'Report generated: ${dateFmt.format(DateTime.now())}',
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey500)),
+      ],
+    ));
+  }
+
+  Future<void> _buildAPSchedulePdf(
+    pw.Document pdf,
+    NumberFormat numFmt,
+    pw.Widget Function(String) buildHeader,
+  ) async {
+    final data = _computeAPData();
+    final dateFmt = DateFormat('MMM d, yyyy');
+    final grandTotal = data.fold(0.0, (s, d) => s + (d['totalOwed'] as double));
+
+    pdf.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.symmetric(horizontal: 36, vertical: 32),
+      build: (pw.Context ctx) => [
+        buildHeader('AP SCHEDULE — ACCOUNTS PAYABLE'),
+        pw.SizedBox(height: 8),
+        if (data.isEmpty)
+          pw.Text('No outstanding payables.',
+              style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey600))
+        else
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+            columnWidths: {
+              0: const pw.FlexColumnWidth(4),
+              1: const pw.FlexColumnWidth(1),
+              2: const pw.FlexColumnWidth(2),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
+                children: ['Vendor', 'Open Bills', 'Total Owed']
+                    .map((h) => pw.Padding(
+                          padding: const pw.EdgeInsets.all(4),
+                          child: pw.Text(h,
+                              style: pw.TextStyle(
+                                  fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                        ))
+                    .toList(),
+              ),
+              ...data.map((d) => pw.TableRow(children: [
+                    pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(d['vendorName'] as String,
+                            style: const pw.TextStyle(fontSize: 9))),
+                    pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text('${(d['bills'] as List).length}',
+                            style: const pw.TextStyle(fontSize: 9),
+                            textAlign: pw.TextAlign.center)),
+                    pw.Padding(
+                        padding: const pw.EdgeInsets.all(4),
+                        child: pw.Text(numFmt.format(d['totalOwed']),
+                            style: pw.TextStyle(
+                                fontWeight: pw.FontWeight.bold,
+                                fontSize: 9,
+                                color: PdfColors.red700),
+                            textAlign: pw.TextAlign.right)),
+                  ])),
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                children: [
+                  pw.Padding(
+                      padding: const pw.EdgeInsets.all(4),
+                      child: pw.Text('TOTAL',
+                          style: pw.TextStyle(
+                              fontWeight: pw.FontWeight.bold, fontSize: 9))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('')),
+                  pw.Padding(
+                      padding: const pw.EdgeInsets.all(4),
+                      child: pw.Text(numFmt.format(grandTotal),
+                          style: pw.TextStyle(
+                              fontWeight: pw.FontWeight.bold,
+                              fontSize: 9,
+                              color: PdfColors.red700),
+                          textAlign: pw.TextAlign.right)),
+                ],
+              ),
+            ],
+          ),
+        pw.SizedBox(height: 8),
+        pw.Text('Report generated: ${dateFmt.format(DateTime.now())}',
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey500)),
+      ],
+    ));
+  }
+
+  Future<void> _buildARAgeingPdf(
+    pw.Document pdf,
+    NumberFormat numFmt,
+    pw.Widget Function(String) buildHeader,
+  ) async {
+    final data = _computeARData();
+    final today = DateTime.now();
+    final buckets = ['Current (0-30)', '31-60 days', '61-90 days', '91-120 days', '120+ days'];
+    final totals = <String, double>{for (final b in buckets) b: 0.0};
+
+    final rows = data.map((d) {
+      final ob = <String, double>{for (final b in buckets) b: 0.0};
+      for (final rec in d['records'] as List<Map<String, dynamic>>) {
+        final outstanding = rec['outstanding'] as double;
+        if (outstanding <= 0) continue;
+        final days = today.difference(rec['date'] as DateTime).inDays;
+        final bucket = _ageBucket(days);
+        ob[bucket] = (ob[bucket] ?? 0) + outstanding;
+        totals[bucket] = (totals[bucket] ?? 0) + outstanding;
+      }
+      return MapEntry(d['outletName'] as String, ob);
+    }).toList();
+
+    pw.Widget cell(String text,
+        {bool bold = false, bool right = false, PdfColor? color}) =>
+        pw.Padding(
+          padding: const pw.EdgeInsets.all(3),
+          child: pw.Text(text,
+              style: pw.TextStyle(
+                  fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+                  fontSize: 8,
+                  color: color),
+              textAlign: right ? pw.TextAlign.right : pw.TextAlign.left),
+        );
+
+    pdf.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4.landscape,
+      margin: const pw.EdgeInsets.symmetric(horizontal: 28, vertical: 28),
+      build: (pw.Context ctx) => [
+        buildHeader('AR AGEING — RECEIVABLES BY DAYS OUTSTANDING'),
+        pw.SizedBox(height: 8),
+        if (rows.isEmpty)
+          pw.Text('No outstanding receivables to age.',
+              style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey600))
+        else
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+            columnWidths: {
+              0: const pw.FlexColumnWidth(2.5),
+              for (int i = 1; i <= buckets.length; i++) i: const pw.FlexColumnWidth(1.2),
+              buckets.length + 1: const pw.FlexColumnWidth(1.3),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
+                children: [
+                  cell('Outlet', bold: true),
+                  ...buckets.map((b) => cell(b, bold: true, right: true)),
+                  cell('Total', bold: true, right: true),
+                ],
+              ),
+              ...rows.map((e) {
+                final rowTotal = e.value.values.fold(0.0, (s, v) => s + v);
+                return pw.TableRow(children: [
+                  cell(e.key),
+                  ...buckets.map((b) => cell(
+                        e.value[b]! > 0 ? numFmt.format(e.value[b]!) : '-',
+                        right: true,
+                        color: b != 'Current (0-30)' && e.value[b]! > 0
+                            ? PdfColors.red700
+                            : null,
+                      )),
+                  cell(numFmt.format(rowTotal), bold: true, right: true),
+                ]);
+              }),
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                children: [
+                  cell('TOTAL', bold: true),
+                  ...buckets.map((b) => cell(numFmt.format(totals[b]!),
+                      bold: true,
+                      right: true,
+                      color: b != 'Current (0-30)' && totals[b]! > 0
+                          ? PdfColors.red700
+                          : null)),
+                  cell(numFmt.format(totals.values.fold(0.0, (s, v) => s + v)),
+                      bold: true, right: true),
+                ],
+              ),
+            ],
+          ),
+      ],
+    ));
+  }
+
+  Future<void> _buildAPAgeingPdf(
+    pw.Document pdf,
+    NumberFormat numFmt,
+    pw.Widget Function(String) buildHeader,
+  ) async {
+    final data = _computeAPData();
+    final today = DateTime.now();
+    final buckets = ['Current (0-30)', '31-60 days', '61-90 days', '91-120 days', '120+ days'];
+    final totals = <String, double>{for (final b in buckets) b: 0.0};
+
+    final rows = data.map((d) {
+      final vb = <String, double>{for (final b in buckets) b: 0.0};
+      for (final bill in d['bills'] as List<Bill>) {
+        final outstanding = bill.total - bill.amountPaid;
+        if (outstanding <= 0) continue;
+        final refDate = bill.dueDate;
+        final days = today.difference(refDate).inDays;
+        final bucket = _ageBucket(days);
+        vb[bucket] = (vb[bucket] ?? 0) + outstanding;
+        totals[bucket] = (totals[bucket] ?? 0) + outstanding;
+      }
+      return MapEntry(d['vendorName'] as String, vb);
+    }).toList();
+
+    pw.Widget cell(String text,
+        {bool bold = false, bool right = false, PdfColor? color}) =>
+        pw.Padding(
+          padding: const pw.EdgeInsets.all(3),
+          child: pw.Text(text,
+              style: pw.TextStyle(
+                  fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+                  fontSize: 8,
+                  color: color),
+              textAlign: right ? pw.TextAlign.right : pw.TextAlign.left),
+        );
+
+    pdf.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4.landscape,
+      margin: const pw.EdgeInsets.symmetric(horizontal: 28, vertical: 28),
+      build: (pw.Context ctx) => [
+        buildHeader('AP AGEING — PAYABLES BY DAYS OUTSTANDING'),
+        pw.SizedBox(height: 8),
+        if (rows.isEmpty)
+          pw.Text('No outstanding payables to age.',
+              style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey600))
+        else
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+            columnWidths: {
+              0: const pw.FlexColumnWidth(2.5),
+              for (int i = 1; i <= buckets.length; i++) i: const pw.FlexColumnWidth(1.2),
+              buckets.length + 1: const pw.FlexColumnWidth(1.3),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
+                children: [
+                  cell('Vendor', bold: true),
+                  ...buckets.map((b) => cell(b, bold: true, right: true)),
+                  cell('Total', bold: true, right: true),
+                ],
+              ),
+              ...rows.map((e) {
+                final rowTotal = e.value.values.fold(0.0, (s, v) => s + v);
+                return pw.TableRow(children: [
+                  cell(e.key),
+                  ...buckets.map((b) => cell(
+                        e.value[b]! > 0 ? numFmt.format(e.value[b]!) : '-',
+                        right: true,
+                        color: b != 'Current (0-30)' && e.value[b]! > 0
+                            ? PdfColors.red700
+                            : null,
+                      )),
+                  cell(numFmt.format(rowTotal), bold: true, right: true),
+                ]);
+              }),
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                children: [
+                  cell('TOTAL', bold: true),
+                  ...buckets.map((b) => cell(numFmt.format(totals[b]!),
+                      bold: true,
+                      right: true,
+                      color: b != 'Current (0-30)' && totals[b]! > 0
+                          ? PdfColors.red700
+                          : null)),
+                  cell(numFmt.format(totals.values.fold(0.0, (s, v) => s + v)),
+                      bold: true, right: true),
+                ],
+              ),
+            ],
+          ),
+      ],
+    ));
+  }
+
+  // ===========================================================================
+  // AR / AP — CSV row builders (called from _exportReportCsv)
+  // ===========================================================================
+
+  List<List<dynamic>> _buildARScheduleCsvRows(NumberFormat numFmt) {
+    final data = _computeARData();
+    final totalRec = data.fold(0.0, (s, d) => s + (d['totalReceivable'] as double));
+    final totalSet = data.fold(0.0, (s, d) => s + (d['totalSettled'] as double));
+    final totalBal = data.fold(0.0, (s, d) => s + (d['balance'] as double));
+    return [
+      ['MAGIC BET LTD — AR SCHEDULE'],
+      ['Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}'],
+      [],
+      ['Outlet', 'Total Receivable (60% GGR)', 'Settled', 'Balance Outstanding'],
+      ...data.map((d) => [
+            d['outletName'],
+            numFmt.format(d['totalReceivable']),
+            numFmt.format(d['totalSettled']),
+            numFmt.format(d['balance']),
+          ]),
+      [],
+      ['TOTAL', numFmt.format(totalRec), numFmt.format(totalSet), numFmt.format(totalBal)],
+    ];
+  }
+
+  List<List<dynamic>> _buildAPScheduleCsvRows(NumberFormat numFmt) {
+    final data = _computeAPData();
+    final grandTotal = data.fold(0.0, (s, d) => s + (d['totalOwed'] as double));
+    return [
+      ['MAGIC BET LTD — AP SCHEDULE'],
+      ['Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}'],
+      [],
+      ['Vendor', 'Open Bills', 'Total Owed'],
+      ...data.map((d) => [
+            d['vendorName'],
+            '${(d['bills'] as List).length}',
+            numFmt.format(d['totalOwed']),
+          ]),
+      [],
+      ['TOTAL', '', numFmt.format(grandTotal)],
+    ];
+  }
+
+  List<List<dynamic>> _buildARAgeingCsvRows(NumberFormat numFmt) {
+    final data = _computeARData();
+    final today = DateTime.now();
+    final buckets = ['Current (0-30)', '31-60 days', '61-90 days', '91-120 days', '120+ days'];
+    final totals = <String, double>{for (final b in buckets) b: 0.0};
+
+    final dataRows = <List<dynamic>>[];
+    for (final d in data) {
+      final ob = <String, double>{for (final b in buckets) b: 0.0};
+      for (final rec in d['records'] as List<Map<String, dynamic>>) {
+        final outstanding = rec['outstanding'] as double;
+        if (outstanding <= 0) continue;
+        final days = today.difference(rec['date'] as DateTime).inDays;
+        final bucket = _ageBucket(days);
+        ob[bucket] = (ob[bucket] ?? 0) + outstanding;
+        totals[bucket] = (totals[bucket] ?? 0) + outstanding;
+      }
+      final rowTotal = ob.values.fold(0.0, (s, v) => s + v);
+      dataRows.add([
+        d['outletName'],
+        ...buckets.map((b) => numFmt.format(ob[b]!)),
+        numFmt.format(rowTotal),
+      ]);
+    }
+    return [
+      ['MAGIC BET LTD — AR AGEING'],
+      ['Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}'],
+      [],
+      ['Outlet', ...buckets, 'Total'],
+      ...dataRows,
+      [],
+      [
+        'TOTAL',
+        ...buckets.map((b) => numFmt.format(totals[b]!)),
+        numFmt.format(totals.values.fold(0.0, (s, v) => s + v)),
+      ],
+    ];
+  }
+
+  List<List<dynamic>> _buildAPAgeingCsvRows(NumberFormat numFmt) {
+    final data = _computeAPData();
+    final today = DateTime.now();
+    final buckets = ['Current (0-30)', '31-60 days', '61-90 days', '91-120 days', '120+ days'];
+    final totals = <String, double>{for (final b in buckets) b: 0.0};
+
+    final dataRows = <List<dynamic>>[];
+    for (final d in data) {
+      final vb = <String, double>{for (final b in buckets) b: 0.0};
+      for (final bill in d['bills'] as List<Bill>) {
+        final outstanding = bill.total - bill.amountPaid;
+        if (outstanding <= 0) continue;
+        final refDate = bill.dueDate;
+        final days = today.difference(refDate).inDays;
+        final bucket = _ageBucket(days);
+        vb[bucket] = (vb[bucket] ?? 0) + outstanding;
+        totals[bucket] = (totals[bucket] ?? 0) + outstanding;
+      }
+      final rowTotal = vb.values.fold(0.0, (s, v) => s + v);
+      dataRows.add([
+        d['vendorName'],
+        ...buckets.map((b) => numFmt.format(vb[b]!)),
+        numFmt.format(rowTotal),
+      ]);
+    }
+    return [
+      ['MAGIC BET LTD — AP AGEING'],
+      ['Generated: ${DateFormat('MMM d, yyyy').format(DateTime.now())}'],
+      [],
+      ['Vendor', ...buckets, 'Total'],
+      ...dataRows,
+      [],
+      [
+        'TOTAL',
+        ...buckets.map((b) => numFmt.format(totals[b]!)),
+        numFmt.format(totals.values.fold(0.0, (s, v) => s + v)),
+      ],
+    ];
+  }
 }
 
 class _QuickStatCard extends StatelessWidget {
