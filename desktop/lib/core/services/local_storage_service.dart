@@ -13,6 +13,7 @@ import '../models/journal_entry.dart';
 import '../models/payment.dart';
 import '../models/bank_transaction.dart';
 import '../models/credit_debit_note.dart';
+import '../models/recurring_journal.dart';
 
 // ============================================================================
 // Local Storage Service - Persists data to local filesystem
@@ -166,6 +167,14 @@ class LocalStorageService {
 
   Future<List<DebitNote>> loadDebitNotes() async {
     return loadData('debit_notes', DebitNote.fromJson);
+  }
+
+  Future<void> saveRecurringJournals(List<RecurringJournal> items) async {
+    await saveData('recurring_journals', items, (r) => r.toJson());
+  }
+
+  Future<List<RecurringJournal>> loadRecurringJournals() async {
+    return loadData('recurring_journals', RecurringJournal.fromJson);
   }
 
   // ============================================================================

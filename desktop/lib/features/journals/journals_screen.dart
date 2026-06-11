@@ -12,6 +12,8 @@ import '../../core/services/data_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/models/journal_entry.dart';
 import '../../core/models/account.dart';
+import '../../core/models/recurring_journal.dart';
+import '../../core/providers/recurring_journals_provider.dart';
 import '../../core/widgets/attachment_widget.dart';
 import '../../core/widgets/account_search_field.dart';
 
@@ -158,6 +160,12 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
               onPressed: () => _exportToCSV(context),
               icon: const Icon(Icons.file_download_outlined, size: 18),
               label: const Text('Export'),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: () => _showRecurringManageDialog(context),
+              icon: const Icon(Icons.repeat, size: 18),
+              label: const Text('Recurring'),
             ),
             const SizedBox(width: 12),
             FilledButton.icon(
@@ -346,9 +354,35 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
               return DataRow(
                 cells: [
                   DataCell(
-                    Text(
-                      entry.entryNumber,
-                      style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace'),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(entry.entryNumber, style: const TextStyle(fontWeight: FontWeight.w500, fontFamily: 'monospace')),
+                        if (entry.isReversed) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: Colors.orange.withOpacity(0.15), borderRadius: BorderRadius.circular(4)),
+                            child: Text('Reversed', style: TextStyle(fontSize: 10, color: Colors.orange.shade700, fontWeight: FontWeight.w600)),
+                          ),
+                        ],
+                        if (entry.isReversal) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: Colors.blue.withOpacity(0.12), borderRadius: BorderRadius.circular(4)),
+                            child: const Text('↩ Reversal', style: TextStyle(fontSize: 10, color: Colors.blue, fontWeight: FontWeight.w600)),
+                          ),
+                        ],
+                        if (entry.recurringTemplateId != null) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: Colors.purple.withOpacity(0.12), borderRadius: BorderRadius.circular(4)),
+                            child: const Text('🔁 Auto', style: TextStyle(fontSize: 10, color: Colors.purple, fontWeight: FontWeight.w600)),
+                          ),
+                        ],
+                      ],
                     ),
                     onTap: () => _showEntryDetails(context, entry),
                   ),
@@ -388,7 +422,7 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                   DataCell(_buildStatusBadge(entry.status)),
                   DataCell(
                     SizedBox(
-                      width: 168,
+                      width: 208,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -417,6 +451,13 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
                               onPressed: () => _postEntry(context, entry),
                               tooltip: 'Post',
                               color: AppColors.income,
+                            ),
+                          if (entry.status == JournalEntryStatus.posted && !entry.isReversed && !entry.isReversal)
+                            IconButton(
+                              icon: const Icon(Icons.undo, size: 18),
+                              onPressed: () => _showReverseDialog(context, entry),
+                              tooltip: 'Reverse',
+                              color: Colors.orange.shade700,
                             ),
                         ],
                       ),
@@ -1369,6 +1410,72 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
     );
   }
 
+  void _showReverseDialog(BuildContext context, JournalEntry entry) async {
+    DateTime selectedDate = DateTime.now();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          title: const Text('Reverse Journal Entry'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('This will create a new posted journal entry that exactly cancels out ${entry.entryNumber}.'),
+              const SizedBox(height: 8),
+              Text('The original entry will remain intact and be marked as Reversed.', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  const Text('Reversal date: ', style: TextStyle(fontWeight: FontWeight.w600)),
+                  TextButton(
+                    onPressed: () async {
+                      final d = await showDatePicker(
+                        context: ctx,
+                        initialDate: selectedDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2030),
+                      );
+                      if (d != null) setS(() => selectedDate = d);
+                    },
+                    child: Text(DateFormat('d MMM yyyy').format(selectedDate)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.orange.shade700),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Create Reversal'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed == true && mounted) {
+      ref.read(journalsProvider.notifier).reverseEntry(entry.id, selectedDate);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reversal entry REV-${entry.entryNumber} created and posted.'),
+          backgroundColor: Colors.orange.shade700,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  void _showRecurringManageDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _RecurringManageDialog(
+        accountsState: ref.read(accountsProvider),
+      ),
+    );
+  }
+
   void _showEntryDetails(BuildContext context, JournalEntry entry) {
     showDialog(
       context: context,
@@ -1550,6 +1657,7 @@ class _SummaryCard extends StatelessWidget {
     required this.value,
   });
 
+
   @override
   Widget build(BuildContext context) {
     return Expanded(
@@ -1622,3 +1730,431 @@ class _DetailRow extends StatelessWidget {
     );
   }
 }
+
+// ── Recurring Journal Management Dialog ───────────────────────────────────────
+
+class _RecurringManageDialog extends ConsumerStatefulWidget {
+  final AccountsState accountsState;
+
+  const _RecurringManageDialog({required this.accountsState});
+
+  @override
+  ConsumerState<_RecurringManageDialog> createState() => _RecurringManageDialogState();
+}
+
+class _RecurringManageDialogState extends ConsumerState<_RecurringManageDialog> {
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(recurringJournalsProvider);
+
+    return Dialog(
+      child: SizedBox(
+        width: 700,
+        height: 560,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 16, 0),
+              child: Row(
+                children: [
+                  const Icon(Icons.repeat, size: 22),
+                  const SizedBox(width: 10),
+                  Text('Recurring Journals', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  FilledButton.icon(
+                    onPressed: () => _showNewTemplateDialog(context),
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text('New Template'),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                ],
+              ),
+            ),
+            const Divider(height: 20),
+            Expanded(
+              child: state.isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : state.templates.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.repeat_outlined, size: 48, color: Theme.of(context).colorScheme.outline),
+                              const SizedBox(height: 12),
+                              Text('No recurring templates yet', style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+                              const SizedBox(height: 16),
+                              OutlinedButton.icon(
+                                onPressed: () => _showNewTemplateDialog(context),
+                                icon: const Icon(Icons.add, size: 16),
+                                label: const Text('Create first template'),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemCount: state.templates.length,
+                          itemBuilder: (ctx, i) {
+                            final t = state.templates[i];
+                            return ListTile(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              leading: Container(
+                                width: 40, height: 40,
+                                decoration: BoxDecoration(
+                                  color: t.isActive ? Colors.purple.withOpacity(0.12) : Colors.grey.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(Icons.repeat, size: 20, color: t.isActive ? Colors.purple : Colors.grey),
+                              ),
+                              title: Text(t.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                              subtitle: Text(
+                                '${t.description}  •  Next: ${DateFormat('d MMM yyyy').format(t.nextRunDate)}',
+                                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline),
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: _freqColor(t.frequency).withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      _freqLabel(t.frequency),
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _freqColor(t.frequency)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Switch(
+                                    value: t.isActive,
+                                    onChanged: (_) => ref.read(recurringJournalsProvider.notifier).toggleActive(t.id),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                    onPressed: () => _confirmDelete(context, t),
+                                    tooltip: 'Delete template',
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _freqColor(RecurringFrequency f) {
+    switch (f) {
+      case RecurringFrequency.daily:     return Colors.red;
+      case RecurringFrequency.weekly:    return Colors.orange;
+      case RecurringFrequency.monthly:   return Colors.blue;
+      case RecurringFrequency.quarterly: return Colors.teal;
+      case RecurringFrequency.annually:  return Colors.purple;
+    }
+  }
+
+  String _freqLabel(RecurringFrequency f) {
+    switch (f) {
+      case RecurringFrequency.daily:     return 'Daily';
+      case RecurringFrequency.weekly:    return 'Weekly';
+      case RecurringFrequency.monthly:   return 'Monthly';
+      case RecurringFrequency.quarterly: return 'Quarterly';
+      case RecurringFrequency.annually:  return 'Annually';
+    }
+  }
+
+  void _confirmDelete(BuildContext context, RecurringJournal t) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Template'),
+        content: Text('Delete "${t.name}"? Already-posted entries are not affected.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) ref.read(recurringJournalsProvider.notifier).deleteTemplate(t.id);
+  }
+
+  void _showNewTemplateDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _NewRecurringTemplateDialog(accountsState: widget.accountsState),
+    );
+  }
+}
+
+// ── New Recurring Template Dialog ─────────────────────────────────────────────
+
+class _NewRecurringTemplateDialog extends ConsumerStatefulWidget {
+  final AccountsState accountsState;
+  const _NewRecurringTemplateDialog({required this.accountsState});
+
+  @override
+  ConsumerState<_NewRecurringTemplateDialog> createState() => _NewRecurringTemplateDialogState();
+}
+
+class _NewRecurringTemplateDialogState extends ConsumerState<_NewRecurringTemplateDialog> {
+  final _nameCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
+  final _refCtrl  = TextEditingController();
+  RecurringFrequency _frequency = RecurringFrequency.monthly;
+  DateTime _startDate = DateTime.now();
+  DateTime? _endDate;
+
+  // Lines
+  final List<Map<String, dynamic>> _lines = [];
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _descCtrl.dispose();
+    _refCtrl.dispose();
+    super.dispose();
+  }
+
+  void _addLine() {
+    setState(() {
+      _lines.add({'accountId': '', 'accountName': '', 'accountCode': '', 'debit': 0.0, 'credit': 0.0});
+    });
+  }
+
+  double get _totalDebit  => _lines.fold(0.0, (s, l) => s + (l['debit'] as double));
+  double get _totalCredit => _lines.fold(0.0, (s, l) => s + (l['credit'] as double));
+  bool   get _isBalanced  => (_totalDebit - _totalCredit).abs() < 0.01;
+
+  void _save() {
+    if (_nameCtrl.text.trim().isEmpty) return;
+    if (_lines.length < 2 || !_isBalanced) return;
+
+    const uuid = Uuid();
+    final now = DateTime.now();
+    final template = RecurringJournal(
+      id: uuid.v4(),
+      name: _nameCtrl.text.trim(),
+      description: _descCtrl.text.trim(),
+      frequency: _frequency,
+      startDate: _startDate,
+      endDate: _endDate,
+      nextRunDate: _startDate,
+      isActive: true,
+      reference: _refCtrl.text.trim().isEmpty ? null : _refCtrl.text.trim(),
+      lines: _lines.map((l) => RecurringJournalLine(
+        accountId:   l['accountId'] as String,
+        accountName: l['accountName'] as String,
+        accountCode: l['accountCode'] as String,
+        debit:       l['debit'] as double,
+        credit:      l['credit'] as double,
+      )).toList(),
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    ref.read(recurringJournalsProvider.notifier).addTemplate(template);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: SizedBox(
+        width: 680,
+        height: 620,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 16, 0),
+              child: Row(
+                children: [
+                  Text('New Recurring Template', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                ],
+              ),
+            ),
+            const Divider(height: 20),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Expanded(child: TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: 'Template Name *', hintText: 'e.g. Monthly Rent'))),
+                      const SizedBox(width: 16),
+                      Expanded(child: TextField(controller: _refCtrl, decoration: const InputDecoration(labelText: 'Reference', hintText: 'Optional'))),
+                    ]),
+                    const SizedBox(height: 12),
+                    TextField(controller: _descCtrl, decoration: const InputDecoration(labelText: 'Description', hintText: 'Will appear on each auto-posted entry')),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(
+                        child: DropdownButtonFormField<RecurringFrequency>(
+                          value: _frequency,
+                          decoration: const InputDecoration(labelText: 'Frequency'),
+                          items: RecurringFrequency.values.map((f) => DropdownMenuItem(
+                            value: f,
+                            child: Text(f.name[0].toUpperCase() + f.name.substring(1)),
+                          )).toList(),
+                          onChanged: (v) { if (v != null) setState(() => _frequency = v); },
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final d = await showDatePicker(
+                              context: context, initialDate: _startDate,
+                              firstDate: DateTime(2020), lastDate: DateTime(2035),
+                            );
+                            if (d != null) setState(() => _startDate = d);
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Start Date'),
+                            child: Text(DateFormat('d MMM yyyy').format(_startDate)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final d = await showDatePicker(
+                              context: context,
+                              initialDate: _endDate ?? _startDate.add(const Duration(days: 365)),
+                              firstDate: DateTime(2020), lastDate: DateTime(2040),
+                            );
+                            setState(() => _endDate = d);
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'End Date (optional)'),
+                            child: Text(_endDate != null ? DateFormat('d MMM yyyy').format(_endDate!) : 'No end'),
+                          ),
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Text('Journal Lines', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                        const Spacer(),
+                        OutlinedButton.icon(
+                          onPressed: _addLine,
+                          icon: const Icon(Icons.add, size: 16),
+                          label: const Text('Add Line'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (_lines.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: Text('Add at least two lines (debit and credit must balance).',
+                            style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 13)),
+                      ),
+                    ..._lines.asMap().entries.map((entry) {
+                      final i = entry.key;
+                      final line = entry.value;
+                      final debitCtrl  = TextEditingController(text: line['debit'] == 0.0 ? '' : line['debit'].toString());
+                      final creditCtrl = TextEditingController(text: line['credit'] == 0.0 ? '' : line['credit'].toString());
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: AccountSearchField(
+                                accounts: widget.accountsState.accounts,
+                                value: (line['accountId'] as String).isEmpty ? null : line['accountId'] as String,
+                                onChanged: (id) => setState(() {
+                                  final acct = widget.accountsState.accounts.cast<Account?>().firstWhere((a) => a?.id == id, orElse: () => null);
+                                  _lines[i]['accountId']   = id ?? '';
+                                  _lines[i]['accountName'] = acct?.name ?? '';
+                                  _lines[i]['accountCode'] = acct?.code ?? '';
+                                }),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: 110,
+                              child: TextField(
+                                controller: debitCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(labelText: 'Debit', contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
+                                onChanged: (v) => setState(() => _lines[i]['debit'] = double.tryParse(v) ?? 0.0),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: 110,
+                              child: TextField(
+                                controller: creditCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(labelText: 'Credit', contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
+                                onChanged: (v) => setState(() => _lines[i]['credit'] = double.tryParse(v) ?? 0.0),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.remove_circle_outline, size: 18, color: Colors.red),
+                              onPressed: () => setState(() => _lines.removeAt(i)),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                    if (_lines.length >= 2)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Text('Debit: ${_totalDebit.toStringAsFixed(0)}   Credit: ${_totalCredit.toStringAsFixed(0)}   '),
+                            Text(
+                              _isBalanced ? '✓ Balanced' : '✗ Not balanced',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: _isBalanced ? Colors.green : Colors.red,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                  const SizedBox(width: 12),
+                  FilledButton(
+                    onPressed: (_nameCtrl.text.trim().isNotEmpty && _lines.length >= 2 && _isBalanced) ? _save : null,
+                    child: const Text('Save Template'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+

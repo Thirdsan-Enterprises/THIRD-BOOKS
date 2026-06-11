@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../services/server_sync_service.dart';
 import '../services/local_storage_service.dart';
 import '../database/app_database.dart';
+import 'recurring_journals_provider.dart';
 
 class SyncStatusState {
   final bool isSyncing;
@@ -97,6 +98,11 @@ class SyncStatusNotifier extends StateNotifier<SyncStatusState> {
     _sendHeartbeat();
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(minutes: 10), (_) => _sendHeartbeat());
+
+    // Check and auto-post any due recurring journal templates.
+    Future.microtask(() {
+      if (mounted) _ref.read(recurringJournalsProvider.notifier).checkAndPostDue();
+    });
   }
 
   void _handleLogout() {
