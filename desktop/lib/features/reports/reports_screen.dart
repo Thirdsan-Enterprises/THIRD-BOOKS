@@ -3707,7 +3707,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     return SingleChildScrollView(
       child: DataTable(
         columnSpacing: 20,
-        headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
         columns: const [
           DataColumn(label: Text('Outlet')),
           DataColumn(label: Text('Total Receivable\n(60% GGR)'), numeric: true),
@@ -3759,7 +3759,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     return SingleChildScrollView(
       child: DataTable(
         columnSpacing: 20,
-        headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+        headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
         columns: const [
           DataColumn(label: Text('Vendor')),
           DataColumn(label: Text('Open Bills'), numeric: true),
@@ -3820,7 +3820,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       child: SingleChildScrollView(
         child: DataTable(
           columnSpacing: 16,
-          headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+          headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
           columns: [
             const DataColumn(label: Text('Outlet')),
             ...buckets.map((b) => DataColumn(
@@ -3896,7 +3896,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       child: SingleChildScrollView(
         child: DataTable(
           columnSpacing: 16,
-          headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+          headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant),
           columns: [
             const DataColumn(label: Text('Vendor')),
             ...buckets.map((b) => DataColumn(
