@@ -1471,7 +1471,6 @@ class _JournalsScreenState extends ConsumerState<JournalsScreen> {
     showDialog(
       context: context,
       builder: (ctx) => _RecurringManageDialog(
-        ref: ref,
         accountsState: ref.read(accountsProvider),
       ),
     );
@@ -1735,10 +1734,9 @@ class _DetailRow extends StatelessWidget {
 // ── Recurring Journal Management Dialog ───────────────────────────────────────
 
 class _RecurringManageDialog extends ConsumerStatefulWidget {
-  final WidgetRef ref;
   final AccountsState accountsState;
 
-  const _RecurringManageDialog({required this.ref, required this.accountsState});
+  const _RecurringManageDialog({required this.accountsState});
 
   @override
   ConsumerState<_RecurringManageDialog> createState() => _RecurringManageDialogState();
@@ -2079,11 +2077,12 @@ class _NewRecurringTemplateDialogState extends ConsumerState<_NewRecurringTempla
                               flex: 3,
                               child: AccountSearchField(
                                 accounts: widget.accountsState.accounts,
-                                initialValue: line['accountName'] as String,
-                                onSelected: (acct) => setState(() {
-                                  _lines[i]['accountId']   = acct.id;
-                                  _lines[i]['accountName'] = acct.name;
-                                  _lines[i]['accountCode'] = acct.code;
+                                value: (line['accountId'] as String).isEmpty ? null : line['accountId'] as String,
+                                onChanged: (id) => setState(() {
+                                  final acct = widget.accountsState.accounts.cast<Account?>().firstWhere((a) => a?.id == id, orElse: () => null);
+                                  _lines[i]['accountId']   = id ?? '';
+                                  _lines[i]['accountName'] = acct?.name ?? '';
+                                  _lines[i]['accountCode'] = acct?.code ?? '';
                                 }),
                               ),
                             ),

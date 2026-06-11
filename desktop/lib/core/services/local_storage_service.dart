@@ -169,6 +169,14 @@ class LocalStorageService {
     return loadData('debit_notes', DebitNote.fromJson);
   }
 
+  Future<void> saveRecurringJournals(List<RecurringJournal> items) async {
+    await saveData('recurring_journals', items, (r) => r.toJson());
+  }
+
+  Future<List<RecurringJournal>> loadRecurringJournals() async {
+    return loadData('recurring_journals', RecurringJournal.fromJson);
+  }
+
   // ============================================================================
   // Sync Queue Management
   // ============================================================================
