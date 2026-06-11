@@ -1680,6 +1680,55 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
     );
   }
 
+  void reverseEntry(String entryId, DateTime reversalDate) {
+    final idx = state.entries.indexWhere((e) => e.id == entryId);
+    if (idx == -1) return;
+    final original = state.entries[idx];
+    if (original.isReversed) return;
+
+    final now = DateTime.now();
+    const uuid = Uuid();
+    final revId = uuid.v4();
+
+    final reversalEntry = JournalEntry(
+      id: revId,
+      entryNumber: 'REV-${original.entryNumber}',
+      date: reversalDate,
+      description: 'Reversal of ${original.entryNumber} — ${original.description}',
+      reference: original.reference,
+      status: JournalEntryStatus.posted,
+      reversesEntryId: original.id,
+      lines: original.lines.map((l) => JournalLine(
+        id: '$revId-${l.id}',
+        journalEntryId: revId,
+        accountId: l.accountId,
+        accountName: l.accountName,
+        accountCode: l.accountCode,
+        debit: l.credit,
+        credit: l.debit,
+        description: l.description,
+      )).toList(),
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    final markedOriginal = original.copyWith(reversedById: revId, updatedAt: now);
+
+    final updated = [...state.entries];
+    updated[idx] = markedOriginal;
+    state = state.copyWith(entries: updated);
+    _localStorage.saveJournalEntries(updated);
+    _ref.read(syncServiceProvider.notifier).queueChange(
+      action: SyncAction.update,
+      entityType: SyncEntityType.journalEntry,
+      entityId: entryId,
+      data: markedOriginal.toJson(),
+    );
+    _ref.read(accountsProvider.notifier).recomputeBalancesFromJournals(updated);
+
+    addEntry(reversalEntry);
+  }
+
   void updateEntry(JournalEntry entry) {
     final updatedEntries = state.entries
         .map((e) => e.id == entry.id ? entry : e)

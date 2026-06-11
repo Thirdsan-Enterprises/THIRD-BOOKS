@@ -13,6 +13,7 @@ import '../models/journal_entry.dart';
 import '../models/payment.dart';
 import '../models/bank_transaction.dart';
 import '../models/credit_debit_note.dart';
+import '../models/recurring_journal.dart';
 
 // ============================================================================
 // Local Storage Service - Persists data to local filesystem

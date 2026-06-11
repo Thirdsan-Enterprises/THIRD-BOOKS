@@ -18,6 +18,9 @@ class JournalEntry {
   final DateTime createdAt;
   final DateTime updatedAt;
   final int? syncSequence;
+  final String? reversesEntryId;
+  final String? reversedById;
+  final String? recurringTemplateId;
 
   JournalEntry({
     required this.id,
@@ -32,11 +35,16 @@ class JournalEntry {
     required this.createdAt,
     required this.updatedAt,
     this.syncSequence,
+    this.reversesEntryId,
+    this.reversedById,
+    this.recurringTemplateId,
   });
 
   double get totalDebit => lines.fold(0.0, (sum, line) => sum + line.debit);
   double get totalCredit => lines.fold(0.0, (sum, line) => sum + line.credit);
   bool get isBalanced => (totalDebit - totalCredit).abs() < 0.01;
+  bool get isReversed => reversedById != null;
+  bool get isReversal => reversesEntryId != null;
 
   factory JournalEntry.fromJson(Map<String, dynamic> json) {
     return JournalEntry(
@@ -58,6 +66,9 @@ class JournalEntry {
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
       syncSequence: json['sync_sequence'] as int?,
+      reversesEntryId: json['reverses_entry_id'] as String?,
+      reversedById: json['reversed_by_id'] as String?,
+      recurringTemplateId: json['recurring_template_id'] as String?,
     );
   }
 
@@ -75,6 +86,9 @@ class JournalEntry {
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_sequence': syncSequence,
+      'reverses_entry_id': reversesEntryId,
+      'reversed_by_id': reversedById,
+      'recurring_template_id': recurringTemplateId,
     };
   }
 
@@ -91,6 +105,9 @@ class JournalEntry {
     DateTime? createdAt,
     DateTime? updatedAt,
     int? syncSequence,
+    String? reversesEntryId,
+    String? reversedById,
+    String? recurringTemplateId,
   }) {
     return JournalEntry(
       id: id ?? this.id,
@@ -105,6 +122,9 @@ class JournalEntry {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       syncSequence: syncSequence ?? this.syncSequence,
+      reversesEntryId: reversesEntryId ?? this.reversesEntryId,
+      reversedById: reversedById ?? this.reversedById,
+      recurringTemplateId: recurringTemplateId ?? this.recurringTemplateId,
     );
   }
 }
