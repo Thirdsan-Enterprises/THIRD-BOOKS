@@ -220,30 +220,45 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   ///   Operating = Operating Profit + non-cash add-backs + WC movements
   ///   Investing  = asset acquisitions / disposals
   ///   Financing  = loan proceeds / repayments / dividends
+  ///
+  /// Working-capital, investing and financing lines reflect the MOVEMENT
+  /// during the selected period (closing balance − opening balance), not the
+  /// all-time cumulative balance — so "This Month" shows only what changed
+  /// in that month. Opening/closing cash are each read directly from the
+  /// ledger (as of the day before the period starts, and as of the period
+  /// end) rather than derived algebraically.
   Map<String, double> _computeCashFlowFigures() {
     final accounts   = ref.read(accountsProvider).accounts;
     final allEntries = ref.read(journalsProvider).entries;
+    final (periodStart, _) = _getPeriodDates();
 
-    // P&L items use period-filtered entries; balance sheet items use cumulative.
-    final periodRaw = _computeLedgerBalances(_filterEntries(allEntries));
-    final cumRaw    = _computeLedgerBalances(_cumulativeEntries(allEntries));
+    // P&L items use period-filtered entries; balance sheet items use
+    // cumulative snapshots — one as of the period end (closing) and one as
+    // of the instant before the period starts (opening).
+    final periodRaw  = _computeLedgerBalances(_filterEntries(allEntries));
+    final closingRaw = _computeLedgerBalances(_cumulativeEntries(allEntries));
+    final openingRaw = _computeLedgerBalances(
+        allEntries.where((e) => e.date.isBefore(periodStart)).toList());
 
-    double sumCum(Iterable<Account> accts) =>
-        accts.fold(0.0, (s, a) => s + (cumRaw['acct-${a.code}'] ?? cumRaw[a.id] ?? 0.0));
+    double sumAt(Map<String, double> raw, Iterable<Account> accts) =>
+        accts.fold(0.0, (s, a) => s + (raw['acct-${a.code}'] ?? raw[a.id] ?? 0.0));
 
-    // ── Cash & Bank (cumulative as of period end — includes Bank Guarantee 167) ─
-    final closingCash = sumCum(accounts.where(
+    // ── Cash & Bank — read directly at opening and at closing (includes
+    // Bank Guarantee 167), not derived from the other sections. ─────────────
+    final cashAccts = accounts.where(
       (a) => a.subType == AccountSubType.cash ||
              a.subType == AccountSubType.bank ||
-             a.code == '167'));
+             a.code == '167');
+    final openingCash = sumAt(openingRaw, cashAccts);
+    final closingCash = sumAt(closingRaw, cashAccts);
 
-    // ── Working Capital (cumulative snapshot at period end) ──────────────────
-    final arRaw = sumCum(accounts.where(
-      (a) => a.subType == AccountSubType.accountsReceivable));
-    final apRaw = sumCum(accounts.where(
-      (a) => a.subType == AccountSubType.accountsPayable));
-    final receivablesImpact = -arRaw;
-    final payablesImpact    = -apRaw;
+    // ── Working Capital — movement during the period (closing − opening) ────
+    final arAccts = accounts.where((a) => a.subType == AccountSubType.accountsReceivable);
+    final apAccts = accounts.where((a) => a.subType == AccountSubType.accountsPayable);
+    final arMovement = sumAt(closingRaw, arAccts) - sumAt(openingRaw, arAccts);
+    final apMovement = sumAt(closingRaw, apAccts) - sumAt(openingRaw, apAccts);
+    final receivablesImpact = -arMovement;
+    final payablesImpact    = -apMovement;
 
     // ── Depreciation & Amortization add-back (period, non-cash) ─────────────
     final depAccts = accounts.where(
@@ -257,24 +272,26 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       depreciationAddBack += periodRaw['acct-143'] ?? 0.0;
     }
 
-    // ── Investing (cumulative) ────────────────────────────────────────────────
-    final assetAcquisitions = sumCum(accounts.where(
+    // ── Investing — asset additions during the period (closing − opening) ───
+    final assetAccts = accounts.where(
       (a) => (a.subType == AccountSubType.fixedAsset ||
                a.subType == AccountSubType.intangibleAsset) &&
              !a.name.toLowerCase().contains('depreciation') &&
              !a.name.toLowerCase().contains('amortization') &&
              !a.name.toLowerCase().contains('amortisation') &&
-             !a.name.toLowerCase().contains('accumulated')));
+             !a.name.toLowerCase().contains('accumulated'));
+    final assetAcquisitions = sumAt(closingRaw, assetAccts) - sumAt(openingRaw, assetAccts);
 
-    // ── Financing (cumulative) ────────────────────────────────────────────────
-    final loanRaw = sumCum(accounts.where(
-      (a) => a.subType == AccountSubType.longTermLiability));
-    final loanProceeds  = loanRaw < 0 ? -loanRaw : 0.0;
-    final loanRepayment = loanRaw > 0 ? loanRaw  : 0.0;
+    // ── Financing — loan & dividend movement during the period ──────────────
+    final loanAccts = accounts.where((a) => a.subType == AccountSubType.longTermLiability);
+    final loanMovement  = sumAt(closingRaw, loanAccts) - sumAt(openingRaw, loanAccts);
+    final loanProceeds  = loanMovement < 0 ? -loanMovement : 0.0;
+    final loanRepayment = loanMovement > 0 ? loanMovement  : 0.0;
 
-    final dividendsPaid = sumCum(accounts.where(
+    final dividendAccts = accounts.where(
       (a) => a.name.toLowerCase().contains('dividend') &&
-             a.type == AccountType.equity));
+             a.type == AccountType.equity);
+    final dividendsPaid = sumAt(closingRaw, dividendAccts) - sumAt(openingRaw, dividendAccts);
 
     // ── Operating profit from income statement (period-filtered) ─────────────
     const cfCorCodes = {'107', '178'};
@@ -300,18 +317,28 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final operatingProfit = cfRevenue - cfCoR - cfTax - cfOpex;
 
     // ── Net totals ───────────────────────────────────────────────────────────
-    final netOperating = operatingProfit + depreciationAddBack +
-                         receivablesImpact + payablesImpact;
+    // netIncrease is the ACTUAL cash movement (real opening vs real closing
+    // ledger balances), not a figure derived from the sections below — the
+    // operating/investing/financing sections explain that real movement.
+    final netOperatingCore = operatingProfit + depreciationAddBack +
+                             receivablesImpact + payablesImpact;
     final netInvesting = -assetAcquisitions;
     final netFinancing = loanProceeds - loanRepayment - dividendsPaid;
-    final netIncrease  = netOperating + netInvesting + netFinancing;
-    final openingCash  = closingCash - netIncrease;
+    final netIncrease  = closingCash - openingCash;
+
+    // Any balance-sheet movement not captured by AR/AP/assets/loans/dividends
+    // (e.g. other current assets/liabilities) is surfaced explicitly here so
+    // the statement always ties exactly to the real cash movement above.
+    final otherAdjustments =
+        netIncrease - (netOperatingCore + netInvesting + netFinancing);
+    final netOperating = netOperatingCore + otherAdjustments;
 
     return {
       'operatingProfit'     : operatingProfit,
       'depreciationAddBack' : depreciationAddBack,
       'receivablesImpact'   : receivablesImpact,
       'payablesImpact'      : payablesImpact,
+      'otherAdjustments'    : otherAdjustments,
       'netOperating'        : netOperating,
       'assetAcquisitions'   : assetAcquisitions,
       'netInvesting'        : netInvesting,
@@ -992,6 +1019,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 fmt(cf['payablesImpact']!)),
             if (cf['depreciationAddBack']! > 0)
               _pdfRow('  Add: Depreciation & Amortization (non-cash)', fmt(cf['depreciationAddBack']!)),
+            if (cf['otherAdjustments']!.abs() >= 0.5)
+              _pdfRow('  Other balance sheet movements', fmt(cf['otherAdjustments']!)),
             _pdfDivider(),
             _pdfRow('NET CASH FROM OPERATING ACTIVITIES', fmt(cf['netOperating']!), bold: true, size: 12),
             pw.SizedBox(height: 12),
@@ -2698,6 +2727,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               if (cf['depreciationAddBack']! > 0)
                 cfRow('Add: Depreciation & Amortization (non-cash)',
                     cf['depreciationAddBack']!, indent: true),
+              if (cf['otherAdjustments']!.abs() >= 0.5)
+                cfRow('Other balance sheet movements',
+                    cf['otherAdjustments']!, indent: true),
               sectionDivider(),
               cfRow('NET CASH FROM OPERATING ACTIVITIES', cf['netOperating']!, isFinal: true),
 
@@ -2967,6 +2999,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ['Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments',   fmtCsv(cf['receivablesImpact']!)],
           ['Operating', 'Increase/(Decrease) in Accounts Payables',                    fmtCsv(cf['payablesImpact']!)],
           ['Operating', 'Add: Depreciation & Amortization (non-cash)',                  fmtCsv(cf['depreciationAddBack']!)],
+          ['Operating', 'Other balance sheet movements',                               fmtCsv(cf['otherAdjustments']!)],
           ['Operating', 'NET CASH FROM OPERATING ACTIVITIES',                          fmtCsv(cf['netOperating']!)],
           [],
           ['Investing', 'Acquisition of Assets',                                       fmtCsv(-cf['assetAcquisitions']!)],
@@ -3292,6 +3325,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         xRow('Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments', cf['receivablesImpact']!);
         xRow('Operating', 'Increase/(Decrease) in Accounts Payables',                  cf['payablesImpact']!);
         xRow('Operating', 'Add: Depreciation & Amortization (non-cash)',                cf['depreciationAddBack']!);
+        xRow('Operating', 'Other balance sheet movements',                             cf['otherAdjustments']!);
         xRow('Operating', 'NET CASH FROM OPERATING ACTIVITIES',                        cf['netOperating']!, bold: true);
         xSection('INVESTING ACTIVITIES');
         xRow('Investing', 'Acquisition of Assets',                                     -cf['assetAcquisitions']!);

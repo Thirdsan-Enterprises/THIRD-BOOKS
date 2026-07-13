@@ -90,9 +90,15 @@ class SyncStatusNotifier extends StateNotifier<SyncStatusState> {
 
     await _checkNeedsInitialRestore();
 
-    // Periodic push every 2 hours while the app is running.
+    // Push immediately on login so a session that closes early still gets
+    // backed up, instead of waiting for the first periodic tick.
+    if (!state.needsInitialRestore) {
+      _autoPush();
+    }
+
+    // Periodic push every 20 minutes while the app is running.
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(hours: 2), (_) => _autoPush());
+    _timer = Timer.periodic(const Duration(minutes: 20), (_) => _autoPush());
 
     // Heartbeat every 10 minutes — send one immediately then on schedule.
     _sendHeartbeat();
