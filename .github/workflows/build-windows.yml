@@ -20,7 +20,14 @@ env:
 jobs:
   build-windows:
     name: Build Windows x64 Installer
-    runs-on: windows-latest
+    # Pinned to windows-2022 (not windows-latest): GitHub's windows-latest
+    # runner now ships Visual Studio 2026, which Flutter 3.19's build
+    # tooling doesn't recognize — it falls back to requesting the CMake
+    # "Visual Studio 16 2019" generator, which no longer exists on the
+    # runner, and the build fails with "could not find any instance of
+    # Visual Studio". windows-2022 still ships VS2022, which Flutter 3.19
+    # correctly maps to the "Visual Studio 17 2022" generator.
+    runs-on: windows-2022
 
     steps:
       - name: Checkout code
