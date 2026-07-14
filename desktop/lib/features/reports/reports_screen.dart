@@ -260,6 +260,26 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final receivablesImpact = -arMovement;
     final payablesImpact    = -apMovement;
 
+    // Inventory and other current assets/liabilities — named breakdown so
+    // every movement is traceable to a real account category rather than
+    // hidden inside a single "other" plug figure.
+    final inventoryAccts = accounts.where((a) => a.subType == AccountSubType.inventory);
+    final inventoryMovement = sumAt(closingRaw, inventoryAccts) - sumAt(openingRaw, inventoryAccts);
+    final inventoryImpact = -inventoryMovement;
+
+    final otherCurAssetAccts = accounts.where(
+      (a) => a.subType == AccountSubType.otherCurrentAsset ||
+             a.subType == AccountSubType.otherAsset);
+    final otherCurAssetMovement =
+        sumAt(closingRaw, otherCurAssetAccts) - sumAt(openingRaw, otherCurAssetAccts);
+    final otherCurrentAssetsImpact = -otherCurAssetMovement;
+
+    final otherCurLiabAccts = accounts.where(
+      (a) => a.subType == AccountSubType.currentLiability ||
+             a.subType == AccountSubType.creditCard);
+    final otherCurrentLiabilitiesImpact =
+        sumAt(closingRaw, otherCurLiabAccts) - sumAt(openingRaw, otherCurLiabAccts);
+
     // ── Depreciation & Amortization add-back (period, non-cash) ─────────────
     final depAccts = accounts.where(
       (a) => a.type == AccountType.expense &&
@@ -293,6 +313,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
              a.type == AccountType.equity);
     final dividendsPaid = sumAt(closingRaw, dividendAccts) - sumAt(openingRaw, dividendAccts);
 
+    // Other equity movements — capital contributions/withdrawals and any
+    // other equity account not already captured as a dividend above.
+    final otherEquityAccts = accounts.where(
+      (a) => a.type == AccountType.equity &&
+             !a.name.toLowerCase().contains('dividend'));
+    final otherEquityMovement =
+        sumAt(closingRaw, otherEquityAccts) - sumAt(openingRaw, otherEquityAccts);
+
     // ── Operating profit from income statement (period-filtered) ─────────────
     const cfCorCodes = {'107', '178'};
     const cfTaxCodes = {'108'};
@@ -321,34 +349,42 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     // ledger balances), not a figure derived from the sections below — the
     // operating/investing/financing sections explain that real movement.
     final netOperatingCore = operatingProfit + depreciationAddBack +
-                             receivablesImpact + payablesImpact;
+                             receivablesImpact + payablesImpact +
+                             inventoryImpact + otherCurrentAssetsImpact +
+                             otherCurrentLiabilitiesImpact;
     final netInvesting = -assetAcquisitions;
-    final netFinancing = loanProceeds - loanRepayment - dividendsPaid;
+    final netFinancingCore = loanProceeds - loanRepayment - dividendsPaid + otherEquityMovement;
     final netIncrease  = closingCash - openingCash;
 
-    // Any balance-sheet movement not captured by AR/AP/assets/loans/dividends
-    // (e.g. other current assets/liabilities) is surfaced explicitly here so
-    // the statement always ties exactly to the real cash movement above.
-    final otherAdjustments =
-        netIncrease - (netOperatingCore + netInvesting + netFinancing);
-    final netOperating = netOperatingCore + otherAdjustments;
+    // Any remaining balance-sheet movement not captured by any named line
+    // above (e.g. an account with no sub-type set) is surfaced explicitly
+    // here — by design this should now only ever be a rounding-sized figure,
+    // never a large unexplained plug.
+    final unclassifiedAdjustment =
+        netIncrease - (netOperatingCore + netInvesting + netFinancingCore);
+    final netOperating = netOperatingCore + unclassifiedAdjustment;
+    final netFinancing = netFinancingCore;
 
     return {
-      'operatingProfit'     : operatingProfit,
-      'depreciationAddBack' : depreciationAddBack,
-      'receivablesImpact'   : receivablesImpact,
-      'payablesImpact'      : payablesImpact,
-      'otherAdjustments'    : otherAdjustments,
-      'netOperating'        : netOperating,
-      'assetAcquisitions'   : assetAcquisitions,
-      'netInvesting'        : netInvesting,
-      'loanProceeds'        : loanProceeds,
-      'loanRepayment'       : loanRepayment,
-      'dividendsPaid'       : dividendsPaid,
-      'netFinancing'        : netFinancing,
-      'openingCash'         : openingCash,
-      'netIncrease'         : netIncrease,
-      'closingCash'         : closingCash,
+      'operatingProfit'             : operatingProfit,
+      'depreciationAddBack'         : depreciationAddBack,
+      'receivablesImpact'           : receivablesImpact,
+      'payablesImpact'              : payablesImpact,
+      'inventoryImpact'             : inventoryImpact,
+      'otherCurrentAssetsImpact'    : otherCurrentAssetsImpact,
+      'otherCurrentLiabilitiesImpact': otherCurrentLiabilitiesImpact,
+      'unclassifiedAdjustment'      : unclassifiedAdjustment,
+      'netOperating'                : netOperating,
+      'assetAcquisitions'           : assetAcquisitions,
+      'netInvesting'                : netInvesting,
+      'loanProceeds'                : loanProceeds,
+      'loanRepayment'               : loanRepayment,
+      'dividendsPaid'               : dividendsPaid,
+      'otherEquityMovement'         : otherEquityMovement,
+      'netFinancing'                : netFinancing,
+      'openingCash'                 : openingCash,
+      'netIncrease'                 : netIncrease,
+      'closingCash'                 : closingCash,
     };
   }
 
@@ -1017,10 +1053,16 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 fmt(cf['receivablesImpact']!)),
             _pdfRow('  Increase/(Decrease) in Accounts Payables',
                 fmt(cf['payablesImpact']!)),
+            if (cf['inventoryImpact']!.abs() >= 0.5)
+              _pdfRow('  (Increase)/Decrease in Inventory', fmt(cf['inventoryImpact']!)),
+            if (cf['otherCurrentAssetsImpact']!.abs() >= 0.5)
+              _pdfRow('  (Increase)/Decrease in Other Current Assets', fmt(cf['otherCurrentAssetsImpact']!)),
+            if (cf['otherCurrentLiabilitiesImpact']!.abs() >= 0.5)
+              _pdfRow('  Increase/(Decrease) in Other Current Liabilities', fmt(cf['otherCurrentLiabilitiesImpact']!)),
             if (cf['depreciationAddBack']! > 0)
               _pdfRow('  Add: Depreciation & Amortization (non-cash)', fmt(cf['depreciationAddBack']!)),
-            if (cf['otherAdjustments']!.abs() >= 0.5)
-              _pdfRow('  Other balance sheet movements', fmt(cf['otherAdjustments']!)),
+            if (cf['unclassifiedAdjustment']!.abs() >= 0.5)
+              _pdfRow('  Unclassified balance sheet movement (rounding)', fmt(cf['unclassifiedAdjustment']!)),
             _pdfDivider(),
             _pdfRow('NET CASH FROM OPERATING ACTIVITIES', fmt(cf['netOperating']!), bold: true, size: 12),
             pw.SizedBox(height: 12),
@@ -1044,6 +1086,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             _pdfRow('  Acquisition of Loans', fmt(cf['loanProceeds']!)),
             _pdfRow('  Loan Repayment',       fmt(-cf['loanRepayment']!)),
             _pdfRow('  Dividends Paid',       fmt(-cf['dividendsPaid']!)),
+            if (cf['otherEquityMovement']!.abs() >= 0.5)
+              _pdfRow('  Other Equity Movements (capital contributions/withdrawals)',
+                  fmt(cf['otherEquityMovement']!)),
             _pdfDivider(),
             _pdfRow('NET CASH FROM FINANCING ACTIVITIES', fmt(cf['netFinancing']!), bold: true),
             pw.SizedBox(height: 16),
@@ -2724,12 +2769,21 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                   cf['receivablesImpact']!, indent: true),
               cfRow('Increase/(Decrease) in Accounts Payables',
                   cf['payablesImpact']!, indent: true),
+              if (cf['inventoryImpact']!.abs() >= 0.5)
+                cfRow('(Increase)/Decrease in Inventory',
+                    cf['inventoryImpact']!, indent: true),
+              if (cf['otherCurrentAssetsImpact']!.abs() >= 0.5)
+                cfRow('(Increase)/Decrease in Other Current Assets',
+                    cf['otherCurrentAssetsImpact']!, indent: true),
+              if (cf['otherCurrentLiabilitiesImpact']!.abs() >= 0.5)
+                cfRow('Increase/(Decrease) in Other Current Liabilities',
+                    cf['otherCurrentLiabilitiesImpact']!, indent: true),
               if (cf['depreciationAddBack']! > 0)
                 cfRow('Add: Depreciation & Amortization (non-cash)',
                     cf['depreciationAddBack']!, indent: true),
-              if (cf['otherAdjustments']!.abs() >= 0.5)
-                cfRow('Other balance sheet movements',
-                    cf['otherAdjustments']!, indent: true),
+              if (cf['unclassifiedAdjustment']!.abs() >= 0.5)
+                cfRow('Unclassified balance sheet movement (rounding)',
+                    cf['unclassifiedAdjustment']!, indent: true),
               sectionDivider(),
               cfRow('NET CASH FROM OPERATING ACTIVITIES', cf['netOperating']!, isFinal: true),
 
@@ -2749,6 +2803,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               cfRow('Acquisition of Loans', cf['loanProceeds']!, indent: true),
               cfRow('Loan Repayment', -cf['loanRepayment']!, indent: true),
               cfRow('Dividends Paid', -cf['dividendsPaid']!, indent: true),
+              if (cf['otherEquityMovement']!.abs() >= 0.5)
+                cfRow('Other Equity Movements (capital contributions/withdrawals)',
+                    cf['otherEquityMovement']!, indent: true),
               sectionDivider(),
               cfRow('NET CASH FROM FINANCING ACTIVITIES', cf['netFinancing']!, isFinal: true),
 
@@ -2998,8 +3055,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ['Operating', 'Net Profit (from Income Statement)',                            fmtCsv(cf['operatingProfit']!)],
           ['Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments',   fmtCsv(cf['receivablesImpact']!)],
           ['Operating', 'Increase/(Decrease) in Accounts Payables',                    fmtCsv(cf['payablesImpact']!)],
+          ['Operating', '(Increase)/Decrease in Inventory',                            fmtCsv(cf['inventoryImpact']!)],
+          ['Operating', '(Increase)/Decrease in Other Current Assets',                 fmtCsv(cf['otherCurrentAssetsImpact']!)],
+          ['Operating', 'Increase/(Decrease) in Other Current Liabilities',            fmtCsv(cf['otherCurrentLiabilitiesImpact']!)],
           ['Operating', 'Add: Depreciation & Amortization (non-cash)',                  fmtCsv(cf['depreciationAddBack']!)],
-          ['Operating', 'Other balance sheet movements',                               fmtCsv(cf['otherAdjustments']!)],
+          ['Operating', 'Unclassified balance sheet movement (rounding)',              fmtCsv(cf['unclassifiedAdjustment']!)],
           ['Operating', 'NET CASH FROM OPERATING ACTIVITIES',                          fmtCsv(cf['netOperating']!)],
           [],
           ['Investing', 'Acquisition of Assets',                                       fmtCsv(-cf['assetAcquisitions']!)],
@@ -3011,6 +3071,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ['Financing', 'Acquisition of Loans',                                        fmtCsv(cf['loanProceeds']!)],
           ['Financing', 'Loan Repayment',                                              fmtCsv(-cf['loanRepayment']!)],
           ['Financing', 'Dividends Paid',                                              fmtCsv(-cf['dividendsPaid']!)],
+          ['Financing', 'Other Equity Movements (capital contributions/withdrawals)',  fmtCsv(cf['otherEquityMovement']!)],
           ['Financing', 'NET CASH FROM FINANCING ACTIVITIES',                          fmtCsv(cf['netFinancing']!)],
           [],
           ['Summary', 'Opening Cash Balance (Cash + Bank accounts)',                   fmtCsv(cf['openingCash']!)],
@@ -3324,8 +3385,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         xRow('Operating', 'Net Profit (from Income Statement)',                         cf['operatingProfit']!);
         xRow('Operating', '(Increase)/Decrease in Accounts Receivables & Prepayments', cf['receivablesImpact']!);
         xRow('Operating', 'Increase/(Decrease) in Accounts Payables',                  cf['payablesImpact']!);
+        xRow('Operating', '(Increase)/Decrease in Inventory',                          cf['inventoryImpact']!);
+        xRow('Operating', '(Increase)/Decrease in Other Current Assets',               cf['otherCurrentAssetsImpact']!);
+        xRow('Operating', 'Increase/(Decrease) in Other Current Liabilities',          cf['otherCurrentLiabilitiesImpact']!);
         xRow('Operating', 'Add: Depreciation & Amortization (non-cash)',                cf['depreciationAddBack']!);
-        xRow('Operating', 'Other balance sheet movements',                             cf['otherAdjustments']!);
+        xRow('Operating', 'Unclassified balance sheet movement (rounding)',            cf['unclassifiedAdjustment']!);
         xRow('Operating', 'NET CASH FROM OPERATING ACTIVITIES',                        cf['netOperating']!, bold: true);
         xSection('INVESTING ACTIVITIES');
         xRow('Investing', 'Acquisition of Assets',                                     -cf['assetAcquisitions']!);
@@ -3334,6 +3398,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         xRow('Financing', 'Acquisition of Loans',                                      cf['loanProceeds']!);
         xRow('Financing', 'Loan Repayment',                                            -cf['loanRepayment']!);
         xRow('Financing', 'Dividends Paid',                                            -cf['dividendsPaid']!);
+        xRow('Financing', 'Other Equity Movements (capital contributions/withdrawals)',cf['otherEquityMovement']!);
         xRow('Financing', 'NET CASH FROM FINANCING ACTIVITIES',                        cf['netFinancing']!, bold: true);
         xSection('SUMMARY');
         xRow('Summary',  'Opening Cash Balance (Cash + Bank accounts)',                cf['openingCash']!);
