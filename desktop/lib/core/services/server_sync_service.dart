@@ -31,15 +31,25 @@ class ServerSyncService {
   static const _defaultSyncUrl = 'https://magicbet.thirdbooks.digital/sync';
   static const _defaultApiKey  = 'tb-sync-magicbet-2026';
 
-  static Future<String> getSyncUrl() async =>
-      await _storage.read(key: _urlKey) ?? _defaultSyncUrl;
+  // Always the hardcoded server — deliberately ignores any value a previous
+  // build may have written to secure storage via the old manual-config UI.
+  // A stale/incorrect stored value would otherwise silently override this
+  // permanently and no one would know why sync kept failing.
+  static Future<String> getSyncUrl() async => _defaultSyncUrl;
 
-  static Future<String> getApiKey() async =>
-      await _storage.read(key: _keyKey) ?? _defaultApiKey;
+  static Future<String> getApiKey() async => _defaultApiKey;
 
   static Future<void> saveConfig(String url, String apiKey) async {
     await _storage.write(key: _urlKey, value: url.trimRight().replaceAll(RegExp(r'/$'), ''));
     await _storage.write(key: _keyKey, value: apiKey.trim());
+  }
+
+  /// Removes any stale server URL/API key previously saved via the old
+  /// manual-config UI so it can never again silently override the
+  /// hardcoded defaults above.
+  static Future<void> clearStoredOverrides() async {
+    await _storage.delete(key: _urlKey);
+    await _storage.delete(key: _keyKey);
   }
 
   // Always configured — defaults are baked in.

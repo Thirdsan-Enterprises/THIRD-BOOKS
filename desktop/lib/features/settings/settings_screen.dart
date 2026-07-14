@@ -2525,6 +2525,10 @@ class _ServerBackupCardState extends State<_ServerBackupCard> {
   }
 
   Future<void> _loadConfig() async {
+    // Purge any URL/API key saved via the old manual-config UI so a stale
+    // value from an earlier build can never again silently override the
+    // hardcoded server address below.
+    await ServerSyncService.clearStoredOverrides();
     final url  = await ServerSyncService.getSyncUrl();
     final key  = await ServerSyncService.getApiKey();
     final last = await ServerSyncService.getLastSyncedAt();
@@ -2534,12 +2538,6 @@ class _ServerBackupCardState extends State<_ServerBackupCard> {
       _keyCtrl.text = key;
       _lastSync     = last;
     });
-  }
-
-  Future<void> _saveConfig() async {
-    await ServerSyncService.saveConfig(_urlCtrl.text, _keyCtrl.text);
-    if (!mounted) return;
-    setState(() { _statusMsg = 'Configuration saved.'; _statusOk = true; });
   }
 
   Future<void> _syncNow() async {
@@ -2639,20 +2637,20 @@ class _ServerBackupCardState extends State<_ServerBackupCard> {
 
             TextField(
               controller: _urlCtrl,
+              readOnly: true,
               decoration: const InputDecoration(
-                labelText: 'Server URL',
-                hintText: 'https://magicbet.thirdbooks.digital/sync',
+                labelText: 'Server URL (fixed)',
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
-              onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _keyCtrl,
+              readOnly: true,
               obscureText: _obscureKey,
               decoration: InputDecoration(
-                labelText: 'API Key',
+                labelText: 'API Key (fixed)',
                 border: const OutlineInputBorder(),
                 isDense: true,
                 suffixIcon: IconButton(
@@ -2660,16 +2658,10 @@ class _ServerBackupCardState extends State<_ServerBackupCard> {
                   onPressed: () => setState(() => _obscureKey = !_obscureKey),
                 ),
               ),
-              onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 12),
 
             Row(children: [
-              ElevatedButton(
-                onPressed: _saveConfig,
-                child: const Text('Save Config'),
-              ),
-              const SizedBox(width: 12),
               if (configured) ...[
                 OutlinedButton.icon(
                   icon: _syncing
