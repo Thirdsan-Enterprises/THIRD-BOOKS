@@ -1,12 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 import 'core/services/theme_service.dart';
+import 'core/services/server_sync_service.dart';
+import 'core/database/app_database.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Intercept the window close button so we can attempt one last backup
+  // push before the app actually exits — otherwise a short session (open,
+  // enter a few entries, close) can end before the login-time push or the
+  // periodic timer ever gets a chance to run, and that session's data is
+  // never backed up.
+  await windowManager.ensureInitialized();
+  await windowManager.setPreventClose(true);
 
   runApp(
     const ProviderScope(
@@ -15,11 +26,46 @@ void main() async {
   );
 }
 
-class ThirdBooksApp extends ConsumerWidget {
+class ThirdBooksApp extends ConsumerStatefulWidget {
   const ThirdBooksApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ThirdBooksApp> createState() => _ThirdBooksAppState();
+}
+
+class _ThirdBooksAppState extends ConsumerState<ThirdBooksApp> with WindowListener {
+  bool _closing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    windowManager.addListener(this);
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  @override
+  void onWindowClose() async {
+    if (_closing) return;
+    _closing = true;
+    // Bounded attempt — never let a slow/unreachable server block the app
+    // from closing. Worst case the user waits a few seconds longer.
+    try {
+      await ServerSyncService.pushBackup(AppDatabase())
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // Ignored — the periodic/login pushes will catch it next time.
+    } finally {
+      await windowManager.destroy();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final router = ref.watch(appRouterProvider);
     final themeMode = ref.watch(themeModeProvider);
 
