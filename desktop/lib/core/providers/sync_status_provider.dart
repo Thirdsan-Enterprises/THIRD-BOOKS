@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auth_service.dart';
 import '../services/server_sync_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/data_service.dart' show databaseProvider;
 import '../database/app_database.dart';
 import 'recurring_journals_provider.dart';
 
@@ -137,17 +138,22 @@ class SyncStatusNotifier extends StateNotifier<SyncStatusState> {
     ServerSyncService.sendHeartbeat(userName);
   }
 
-  /// Background push triggered by the 2-hour timer.
+  /// Background push triggered by the periodic timer.
   Future<void> _autoPush() async {
     if (!mounted || state.isSyncing) return;
-    final db = AppDatabase();
+    // Reuse the app's single shared database connection — creating a fresh
+    // AppDatabase() per push (as this used to) leaks a native SQLite
+    // connection every time, since nothing ever closes it. With a push
+    // firing every 20 minutes that adds up fast and was the likely cause
+    // of sync silently degrading and eventually failing outright.
+    final db = _ref.read(databaseProvider);
     await _push(db);
   }
 
   /// Manual push (called from UI or settings screen).
   Future<void> push() async {
     if (state.isSyncing) return;
-    final db = AppDatabase();
+    final db = _ref.read(databaseProvider);
     await _push(db);
   }
 

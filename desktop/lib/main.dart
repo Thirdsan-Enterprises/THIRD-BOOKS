@@ -6,7 +6,7 @@ import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 import 'core/services/theme_service.dart';
 import 'core/services/server_sync_service.dart';
-import 'core/database/app_database.dart';
+import 'core/services/data_service.dart' show databaseProvider;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -55,7 +55,9 @@ class _ThirdBooksAppState extends ConsumerState<ThirdBooksApp> with WindowListen
     // Bounded attempt — never let a slow/unreachable server block the app
     // from closing. Worst case the user waits a few seconds longer.
     try {
-      await ServerSyncService.pushBackup(AppDatabase())
+      // Reuse the app's shared database connection rather than opening a
+      // fresh, never-closed one — see sync_status_provider.dart for why.
+      await ServerSyncService.pushBackup(ref.read(databaseProvider))
           .timeout(const Duration(seconds: 8));
     } catch (_) {
       // Ignored — the periodic/login pushes will catch it next time.

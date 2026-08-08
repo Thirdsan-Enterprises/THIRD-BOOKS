@@ -2542,7 +2542,9 @@ class _ServerBackupCardState extends State<_ServerBackupCard> {
 
   Future<void> _syncNow() async {
     setState(() { _syncing = true; _statusMsg = null; });
-    final db     = AppDatabase();
+    // Reuse the app's shared database connection rather than opening a
+    // fresh, never-closed one — see sync_status_provider.dart for why.
+    final db     = ProviderScope.containerOf(context, listen: false).read(databaseProvider);
     final result = await ServerSyncService.pushBackup(db);
     if (!mounted) return;
     setState(() {
@@ -2577,7 +2579,7 @@ class _ServerBackupCardState extends State<_ServerBackupCard> {
     if (confirm != true || !mounted) return;
 
     setState(() { _restoring = true; _statusMsg = null; });
-    final db     = AppDatabase();
+    final db     = ProviderScope.containerOf(context, listen: false).read(databaseProvider);
     final result = await ServerSyncService.pullAndRestore(db);
     if (!mounted) return;
     setState(() {
