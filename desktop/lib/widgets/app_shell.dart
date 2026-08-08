@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 import '../core/theme/app_theme.dart';
 import '../core/services/auth_service.dart';
 import '../core/services/server_sync_service.dart';
-import '../core/database/app_database.dart';
+import '../core/services/data_service.dart' show databaseProvider;
 import '../core/providers/sync_status_provider.dart';
 
 class AppShell extends ConsumerStatefulWidget {
@@ -69,7 +69,7 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   Future<void> _runServerRestore() async {
     final messenger = ScaffoldMessenger.of(context);
-    final db = AppDatabase();
+    final db = ref.read(databaseProvider);
     final result = await ServerSyncService.pullAndRestore(db);
     if (!mounted) return;
     messenger.showSnackBar(SnackBar(

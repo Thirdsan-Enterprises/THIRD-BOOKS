@@ -10,7 +10,7 @@ import 'init_service.dart';
 import 'local_storage_service.dart';
 import 'server_sync_service.dart';
 import 'snapshot_service.dart';
-import '../database/app_database.dart';
+import 'data_service.dart' show databaseProvider;
 
 // Auth state
 class AuthState {
@@ -107,7 +107,7 @@ final authServiceProvider = Provider<AuthService>((ref) {
 
 // Auth state provider
 final authStateProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
-  return AuthNotifier(ref.read(authServiceProvider));
+  return AuthNotifier(ref.read(authServiceProvider), ref);
 });
 
 // Current user provider
@@ -124,8 +124,9 @@ final isOfflineModeProvider = Provider<bool>((ref) {
 // Auth notifier
 class AuthNotifier extends StateNotifier<AuthState> {
   final AuthService _authService;
+  final Ref _ref;
 
-  AuthNotifier(this._authService) : super(const AuthState());
+  AuthNotifier(this._authService, this._ref) : super(const AuthState());
 
   Future<void> checkAuth() async {
     state = state.copyWith(isLoading: true);
@@ -183,7 +184,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// Run MagicBet initialization if this is the first login
   Future<void> _runInitializationIfNeeded() async {
     try {
-      final db = AppDatabase();
+      // Reuse the app's shared database connection rather than opening a
+      // fresh, never-closed one on every login.
+      final db = _ref.read(databaseProvider);
       await InitializationService.checkAndRunSetup(db);
       // Take one automatic restore point per calendar day so there is always
       // a recent safety net without the accountant having to remember.
