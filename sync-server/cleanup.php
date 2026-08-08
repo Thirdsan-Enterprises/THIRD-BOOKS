@@ -16,18 +16,19 @@ $deleted = [];
 $kept = [];
 
 foreach (glob(BACKUP_DIR . '*_backup.json') as $file) {
-    $raw = file_get_contents($file);
-    $json = json_decode($raw, true);
-
+    $size = filesize($file);
     $isJunk = false;
-    if ($json === null) {
+
+    if ($size === false || $size < 2000) {
+        // Too small to possibly contain a real chart of accounts.
         $isJunk = true;
-    } elseif (
-        !isset($json['data']['accounts']) ||
-        !is_array($json['data']['accounts']) ||
-        count($json['data']['accounts']) === 0
-    ) {
-        $isJunk = true;
+    } else {
+        // Cheap textual check on just the first chunk — avoids json_decode
+        // on multi-MB files, which can exceed PHP's memory_limit.
+        $head = file_get_contents($file, false, null, 0, 65536);
+        if ($head === false || strpos($head, '"accounts":[{') === false) {
+            $isJunk = true;
+        }
     }
 
     if ($isJunk) {
