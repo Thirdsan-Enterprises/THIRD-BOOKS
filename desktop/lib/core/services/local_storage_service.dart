@@ -67,14 +67,35 @@ class LocalStorageService {
       return [];
     }
 
+    List<dynamic> jsonList;
     try {
       final content = await file.readAsString();
-      final jsonList = jsonDecode(content) as List<dynamic>;
-      return jsonList.map((json) => fromJson(json as Map<String, dynamic>)).toList();
+      jsonList = jsonDecode(content) as List<dynamic>;
     } catch (e) {
+      // The file itself is unreadable/corrupt JSON — nothing to salvage.
       debugPrint('Error loading $key: $e');
       return [];
     }
+
+    // Parse each record independently so one malformed record can't wipe
+    // out every other record in the file. A single bad journal entry used
+    // to make ALL journal entries disappear from the app — the file on
+    // disk was fine, but the read returned an empty list, which looked
+    // exactly like "all my data is gone" with no error shown anywhere.
+    final items = <T>[];
+    var skipped = 0;
+    for (final json in jsonList) {
+      try {
+        items.add(fromJson(json as Map<String, dynamic>));
+      } catch (e) {
+        skipped++;
+        debugPrint('Skipped one bad $key record: $e');
+      }
+    }
+    if (skipped > 0) {
+      debugPrint('$key: loaded ${items.length}, skipped $skipped malformed record(s)');
+    }
+    return items;
   }
 
   // ============================================================================
