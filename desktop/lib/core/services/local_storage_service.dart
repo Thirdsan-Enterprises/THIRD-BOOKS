@@ -48,6 +48,20 @@ class LocalStorageService {
     return File('${_dataDir.path}/$name.json');
   }
 
+  /// True if the data file for [key] exists on disk and has real content —
+  /// used by safety checks that must never mistake "this file failed to
+  /// parse" for "this file genuinely has nothing in it." A parse failure
+  /// (or any other transient read error) still leaves the file's actual
+  /// bytes on disk untouched; this lets a caller tell that apart from a
+  /// truly empty/missing file before deciding it's safe to overwrite.
+  Future<bool> dataFileHasContent(String key) async {
+    await initialize();
+    final file = _getFile(key);
+    if (!await file.exists()) return false;
+    final len = await file.length();
+    return len > 2; // more than just "[]"
+  }
+
   // ============================================================================
   // Generic Save/Load Methods
   // ============================================================================

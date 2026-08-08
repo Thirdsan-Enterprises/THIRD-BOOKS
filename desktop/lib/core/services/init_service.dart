@@ -94,12 +94,38 @@ class InitializationService {
       return;
     }
 
-    // Accounts are empty or contain only old IFRS 4-digit demo codes (1000+).
-    // Safe to clear so the MagicBet CoA gets properly re-seeded.
-    print('First-time purge: clearing demo accounts so MagicBet CoA can be seeded...');
+    // Only positively-confirmed old demo data (every account using the old
+    // 4-digit IFRS demo codes, 1000+) is safe to clear here.
+    final hasConfirmedOldDemoCodes = existingAccounts.isNotEmpty &&
+        existingAccounts.every((a) => (int.tryParse(a.code) ?? -1) >= 1000);
+    if (hasConfirmedOldDemoCodes) {
+      print('First-time purge: clearing confirmed old-format demo accounts so the MagicBet CoA can be seeded...');
+      await localStorage.saveAccounts([]);
+      await _storage.write(key: _demoPurgedKey, value: 'true');
+      print('Demo accounts cleared. MagicBet CoA will be seeded on next load.');
+      return;
+    }
+
+    // Neither confirmed real data nor confirmed demo data was found — i.e.
+    // loadAccounts() came back with nothing usable. If the file on disk
+    // actually has content, that almost certainly means a parse error (not
+    // "there is genuinely no data"), and wiping it here would destroy real
+    // client data based on a misread. Never guess destructively — leave the
+    // file exactly as it is and let the underlying read issue surface and
+    // get fixed on its own terms, rather than papering over it by deleting
+    // the evidence.
+    final fileHasContent = await localStorage.dataFileHasContent('accounts');
+    if (fileHasContent) {
+      await _storage.write(key: _demoPurgedKey, value: 'true');
+      print('accounts.json has content but no accounts could be parsed from it — '
+          'leaving the file untouched rather than risk wiping real data on a read error.');
+      return;
+    }
+
+    // The file is genuinely empty or missing — nothing to lose.
     await localStorage.saveAccounts([]);
     await _storage.write(key: _demoPurgedKey, value: 'true');
-    print('Demo accounts cleared. MagicBet CoA will be seeded on next load.');
+    print('No existing accounts file — MagicBet CoA will be seeded on next load.');
   }
 
   /// Run the complete MagicBet initialization
