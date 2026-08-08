@@ -60,10 +60,21 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showSetupDepreciationDialog,
-        icon: const Icon(Icons.add),
-        label: const Text('Setup Depreciation'),
+      floatingActionButton: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FilledButton.tonalIcon(
+            onPressed: _setupDepreciationForAllAssets,
+            icon: const Icon(Icons.playlist_add),
+            label: const Text('Setup All Assets'),
+          ),
+          const SizedBox(width: 12),
+          FloatingActionButton.extended(
+            onPressed: _showSetupDepreciationDialog,
+            icon: const Icon(Icons.add),
+            label: const Text('Setup Depreciation'),
+          ),
+        ],
       ),
     );
   }
@@ -184,10 +195,21 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
             const SizedBox(height: 8),
             const Text('Confirm assets first, then set up depreciation'),
             const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _showSetupDepreciationDialog,
-              icon: const Icon(Icons.add),
-              label: const Text('Setup Depreciation'),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _setupDepreciationForAllAssets,
+                  icon: const Icon(Icons.playlist_add),
+                  label: const Text('Setup All Assets'),
+                ),
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: _showSetupDepreciationDialog,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Setup Depreciation'),
+                ),
+              ],
             ),
           ],
         ),
@@ -326,6 +348,163 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
       case 'Machinery': return Icons.precision_manufacturing;
       default: return Icons.inventory_2;
     }
+  }
+
+  // Standard default method/rate by asset category — matches URA capital
+  // allowance classes for tangible assets and typical useful-life-based
+  // straight-line rates for intangibles (IAS 38). Land is deliberately
+  // excluded elsewhere since it is not a depreciable asset.
+  ({String method, double rate}) _defaultDepreciation(String category) {
+    switch (category) {
+      case 'Electronics':
+        return (method: 'declining_balance', rate: 40.0);
+      case 'Vehicle':
+        return (method: 'declining_balance', rate: 35.0);
+      case 'Machinery':
+        return (method: 'declining_balance', rate: 30.0);
+      case 'Equipment':
+      case 'Furniture':
+        return (method: 'declining_balance', rate: 20.0);
+      case 'Building':
+        return (method: 'straight_line', rate: 5.0);
+      case 'Software':
+      case 'License':
+        return (method: 'straight_line', rate: 33.33);
+      case 'Patent':
+      case 'Trademark':
+        return (method: 'straight_line', rate: 20.0);
+      case 'Goodwill':
+        return (method: 'straight_line', rate: 10.0);
+      default:
+        return (method: 'declining_balance', rate: 20.0);
+    }
+  }
+
+  /// Bulk-creates a depreciation schedule (using category defaults, monthly
+  /// period, starting from each asset's purchase date) for every confirmed
+  /// asset that doesn't already have one. This only creates the schedules —
+  /// it does not post any journal entries; "Generate Entries" / "Run Now"
+  /// still does that separately, so the accountant reviews before posting.
+  void _setupDepreciationForAllAssets() {
+    final confirmedAssets =
+        ref.read(assetDraftsProvider).where((a) => a.isConfirmed).toList();
+    final scheduledIds =
+        ref.read(depreciationSchedulesProvider).map((s) => s.assetDraftId).toSet();
+    final pending = confirmedAssets
+        .where((a) => !scheduledIds.contains(a.id) && a.category != 'Land')
+        .toList();
+    final skippedLand = confirmedAssets
+        .any((a) => a.category == 'Land' && !scheduledIds.contains(a.id));
+
+    if (pending.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(skippedLand
+              ? 'Every depreciable confirmed asset already has a schedule. Land is not depreciated.'
+              : 'Every confirmed asset already has a depreciation schedule.'),
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Setup Depreciation for ${pending.length} Assets'),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Creates a monthly schedule for each asset below using standard '
+                'rates by category. Nothing is posted to the ledger yet — review '
+                'or adjust any schedule afterwards, then use "Generate Entries" '
+                'when ready.',
+              ),
+              const SizedBox(height: 12),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 260),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: pending.length,
+                  itemBuilder: (context, i) {
+                    final a = pending[i];
+                    final d = _defaultDepreciation(a.category);
+                    final rateLabel = d.rate == d.rate.roundToDouble()
+                        ? d.rate.toStringAsFixed(0)
+                        : d.rate.toStringAsFixed(2);
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                              child: Text(a.assetName,
+                                  overflow: TextOverflow.ellipsis)),
+                          Text(
+                            '${d.method == 'straight_line' ? 'SL' : 'DB'} $rateLabel%',
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              if (skippedLand)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Land assets are excluded — land is not depreciated.',
+                    style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              final notifier = ref.read(depreciationSchedulesProvider.notifier);
+              final now = DateTime.now();
+              for (final a in pending) {
+                final d = _defaultDepreciation(a.category);
+                await notifier.add(DepreciationSchedule(
+                  id: const Uuid().v4(),
+                  assetDraftId: a.id,
+                  assetName: a.assetName,
+                  assetCategory: a.category,
+                  assetValue: a.amount,
+                  currentValue: a.amount,
+                  method: d.method,
+                  rate: d.rate,
+                  period: 'monthly',
+                  startDate: a.date,
+                  createdAt: now,
+                ));
+              }
+              if (mounted) {
+                Navigator.pop(dialogContext);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                        '${pending.length} depreciation schedules created. '
+                        'Use "Generate Entries" to post them to the ledger.'),
+                    backgroundColor: AppColors.success,
+                  ),
+                );
+              }
+            },
+            child: const Text('Create Schedules'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showSetupDepreciationDialog() {
