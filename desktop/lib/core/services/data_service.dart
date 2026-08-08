@@ -1775,7 +1775,16 @@ final ledgerBalancesProvider = Provider<Map<String, double>>((ref) {
   for (final entry in entries) {
     if (entry.status != JournalEntryStatus.posted) continue;
     for (final line in entry.lines) {
-      raw[line.accountId] = (raw[line.accountId] ?? 0) + line.debit - line.credit;
+      // Normalize to 'acct-{code}' when a code is present, same as the
+      // Cash Flow report's ledger computation — different screens have
+      // historically stored either the account's real ID or the
+      // 'acct-{code}' convenience string in accountId, so keying only by
+      // the raw accountId (as this used to) silently dropped balance
+      // contributions from whichever convention wasn't used for a given
+      // line, e.g. bank account balances showing 0 despite real posted
+      // transactions.
+      final key = line.accountCode != null ? 'acct-${line.accountCode}' : line.accountId;
+      raw[key] = (raw[key] ?? 0) + line.debit - line.credit;
     }
   }
   return raw;
