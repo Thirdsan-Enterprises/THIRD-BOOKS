@@ -1447,6 +1447,144 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  /// Reads each core data file directly off disk — independent of whatever
+  /// the app currently has loaded in memory — and shows exactly what's
+  /// really there, then forces every provider to reload from disk. This
+  /// turns "the app looks empty, is my data gone?" from a guessing game
+  /// into a direct, verifiable answer, and recovers automatically from any
+  /// case where the data was fine on disk but simply hadn't loaded
+  /// correctly into the running app.
+  Future<void> _diagnoseAndRefreshLocalData() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(children: [
+          SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: 16),
+          Text('Checking local data files…'),
+        ]),
+      ),
+    );
+
+    const entities = <String, String>{
+      'accounts': 'Chart of Accounts',
+      'customers': 'Customers',
+      'vendors': 'Vendors',
+      'invoices': 'Invoices',
+      'bills': 'Bills',
+      'journals': 'Journal Entries',
+      'payments': 'Payments',
+    };
+
+    final ls = LocalStorageService.instance;
+    final results = <String, DataFileDiagnosis>{};
+    for (final key in entities.keys) {
+      results[key] = await ls.diagnoseDataFile(key);
+    }
+
+    // Force every provider to re-read from disk now that we know what's
+    // actually there — this alone fixes the "data is on disk but the
+    // running app hadn't loaded it" case without needing a restart.
+    try {
+      await ref.read(accountsProvider.notifier).loadAccounts();
+      await ref.read(customersProvider.notifier).loadCustomers();
+      await ref.read(vendorsProvider.notifier).loadVendors();
+      await ref.read(invoicesProvider.notifier).loadInvoices();
+      await ref.read(billsProvider.notifier).loadBills();
+      await ref.read(journalsProvider.notifier).loadJournals();
+      await ref.read(paymentsProvider.notifier).loadPayments();
+    } catch (_) {}
+
+    final onDiskCounts = <String, int>{
+      'accounts': ref.read(accountsProvider).accounts.length,
+      'customers': ref.read(customersProvider).customers.length,
+      'vendors': ref.read(vendorsProvider).vendors.length,
+      'invoices': ref.read(invoicesProvider).invoices.length,
+      'bills': ref.read(billsProvider).bills.length,
+      'journals': ref.read(journalsProvider).entries.length,
+      'payments': ref.read(paymentsProvider).payments.length,
+    };
+
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop(); // close loading dialog
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Local Data Health Check'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Read directly from disk just now, and the app has been '
+                  'refreshed from what was found:',
+                  style: TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 16),
+                Table(
+                  columnWidths: const {
+                    0: FlexColumnWidth(2),
+                    1: FlexColumnWidth(1.3),
+                    2: FlexColumnWidth(1.3),
+                  },
+                  children: [
+                    const TableRow(children: [
+                      Padding(padding: EdgeInsets.symmetric(vertical: 6),
+                          child: Text('Data', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                      Padding(padding: EdgeInsets.symmetric(vertical: 6),
+                          child: Text('On disk', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                      Padding(padding: EdgeInsets.symmetric(vertical: 6),
+                          child: Text('Loaded now', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                    ]),
+                    ...entities.entries.map((e) {
+                      final d = results[e.key]!;
+                      final loaded = onDiskCounts[e.key] ?? 0;
+                      final diskLabel = !d.exists
+                          ? 'no file'
+                          : d.recordCount != null
+                              ? '${d.recordCount} record(s)  ·  ${(d.sizeBytes / 1024).toStringAsFixed(0)} KB'
+                              : 'unreadable  ·  ${(d.sizeBytes / 1024).toStringAsFixed(0)} KB';
+                      final mismatch = d.exists && d.recordCount != null && d.recordCount != loaded;
+                      final trouble = (d.exists && d.recordCount == null) || mismatch;
+                      return TableRow(children: [
+                        Padding(padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Text(e.value, style: const TextStyle(fontSize: 13))),
+                        Padding(padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Text(diskLabel,
+                                style: TextStyle(fontSize: 12,
+                                    color: trouble ? AppColors.error : null))),
+                        Padding(padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Text('$loaded',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                                    color: trouble ? AppColors.error : AppColors.success))),
+                      ]);
+                    }),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'If "On disk" shows real records but "Loaded now" is lower, the app just '
+                  'refreshed to match what\'s actually saved. If a file shows "unreadable", '
+                  'its bytes are still on disk but need closer inspection before anything is '
+                  'changed — please send us a screenshot of this screen rather than resetting.',
+                  style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSyncSettings(BuildContext context) {
     Future<void> _confirmResetLocalData() async {
       final ok = await showDialog<bool>(
@@ -1694,6 +1832,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
           // ── Server Backup Card ────────────────────────────────────────────
           const _ServerBackupCard(),
+          const SizedBox(height: 24),
+
+          // ── Data Health Check Card ────────────────────────────────────────
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.info.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.health_and_safety_outlined, color: AppColors.info, size: 28),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Data Health Check', style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 2),
+                        Text(
+                          'If accounts, journals or other data look missing on screen, run this first — '
+                          'it reads the actual files on disk and refreshes the app from them. Safe, '
+                          'never deletes anything.',
+                          style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.outline),
+                        ),
+                      ]),
+                    ),
+                  ]),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: _diagnoseAndRefreshLocalData,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('Diagnose & Refresh Local Data'),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 24),
 
           // ── Danger Zone Card ──────────────────────────────────────────────
