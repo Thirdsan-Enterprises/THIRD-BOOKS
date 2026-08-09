@@ -19,6 +19,23 @@ import '../models/recurring_journal.dart';
 // Local Storage Service - Persists data to local filesystem
 // ============================================================================
 
+/// Ground-truth report on a single data file, read directly off disk.
+class DataFileDiagnosis {
+  final String key;
+  final bool exists;
+  final int sizeBytes;
+  final int? recordCount; // null if the file's JSON couldn't be parsed at all
+  final String? parseError;
+
+  DataFileDiagnosis({
+    required this.key,
+    required this.exists,
+    required this.sizeBytes,
+    required this.recordCount,
+    this.parseError,
+  });
+}
+
 class LocalStorageService {
   static LocalStorageService? _instance;
   late Directory _dataDir;
@@ -60,6 +77,29 @@ class LocalStorageService {
     if (!await file.exists()) return false;
     final len = await file.length();
     return len > 2; // more than just "[]"
+  }
+
+  /// Ground-truth inspection of a data file, independent of any model
+  /// parsing or cached provider state — reads the file directly off disk
+  /// right now and reports exactly what's there. Used by the "Diagnose &
+  /// Refresh Local Data" tool so a blank screen can always be checked
+  /// against reality instead of guessed at.
+  Future<DataFileDiagnosis> diagnoseDataFile(String key) async {
+    await initialize();
+    final file = _getFile(key);
+    if (!await file.exists()) {
+      return DataFileDiagnosis(key: key, exists: false, sizeBytes: 0, recordCount: 0);
+    }
+    final sizeBytes = await file.length();
+    try {
+      final content = await file.readAsString();
+      final jsonList = jsonDecode(content) as List<dynamic>;
+      return DataFileDiagnosis(
+        key: key, exists: true, sizeBytes: sizeBytes, recordCount: jsonList.length);
+    } catch (e) {
+      return DataFileDiagnosis(
+        key: key, exists: true, sizeBytes: sizeBytes, recordCount: null, parseError: e.toString());
+    }
   }
 
   // ============================================================================
