@@ -39,14 +39,54 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   Future<void> _showRestorePrompt() async {
     if (!mounted) return;
+    final preview = await ServerSyncService.previewLatestBackup();
+    if (!mounted) return;
+
+    final counts = preview?.counts ?? {};
+    const keyCounts = <String, String>{
+      'accounts': 'Accounts',
+      'journals': 'Journal Entries',
+      'vendors': 'Vendors',
+      'bills': 'Bills',
+      'payments': 'Payments',
+    };
+
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Restore from Server?'),
-        content: const Text(
-          'No local data was found on this machine, but a backup exists on the '
-          'sync server.\n\nWould you like to restore it now?',
+        content: SizedBox(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'No local data was found on this machine, but a backup exists on the '
+                'sync server. Would you like to restore it now?',
+              ),
+              if (preview != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'From: ${DateTime.tryParse(preview.syncedAt ?? '')?.toLocal().toString().split('.').first ?? preview.syncedAt ?? 'unknown'}',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 6),
+                ...keyCounts.entries.map((e) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(e.value, style: const TextStyle(fontSize: 13)),
+                          Text('${counts[e.key] ?? 0}',
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    )),
+              ],
+            ],
+          ),
         ),
         actions: [
           TextButton(
