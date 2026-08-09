@@ -11,6 +11,24 @@ if (($_SERVER['HTTP_X_API_KEY'] ?? '') !== API_KEY) {
 
 $files = glob(BACKUP_DIR . '*_backup.json') ?: [];
 rsort($files);
+
+if (isset($_GET['list'])) {
+    $out = [];
+    foreach ($files as $f) {
+        $json = json_decode(file_get_contents($f), true);
+        $out[] = [
+            'file'      => basename($f),
+            'synced_at' => date('c', filemtime($f)),
+            'size_kb'   => round(filesize($f) / 1024, 1),
+            'journals'  => $json['counts']['journals'] ?? null,
+            'customers' => $json['counts']['customers'] ?? null,
+            'invoices'  => $json['counts']['invoices'] ?? null,
+        ];
+    }
+    echo json_encode($out, JSON_PRETTY_PRINT);
+    exit;
+}
+
 $latest = $files[0] ?? null;
 
 if (!$latest) {
