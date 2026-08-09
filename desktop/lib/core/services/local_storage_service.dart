@@ -109,6 +109,34 @@ class LocalStorageService {
   Future<void> saveData<T>(String key, List<T> items, Map<String, dynamic> Function(T) toJson) async {
     await initialize();
     final file = _getFile(key);
+
+    // Safety net: if a save is about to drastically shrink an existing
+    // file (e.g. writing 1 record over 13,323), that is almost never an
+    // intentional bulk delete — it's what happens when something upstream
+    // failed to load the full dataset first, then saved its incomplete
+    // in-memory state back over the real data. That exact sequence
+    // permanently destroyed real production journal entries once already.
+    // Back up the previous version before every such write so it is never
+    // unrecoverable again — this never blocks the save itself.
+    try {
+      if (await file.exists()) {
+        final existingRaw = await file.readAsString();
+        final existingCount = (jsonDecode(existingRaw) as List).length;
+        final droppedFraction =
+            existingCount == 0 ? 0.0 : 1 - (items.length / existingCount);
+        if (existingCount >= 20 && droppedFraction > 0.5) {
+          final backupFile = File(
+              '${file.path}.before-drop-${DateTime.now().millisecondsSinceEpoch}.bak');
+          await backupFile.writeAsString(existingRaw);
+          debugPrint(
+              '$key: saving $existingCount -> ${items.length} records '
+              '(>50% drop) — previous version backed up to ${backupFile.path}');
+        }
+      }
+    } catch (_) {
+      // Never let this safety check block a normal save.
+    }
+
     final jsonList = items.map((item) => toJson(item)).toList();
     await file.writeAsString(jsonEncode(jsonList));
   }

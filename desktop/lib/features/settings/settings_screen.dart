@@ -2738,13 +2738,71 @@ class _ServerBackupCardState extends State<_ServerBackupCard> {
   }
 
   Future<void> _restoreFromServer() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(children: [
+          SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: 16),
+          Text('Checking what\'s on the server…'),
+        ]),
+      ),
+    );
+    final preview = await ServerSyncService.previewLatestBackup();
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop(); // close loading dialog
+
+    final counts = preview?.counts ?? {};
+    final keyCounts = <String, String>{
+      'accounts': 'Accounts',
+      'journals': 'Journal Entries',
+      'vendors': 'Vendors',
+      'bills': 'Bills',
+      'payments': 'Payments',
+      'customers': 'Customers',
+      'invoices': 'Invoices',
+    };
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Restore from Server?'),
-        content: const Text(
-          'This will replace all local data with the latest backup from the server.\n\n'
-          'A local restore point will be created first so you can roll back if needed.',
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'This will replace ALL local data with the backup below. '
+                'A local restore point will be created first so you can roll back if needed.',
+              ),
+              const SizedBox(height: 12),
+              if (preview == null)
+                Text('Could not reach the server to preview this backup.',
+                    style: TextStyle(color: AppColors.error, fontSize: 13))
+              else ...[
+                Text(
+                  'Server backup from: ${preview.syncedAt != null ? DateTime.tryParse(preview.syncedAt!)?.toLocal().toString().split('.').first ?? preview.syncedAt! : 'unknown'}'
+                  '  ·  ${preview.sizeKb.toStringAsFixed(0)} KB',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                ...keyCounts.entries.map((e) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(e.value, style: const TextStyle(fontSize: 13)),
+                          Text('${counts[e.key] ?? 0} record(s)',
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    )),
+              ],
+            ],
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),

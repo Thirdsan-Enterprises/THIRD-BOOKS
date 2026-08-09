@@ -6,6 +6,18 @@ import 'local_backup_service.dart';
 import 'local_storage_service.dart';
 import '../database/app_database.dart';
 
+class ServerBackupPreview {
+  final String? syncedAt;
+  final double sizeKb;
+  final Map<String, int> counts;
+
+  const ServerBackupPreview({
+    required this.syncedAt,
+    required this.sizeKb,
+    required this.counts,
+  });
+}
+
 class ServerSyncResult {
   final bool success;
   final String? error;
@@ -129,6 +141,39 @@ class ServerSyncService {
       );
     } catch (e) {
       return ServerSyncResult(success: false, error: e.toString());
+    }
+  }
+
+  // ── Preview what a restore would bring back, before committing ─────────────
+
+  /// Fetches just the record counts of the server's latest backup, without
+  /// downloading the full (potentially many-MB) file. Lets the UI show
+  /// exactly what a restore would overwrite local data with, so "Restore
+  /// from Server" is never a blind, irreversible guess.
+  static Future<ServerBackupPreview?> previewLatestBackup() async {
+    try {
+      final url    = await getSyncUrl();
+      final apiKey = await getApiKey();
+      final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 15),
+      ));
+      final response = await dio.get(
+        '$url/pull.php',
+        queryParameters: {'preview': '1'},
+        options: Options(headers: {'X-API-Key': apiKey}),
+      );
+      if (response.statusCode != 200 || response.data == null) return null;
+      final data = response.data is String ? jsonDecode(response.data) : response.data;
+      return ServerBackupPreview(
+        syncedAt: data['synced_at'] as String?,
+        sizeKb: (data['size_kb'] as num?)?.toDouble() ?? 0,
+        counts: (data['counts'] as Map?)?.cast<String, dynamic>().map(
+                (k, v) => MapEntry(k, (v as num).toInt())) ??
+            {},
+      );
+    } catch (_) {
+      return null;
     }
   }
 
