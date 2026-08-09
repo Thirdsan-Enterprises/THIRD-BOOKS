@@ -12,17 +12,28 @@ if (($_SERVER['HTTP_X_API_KEY'] ?? '') !== API_KEY) {
 $files = glob(BACKUP_DIR . '*_backup.json') ?: [];
 rsort($files);
 
+// Cheap textual extraction from just the "counts" header block near the
+// top of the file — avoids json_decode()'ing multi-MB backups, which can
+// exceed PHP's memory_limit (same lesson as cleanup.php earlier).
+function quickCount($file, $key) {
+    $head = file_get_contents($file, false, null, 0, 8192);
+    if ($head === false) return null;
+    if (preg_match('/"' . preg_quote($key, '/') . '"\s*:\s*(\d+)/', $head, $m)) {
+        return (int) $m[1];
+    }
+    return null;
+}
+
 if (isset($_GET['list'])) {
     $out = [];
     foreach ($files as $f) {
-        $json = json_decode(file_get_contents($f), true);
         $out[] = [
             'file'      => basename($f),
             'synced_at' => date('c', filemtime($f)),
             'size_kb'   => round(filesize($f) / 1024, 1),
-            'journals'  => $json['counts']['journals'] ?? null,
-            'customers' => $json['counts']['customers'] ?? null,
-            'invoices'  => $json['counts']['invoices'] ?? null,
+            'journals'  => quickCount($f, 'journals'),
+            'customers' => quickCount($f, 'customers'),
+            'invoices'  => quickCount($f, 'invoices'),
         ];
     }
     echo json_encode($out, JSON_PRETTY_PRINT);
@@ -37,9 +48,11 @@ if (!$latest) {
 }
 
 echo json_encode([
-    'latest_file' => basename($latest),
-    'synced_at'   => date('c', filemtime($latest)),
-    'size_kb'     => round(filesize($latest) / 1024, 1),
-    'counts'      => (json_decode(file_get_contents($latest), true) ?? [])['counts'] ?? null,
+    'latest_file'   => basename($latest),
+    'synced_at'     => date('c', filemtime($latest)),
+    'size_kb'       => round(filesize($latest) / 1024, 1),
+    'journals'      => quickCount($latest, 'journals'),
+    'customers'     => quickCount($latest, 'customers'),
+    'invoices'      => quickCount($latest, 'invoices'),
     'total_backups' => count($files),
 ], JSON_PRETTY_PRINT);
