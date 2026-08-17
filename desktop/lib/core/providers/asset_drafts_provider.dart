@@ -6,7 +6,9 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import '../services/local_storage_service.dart';
+import 'depreciation_schedules_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Asset Draft Model (sourced from bills)
@@ -82,12 +84,13 @@ class AssetDraft {
 // ---------------------------------------------------------------------------
 class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
   final LocalStorageService _storage;
+  final Ref _ref;
 
   // Completer that resolves once the initial load from disk is done.
   // All mutation methods await this so they never race with _load().
   final Completer<void> _loadCompleter = Completer<void>();
 
-  AssetDraftsNotifier(this._storage) : super([]) {
+  AssetDraftsNotifier(this._storage, this._ref) : super([]) {
     _load();
   }
 
@@ -100,6 +103,46 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
     } finally {
       if (!_loadCompleter.isCompleted) _loadCompleter.complete();
     }
+    // Backfill a depreciation schedule for any already-confirmed asset that
+    // doesn't have one — covers assets that were confirmed before automatic
+    // schedule creation existed, so simply installing a newer build fixes
+    // them on the next launch without anyone needing to click anything.
+    unawaited(_backfillMissingSchedules());
+  }
+
+  Future<void> _backfillMissingSchedules() async {
+    try {
+      await _ref.read(depreciationSchedulesProvider.notifier).ready;
+      for (final asset in state) {
+        if (!asset.isConfirmed || asset.category == 'Land') continue;
+        await _ensureScheduleFor(asset);
+      }
+    } catch (_) {
+      // Best-effort — never let this block or crash startup.
+    }
+  }
+
+  /// Creates a depreciation schedule for [asset] using category defaults,
+  /// unless one already exists for it. Shared by confirmAsset() and the
+  /// startup backfill so both paths always agree.
+  Future<void> _ensureScheduleFor(AssetDraft asset) async {
+    final schedules = _ref.read(depreciationSchedulesProvider);
+    if (schedules.any((s) => s.assetDraftId == asset.id)) return;
+
+    final d = defaultDepreciationFor(asset.category);
+    await _ref.read(depreciationSchedulesProvider.notifier).add(DepreciationSchedule(
+          id: const Uuid().v4(),
+          assetDraftId: asset.id,
+          assetName: asset.assetName,
+          assetCategory: asset.category,
+          assetValue: asset.amount,
+          currentValue: asset.amount,
+          method: d.method,
+          rate: d.rate,
+          period: 'monthly',
+          startDate: asset.date,
+          createdAt: DateTime.now(),
+        ));
   }
 
   Future<void> _save() async {
@@ -140,6 +183,17 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
         .map((a) => a.id == id ? a.copyWith(isConfirmed: true) : a)
         .toList();
     await _save();
+
+    // Automatically create a depreciation schedule for this asset the
+    // moment it's confirmed — depreciation should never depend on someone
+    // remembering to click a separate "Setup Depreciation" button. Land is
+    // excluded since it isn't depreciable.
+    AssetDraft? asset;
+    for (final a in state) {
+      if (a.id == id) { asset = a; break; }
+    }
+    if (asset == null || asset.category == 'Land') return;
+    await _ensureScheduleFor(asset);
   }
 
   Future<void> removeDraft(String id) async {
@@ -218,7 +272,7 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
 
 final assetDraftsProvider =
     StateNotifierProvider<AssetDraftsNotifier, List<AssetDraft>>(
-  (ref) => AssetDraftsNotifier(ref.read(localStorageServiceProvider)),
+  (ref) => AssetDraftsNotifier(ref.read(localStorageServiceProvider), ref),
 );
 
 // ---------------------------------------------------------------------------

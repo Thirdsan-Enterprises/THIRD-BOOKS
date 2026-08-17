@@ -281,7 +281,7 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
     // Compute register totals
     double totalPurchase = 0, totalAccumDep = 0, totalNBV = 0;
     for (final e in filtered) {
-      final accDep = depByAsset[e.id]?.accumulatedDepreciation ?? 0.0;
+      final accDep = depByAsset[e.id]?.accumulatedAsOf(DateTime.now()) ?? 0.0;
       totalPurchase += e.amount;
       totalAccumDep += accDep;
       totalNBV += (e.amount - accDep);
@@ -326,7 +326,7 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
               ],
               rows: filtered.map((entry) {
                 final sched = depByAsset[entry.id];
-                final accDep = sched?.accumulatedDepreciation ?? 0.0;
+                final accDep = sched?.accumulatedAsOf(DateTime.now()) ?? 0.0;
                 final nbv = entry.amount - accDep;
                 final statusColor = entry.isActive ? AppColors.success : AppColors.warning;
                 return DataRow(cells: [
@@ -448,7 +448,7 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
     }
 
     for (final entry in all) {
-      final accDep = depByAsset[entry.id]?.accumulatedDepreciation ?? 0.0;
+      final accDep = depByAsset[entry.id]?.accumulatedAsOf(DateTime.now()) ?? 0.0;
       final nbv = entry.amount - accDep;
       sheet.appendRow([
         xl.TextCellValue(entry.name),
