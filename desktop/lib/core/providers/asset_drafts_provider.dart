@@ -6,7 +6,9 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import '../services/local_storage_service.dart';
+import 'depreciation_schedules_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Asset Draft Model (sourced from bills)
@@ -82,12 +84,13 @@ class AssetDraft {
 // ---------------------------------------------------------------------------
 class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
   final LocalStorageService _storage;
+  final Ref _ref;
 
   // Completer that resolves once the initial load from disk is done.
   // All mutation methods await this so they never race with _load().
   final Completer<void> _loadCompleter = Completer<void>();
 
-  AssetDraftsNotifier(this._storage) : super([]) {
+  AssetDraftsNotifier(this._storage, this._ref) : super([]) {
     _load();
   }
 
@@ -140,6 +143,35 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
         .map((a) => a.id == id ? a.copyWith(isConfirmed: true) : a)
         .toList();
     await _save();
+
+    // Automatically create a depreciation schedule for this asset the
+    // moment it's confirmed — depreciation should never depend on someone
+    // remembering to click a separate "Setup Depreciation" button. Land is
+    // excluded since it isn't depreciable. Guarded against duplicates in
+    // case confirmAsset is ever called twice for the same asset.
+    AssetDraft? asset;
+    for (final a in state) {
+      if (a.id == id) { asset = a; break; }
+    }
+    if (asset == null || asset.category == 'Land') return;
+    final schedules = _ref.read(depreciationSchedulesProvider);
+    final alreadyScheduled = schedules.any((s) => s.assetDraftId == id);
+    if (alreadyScheduled) return;
+
+    final d = defaultDepreciationFor(asset.category);
+    await _ref.read(depreciationSchedulesProvider.notifier).add(DepreciationSchedule(
+          id: const Uuid().v4(),
+          assetDraftId: asset.id,
+          assetName: asset.assetName,
+          assetCategory: asset.category,
+          assetValue: asset.amount,
+          currentValue: asset.amount,
+          method: d.method,
+          rate: d.rate,
+          period: 'monthly',
+          startDate: asset.date,
+          createdAt: DateTime.now(),
+        ));
   }
 
   Future<void> removeDraft(String id) async {
@@ -218,7 +250,7 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
 
 final assetDraftsProvider =
     StateNotifierProvider<AssetDraftsNotifier, List<AssetDraft>>(
-  (ref) => AssetDraftsNotifier(ref.read(localStorageServiceProvider)),
+  (ref) => AssetDraftsNotifier(ref.read(localStorageServiceProvider), ref),
 );
 
 // ---------------------------------------------------------------------------

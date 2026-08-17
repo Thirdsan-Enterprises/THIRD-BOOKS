@@ -350,35 +350,9 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
     }
   }
 
-  // Standard default method/rate by asset category — matches URA capital
-  // allowance classes for tangible assets and typical useful-life-based
-  // straight-line rates for intangibles (IAS 38). Land is deliberately
-  // excluded elsewhere since it is not a depreciable asset.
-  ({String method, double rate}) _defaultDepreciation(String category) {
-    switch (category) {
-      case 'Electronics':
-        return (method: 'declining_balance', rate: 40.0);
-      case 'Vehicle':
-        return (method: 'declining_balance', rate: 35.0);
-      case 'Machinery':
-        return (method: 'declining_balance', rate: 30.0);
-      case 'Equipment':
-      case 'Furniture':
-        return (method: 'declining_balance', rate: 20.0);
-      case 'Building':
-        return (method: 'straight_line', rate: 5.0);
-      case 'Software':
-      case 'License':
-        return (method: 'straight_line', rate: 33.33);
-      case 'Patent':
-      case 'Trademark':
-        return (method: 'straight_line', rate: 20.0);
-      case 'Goodwill':
-        return (method: 'straight_line', rate: 10.0);
-      default:
-        return (method: 'declining_balance', rate: 20.0);
-    }
-  }
+  // Default method/rate by category now lives in depreciation_schedules_provider.dart
+  // as defaultDepreciationFor() — shared with the automatic on-confirm
+  // schedule creation so both paths always agree.
 
   /// Bulk-creates a depreciation schedule (using category defaults, monthly
   /// period, starting from each asset's purchase date) for every confirmed
@@ -431,7 +405,7 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
                   itemCount: pending.length,
                   itemBuilder: (context, i) {
                     final a = pending[i];
-                    final d = _defaultDepreciation(a.category);
+                    final d = defaultDepreciationFor(a.category);
                     final rateLabel = d.rate == d.rate.roundToDouble()
                         ? d.rate.toStringAsFixed(0)
                         : d.rate.toStringAsFixed(2);
@@ -473,7 +447,7 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
               final notifier = ref.read(depreciationSchedulesProvider.notifier);
               final now = DateTime.now();
               for (final a in pending) {
-                final d = _defaultDepreciation(a.category);
+                final d = defaultDepreciationFor(a.category);
                 await notifier.add(DepreciationSchedule(
                   id: const Uuid().v4(),
                   assetDraftId: a.id,

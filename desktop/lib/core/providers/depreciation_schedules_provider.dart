@@ -6,6 +6,39 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/local_storage_service.dart';
 
 // ---------------------------------------------------------------------------
+// Standard default method/rate by asset category — matches URA capital
+// allowance classes for tangible assets and typical useful-life-based
+// straight-line rates for intangibles (IAS 38). Shared by both the
+// automatic on-confirm schedule creation and the manual bulk-setup tool
+// so they always agree.
+// ---------------------------------------------------------------------------
+({String method, double rate}) defaultDepreciationFor(String category) {
+  switch (category) {
+    case 'Electronics':
+      return (method: 'declining_balance', rate: 40.0);
+    case 'Vehicle':
+      return (method: 'declining_balance', rate: 35.0);
+    case 'Machinery':
+      return (method: 'declining_balance', rate: 30.0);
+    case 'Equipment':
+    case 'Furniture':
+      return (method: 'declining_balance', rate: 20.0);
+    case 'Building':
+      return (method: 'straight_line', rate: 5.0);
+    case 'Software':
+    case 'License':
+      return (method: 'straight_line', rate: 33.33);
+    case 'Patent':
+    case 'Trademark':
+      return (method: 'straight_line', rate: 20.0);
+    case 'Goodwill':
+      return (method: 'straight_line', rate: 10.0);
+    default:
+      return (method: 'declining_balance', rate: 20.0);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Model
 // ---------------------------------------------------------------------------
 class DepreciationSchedule {
@@ -45,6 +78,46 @@ class DepreciationSchedule {
 
   double get percentageDepreciated =>
       assetValue > 0 ? (accumulatedDepreciation / assetValue) * 100 : 0;
+
+  /// Live, unposted estimate of total depreciation accrued from [startDate]
+  /// up to [asOf] — independent of whether "Run"/"Generate Entries" has
+  /// actually been clicked yet. Simulates forward period-by-period using
+  /// the same math as the real posting logic, without mutating currentValue
+  /// or lastRunDate. This is what the Asset Register displays, so
+  /// Accumulated Depreciation always shows a correct current figure
+  /// instead of staying blank until someone manually posts entries.
+  double accumulatedAsOf(DateTime asOf) {
+    if (asOf.isBefore(startDate)) return 0.0;
+
+    double simulatedValue = currentValue;
+    double totalAccrued = accumulatedDepreciation; // whatever is already actually posted
+    DateTime from = lastRunDate == null ? startDate : nextRunDate;
+
+    while (simulatedValue > 0) {
+      final periodEnd = periodEndDate(period, from);
+      final segmentEnd = periodEnd.isAfter(asOf) ? asOf : periodEnd;
+      if (from.isAfter(segmentEnd)) break;
+
+      final days = segmentEnd.difference(from).inDays + 1;
+      const daysInYear = 365.0;
+      final dailyRate = rate / 100 / daysInYear;
+      final baseValue = method == 'declining_balance' ? simulatedValue : assetValue;
+      final dep = (baseValue * dailyRate * days).clamp(0.0, simulatedValue);
+
+      totalAccrued += dep;
+      simulatedValue -= dep;
+
+      if (!periodEnd.isAfter(asOf)) {
+        from = period == 'monthly'
+            ? DateTime(periodEnd.year, periodEnd.month + 1, 1)
+            : DateTime(periodEnd.year + 1, 1, 1);
+      } else {
+        break; // reached asOf mid-period
+      }
+    }
+
+    return totalAccrued.clamp(0.0, assetValue);
+  }
 
   // Returns the last calendar day of the period that starts on [from].
   // Monthly → last day of [from]'s month. Yearly → Dec 31 of [from]'s year.
