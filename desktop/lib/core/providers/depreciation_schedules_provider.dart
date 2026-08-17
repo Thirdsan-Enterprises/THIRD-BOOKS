@@ -2,6 +2,8 @@
 // Stores asset depreciation schedules locally with persistence.
 // © 2026 ThirdBooks. All rights reserved.
 
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/local_storage_service.dart';
 
@@ -228,6 +230,13 @@ class DepreciationSchedulesNotifier
     extends StateNotifier<List<DepreciationSchedule>> {
   final LocalStorageService _storage;
 
+  // Resolves once the initial load from disk is done — other providers
+  // (e.g. AssetDraftsNotifier's backfill) must await this before checking
+  // "does a schedule already exist", or they'd race an empty in-flight
+  // load and create duplicates.
+  final Completer<void> _loadCompleter = Completer<void>();
+  Future<void> get ready => _loadCompleter.future;
+
   DepreciationSchedulesNotifier(this._storage) : super([]) {
     _load();
   }
@@ -237,7 +246,10 @@ class DepreciationSchedulesNotifier
       final list = await _storage.loadData(
           'depreciation_schedules', DepreciationSchedule.fromJson);
       state = list;
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      if (!_loadCompleter.isCompleted) _loadCompleter.complete();
+    }
   }
 
   Future<void> _save() async {

@@ -103,6 +103,46 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
     } finally {
       if (!_loadCompleter.isCompleted) _loadCompleter.complete();
     }
+    // Backfill a depreciation schedule for any already-confirmed asset that
+    // doesn't have one — covers assets that were confirmed before automatic
+    // schedule creation existed, so simply installing a newer build fixes
+    // them on the next launch without anyone needing to click anything.
+    unawaited(_backfillMissingSchedules());
+  }
+
+  Future<void> _backfillMissingSchedules() async {
+    try {
+      await _ref.read(depreciationSchedulesProvider.notifier).ready;
+      for (final asset in state) {
+        if (!asset.isConfirmed || asset.category == 'Land') continue;
+        await _ensureScheduleFor(asset);
+      }
+    } catch (_) {
+      // Best-effort — never let this block or crash startup.
+    }
+  }
+
+  /// Creates a depreciation schedule for [asset] using category defaults,
+  /// unless one already exists for it. Shared by confirmAsset() and the
+  /// startup backfill so both paths always agree.
+  Future<void> _ensureScheduleFor(AssetDraft asset) async {
+    final schedules = _ref.read(depreciationSchedulesProvider);
+    if (schedules.any((s) => s.assetDraftId == asset.id)) return;
+
+    final d = defaultDepreciationFor(asset.category);
+    await _ref.read(depreciationSchedulesProvider.notifier).add(DepreciationSchedule(
+          id: const Uuid().v4(),
+          assetDraftId: asset.id,
+          assetName: asset.assetName,
+          assetCategory: asset.category,
+          assetValue: asset.amount,
+          currentValue: asset.amount,
+          method: d.method,
+          rate: d.rate,
+          period: 'monthly',
+          startDate: asset.date,
+          createdAt: DateTime.now(),
+        ));
   }
 
   Future<void> _save() async {
@@ -147,31 +187,13 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
     // Automatically create a depreciation schedule for this asset the
     // moment it's confirmed — depreciation should never depend on someone
     // remembering to click a separate "Setup Depreciation" button. Land is
-    // excluded since it isn't depreciable. Guarded against duplicates in
-    // case confirmAsset is ever called twice for the same asset.
+    // excluded since it isn't depreciable.
     AssetDraft? asset;
     for (final a in state) {
       if (a.id == id) { asset = a; break; }
     }
     if (asset == null || asset.category == 'Land') return;
-    final schedules = _ref.read(depreciationSchedulesProvider);
-    final alreadyScheduled = schedules.any((s) => s.assetDraftId == id);
-    if (alreadyScheduled) return;
-
-    final d = defaultDepreciationFor(asset.category);
-    await _ref.read(depreciationSchedulesProvider.notifier).add(DepreciationSchedule(
-          id: const Uuid().v4(),
-          assetDraftId: asset.id,
-          assetName: asset.assetName,
-          assetCategory: asset.category,
-          assetValue: asset.amount,
-          currentValue: asset.amount,
-          method: d.method,
-          rate: d.rate,
-          period: 'monthly',
-          startDate: asset.date,
-          createdAt: DateTime.now(),
-        ));
+    await _ensureScheduleFor(asset);
   }
 
   Future<void> removeDraft(String id) async {
