@@ -1016,13 +1016,33 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
     return 'Less Accum. Depreciation — Office Equipment';
   }
 
+  /// True if [expenseAccountCode] already has posted debit activity within
+  /// [periodStart]..[periodEnd] — i.e. depreciation/amortization for this
+  /// exact month already exists in the ledger, most likely from an earlier
+  /// manual journal entry predating this per-asset schedule system. Used to
+  /// stop "Run" from ever posting a duplicate on top of it.
+  bool _periodAlreadyRecorded(
+      List<JournalEntry> allEntries, String expenseAccountCode, DateTime periodStart, DateTime periodEnd) {
+    for (final e in allEntries) {
+      if (e.status != JournalEntryStatus.posted) continue;
+      if (e.date.isBefore(periodStart) || e.date.isAfter(periodEnd)) continue;
+      for (final line in e.lines) {
+        if (line.accountCode == expenseAccountCode && line.debit > 0) return true;
+      }
+    }
+    return false;
+  }
+
   void _postDepreciationJournalEntries(List<DepreciationSchedule> due) {
     final journalsNotifier = ref.read(journalsProvider.notifier);
     final schedNotifier   = ref.read(depreciationSchedulesProvider.notifier);
+    final allEntries = ref.read(journalsProvider).entries;
     int posted = 0;
+    final skipped = <String>[];
 
     for (final schedule in due) {
       DepreciationSchedule current = schedule;
+      final expenseCode = _expenseAccountCode(schedule.assetCategory);
 
       // Back-fill every overdue period, each with its own JE dated at the period.
       // Pro-rata: first period covers purchase date → end of that month;
@@ -1033,9 +1053,20 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
         final amount     = current.depreciationForPeriod(periodDate, periodEnd);
         if (amount <= 0) break;
 
-        final jeId = const Uuid().v4();
         final periodLabel = DateFormat('MMM yyyy').format(periodDate);
 
+        // Depreciation for this exact month already exists in the ledger
+        // (typically an earlier manual entry) — never post a duplicate on
+        // top of it. Skip this period without touching currentValue, but
+        // still advance past it so the schedule doesn't stay stuck asking
+        // for the same already-covered month forever.
+        if (_periodAlreadyRecorded(allEntries, expenseCode, periodDate, periodEnd)) {
+          skipped.add('${schedule.assetName} — $periodLabel');
+          current = current.applyDepreciation(periodEnd, 0);
+          continue;
+        }
+
+        final jeId = const Uuid().v4();
         final isIntangible = _isIntangibleCategory(schedule.assetCategory);
         journalsNotifier.addEntry(JournalEntry(
           id: jeId,
@@ -1049,7 +1080,7 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
               id: '$jeId-1',
               journalEntryId: jeId,
               accountId: _expenseAccountId(schedule.assetCategory),
-              accountCode: _expenseAccountCode(schedule.assetCategory),
+              accountCode: expenseCode,
               accountName: _expenseAccountName(schedule.assetCategory),
               debit: amount,
               credit: 0,
@@ -1077,10 +1108,19 @@ class _DepreciationScreenState extends ConsumerState<DepreciationScreen> {
       schedNotifier.updateSchedule(current);
     }
 
+    final message = StringBuffer(
+        '$posted depreciation ${posted == 1 ? "entry" : "entries"} posted to Chart of Accounts');
+    if (skipped.isNotEmpty) {
+      final shown = skipped.take(4).join(', ');
+      final more = skipped.length > 4 ? ' and ${skipped.length - 4} more' : '';
+      message.write('. Skipped ${skipped.length} period(s) already recorded elsewhere: $shown$more.');
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('$posted depreciation ${posted == 1 ? "entry" : "entries"} posted to Chart of Accounts'),
-        backgroundColor: AppColors.success,
+        content: Text(message.toString()),
+        backgroundColor: skipped.isEmpty ? AppColors.success : AppColors.warning,
+        duration: const Duration(seconds: 6),
       ),
     );
   }
