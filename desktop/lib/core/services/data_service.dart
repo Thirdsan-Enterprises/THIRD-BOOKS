@@ -2,6 +2,7 @@
 // Offline-First Architecture with Local Storage and Sync Queue
 // © 2026 Magic Bet Ltd. All rights reserved.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -1047,6 +1048,12 @@ class BillsNotifier extends StateNotifier<BillsState> {
   final ApiClient _apiClient;
   final Ref _ref;
 
+  // Resolves once the initial load from disk is done — other providers
+  // that need to read the full bill list before doing their own startup
+  // work (e.g. asset-draft backfill) must await this first.
+  final Completer<void> _loadCompleter = Completer<void>();
+  Future<void> get ready => _loadCompleter.future;
+
   BillsNotifier(this._apiClient, this._ref) : super(BillsState()) {
     _initializeData();
   }
@@ -1062,6 +1069,8 @@ class BillsNotifier extends StateNotifier<BillsState> {
     } catch (e) {
       debugPrint('Error loading bills from local storage: $e');
       state = state.copyWith(isLoading: false);
+    } finally {
+      if (!_loadCompleter.isCompleted) _loadCompleter.complete();
     }
   }
 
