@@ -8,6 +8,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../services/local_storage_service.dart';
+import '../services/data_service.dart' show billsProvider;
+import '../models/bill.dart';
 import 'depreciation_schedules_provider.dart';
 
 // ---------------------------------------------------------------------------
@@ -103,11 +105,60 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
     } finally {
       if (!_loadCompleter.isCompleted) _loadCompleter.complete();
     }
-    // Backfill a depreciation schedule for any already-confirmed asset that
-    // doesn't have one — covers assets that were confirmed before automatic
-    // schedule creation existed, so simply installing a newer build fixes
-    // them on the next launch without anyone needing to click anything.
-    unawaited(_backfillMissingSchedules());
+    // Two-step backfill, in order:
+    // 1. Any paid, asset-category bill that never got a linked AssetDraft
+    //    (e.g. created before that linking existed, or via an import) only
+    //    ever showed as a fallback row in the Asset Register with no real
+    //    draft behind it — so it was invisible to depreciation entirely,
+    //    no matter how "Setup Depreciation" or auto-creation worked, since
+    //    both operate on AssetDraft records. Create the missing draft.
+    // 2. Then ensure every confirmed draft (including the ones just
+    //    created above) has a depreciation schedule — covers assets
+    //    confirmed before automatic schedule creation existed.
+    // Together this means simply installing a newer build fixes every
+    // asset on the next launch, with nobody needing to click anything.
+    unawaited(_backfillMissingAssetDrafts().then((_) => _backfillMissingSchedules()));
+  }
+
+  /// Creates a real AssetDraft (already confirmed) for any paid bill in an
+  /// asset category that doesn't already have one, so it enters the same
+  /// depreciation-tracking system as every other asset instead of only
+  /// ever showing as an untracked fallback row.
+  Future<void> _backfillMissingAssetDrafts() async {
+    try {
+      await _ref.read(billsProvider.notifier).ready;
+      final bills = _ref.read(billsProvider).bills;
+      final draftIds = state.map((d) => d.id).toSet();
+      final newDrafts = <AssetDraft>[];
+
+      for (final bill in bills) {
+        final category = bill.category;
+        if (category == null || !isAssetCategory(category)) continue;
+        if (bill.status != BillStatus.paid) continue;
+        if (draftIds.contains(bill.id)) continue;
+
+        newDrafts.add(AssetDraft(
+          id: bill.id,
+          assetName: (bill.vendorName?.isNotEmpty ?? false)
+              ? '$category — ${bill.vendorName}'
+              : (category.isNotEmpty ? category : bill.billNumber),
+          category: category,
+          amount: bill.subtotal,
+          currency: bill.currencyCode,
+          vendorName: bill.vendorName,
+          billReference: bill.reference,
+          date: bill.date,
+          isConfirmed: true,
+        ));
+      }
+
+      if (newDrafts.isNotEmpty) {
+        state = [...state, ...newDrafts];
+        await _save();
+      }
+    } catch (_) {
+      // Best-effort — never let this block or crash startup.
+    }
   }
 
   Future<void> _backfillMissingSchedules() async {
