@@ -6,8 +6,9 @@ import 'package:intl/intl.dart';
 import '../core/theme/app_theme.dart';
 import '../core/services/auth_service.dart';
 import '../core/services/server_sync_service.dart';
-import '../core/services/data_service.dart' show databaseProvider, reloadAllCoreProviders;
+import '../core/services/data_service.dart' show databaseProvider;
 import '../core/providers/sync_status_provider.dart';
+import '../features/settings/settings_screen.dart' show reloadEverythingAfterRestore;
 
 class AppShell extends ConsumerStatefulWidget {
   final Widget child;
@@ -114,7 +115,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     // Files on disk are now correct, but the already-running app's
     // providers won't know that on their own — reload them so the UI
     // reflects the restore immediately instead of needing a full restart.
-    if (result.success) await reloadAllCoreProviders(ref.read);
+    if (result.success) await reloadEverythingAfterRestore(ref.read, ref.invalidate);
     if (!mounted) return;
     messenger.showSnackBar(SnackBar(
       content: Text(result.success

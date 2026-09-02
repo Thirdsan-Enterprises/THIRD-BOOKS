@@ -25,6 +25,32 @@ import '../../core/database/app_database.dart';
 import '../banking/banking_screen.dart' show bankTransactionsProvider;
 import '../outlets/outlet_settled_screen.dart' show outletSettlementsProvider;
 
+/// Full reload of every provider a restore (server or local file) can
+/// touch — not just the 7 core accounting entities. A restore that leaves
+/// even one of these stale in memory reintroduces the exact same bug: the
+/// next normal edit through that stale provider saves it back to disk and
+/// silently undoes part of the restore. Takes generic read/invalidate
+/// readers so it works from both a ConsumerState's `ref` and a plain
+/// State's `ProviderContainer`.
+Future<void> reloadEverythingAfterRestore(
+  T Function<T>(ProviderListenable<T> provider) read,
+  void Function(ProviderOrFamily provider) invalidate,
+) async {
+  await reloadAllCoreProviders(read);
+  try {
+    await read(creditNotesProvider.notifier).reload();
+    await read(debitNotesProvider.notifier).reload();
+    await read(localBankStatementsProvider.notifier).reload();
+    await read(assetDraftsProvider.notifier).reload();
+    await read(depreciationSchedulesProvider.notifier).reload();
+    await read(localAttachmentsProvider.notifier).reload();
+    invalidate(bankTransactionsProvider);
+    invalidate(outletSettlementsProvider);
+  } catch (_) {
+    // Best-effort — must never mask the restore's own success/failure.
+  }
+}
+
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -1810,7 +1836,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           // own — reload them so the UI reflects the
                           // restore immediately instead of needing a full
                           // app restart.
-                          await reloadAllCoreProviders(ref.read);
+                          await reloadEverythingAfterRestore(ref.read, ref.invalidate);
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                               content: Text('Restored ${result.totalRecords} records successfully'),
@@ -2829,7 +2855,7 @@ class _ServerBackupCardState extends State<_ServerBackupCard> {
     // Files on disk are now correct, but the already-running app's
     // providers won't know that on their own — reload them so the UI
     // reflects the restore immediately instead of needing a full restart.
-    if (result.success) await reloadAllCoreProviders(container.read);
+    if (result.success) await reloadEverythingAfterRestore(container.read, container.invalidate);
     if (!mounted) return;
     setState(() {
       _restoring  = false;
