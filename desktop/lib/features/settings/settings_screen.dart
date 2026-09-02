@@ -1805,6 +1805,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                           if (confirm != true || !mounted) return;
                           final result = await backup.restoreFromFile(filePath);
+                          // Files on disk are now correct, but the already-
+                          // running app's providers won't know that on their
+                          // own — reload them so the UI reflects the
+                          // restore immediately instead of needing a full
+                          // app restart.
+                          await reloadAllCoreProviders(ref.read);
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                               content: Text('Restored ${result.totalRecords} records successfully'),
@@ -2817,8 +2823,13 @@ class _ServerBackupCardState extends State<_ServerBackupCard> {
     if (confirm != true || !mounted) return;
 
     setState(() { _restoring = true; _statusMsg = null; });
-    final db     = ProviderScope.containerOf(context, listen: false).read(databaseProvider);
+    final container = ProviderScope.containerOf(context, listen: false);
+    final db     = container.read(databaseProvider);
     final result = await ServerSyncService.pullAndRestore(db);
+    // Files on disk are now correct, but the already-running app's
+    // providers won't know that on their own — reload them so the UI
+    // reflects the restore immediately instead of needing a full restart.
+    if (result.success) await reloadAllCoreProviders(container.read);
     if (!mounted) return;
     setState(() {
       _restoring  = false;

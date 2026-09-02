@@ -1772,6 +1772,34 @@ final journalsProvider = StateNotifierProvider<JournalsNotifier, JournalsState>(
 });
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Forces every core data provider to reload directly from disk. Any restore
+// (server pull or local .thirdbooks file import) writes straight to the
+// JSON files via LocalStorageService — it does NOT touch the already-running
+// app's in-memory provider state on its own. Without calling this
+// afterward, the files on disk are correctly restored but the UI keeps
+// showing whatever was in memory before the restore until the app is fully
+// closed and reopened — which looks exactly like "the restore didn't work"
+// even though it did. Takes a generic reader so it works from both a
+// ConsumerState's `ref.read` and a plain State's `ProviderContainer.read`.
+// ---------------------------------------------------------------------------
+Future<void> reloadAllCoreProviders(
+    T Function<T>(ProviderListenable<T> provider) read) async {
+  try {
+    await read(accountsProvider.notifier).loadAccounts();
+    await read(customersProvider.notifier).loadCustomers();
+    await read(vendorsProvider.notifier).loadVendors();
+    await read(invoicesProvider.notifier).loadInvoices();
+    await read(billsProvider.notifier).loadBills();
+    await read(journalsProvider.notifier).loadJournals();
+    await read(paymentsProvider.notifier).loadPayments();
+  } catch (_) {
+    // Best-effort — a failed reload here must never mask the restore's
+    // own success/failure result.
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Ledger Balances — derived from posted journal entries
 // ---------------------------------------------------------------------------
 // Returns { accountId → (∑ debits − ∑ credits) } for every posted JE.
