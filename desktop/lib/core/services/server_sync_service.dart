@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -193,13 +194,22 @@ class ServerSyncService {
         receiveTimeout: const Duration(seconds: 120),
       ));
 
-      final response = await dio.get<String>(
-        '$url/pull.php',
-        options: Options(
-          headers: {'X-API-Key': apiKey},
-          responseType: ResponseType.plain,
-        ),
-      );
+      // Dio's receiveTimeout only resets on activity — on a slow-but-not-dead
+      // connection, data can keep trickling in indefinitely without ever
+      // technically timing out, leaving the UI showing a spinner with no
+      // way to tell "still working" from "stuck". A backup is typically
+      // ~20MB; cap the whole download at a generous but bounded ceiling so
+      // this always resolves one way or the other within a few minutes.
+      final response = await dio
+          .get<String>(
+            '$url/pull.php',
+            options: Options(
+              headers: {'X-API-Key': apiKey},
+              responseType: ResponseType.plain,
+            ),
+          )
+          .timeout(const Duration(minutes: 4), onTimeout: () => throw TimeoutException(
+              'Download is taking too long — check your internet connection and try again.'));
 
       if (response.statusCode != 200 || response.data == null) {
         return ServerSyncResult(
@@ -225,6 +235,8 @@ class ServerSyncService {
         counts: result.counts.cast<String, int>(),
         syncedAt: response.headers.value('x-backup-date'),
       );
+    } on TimeoutException catch (e) {
+      return ServerSyncResult(success: false, error: e.message);
     } on DioException catch (e) {
       return ServerSyncResult(
         success: false,
