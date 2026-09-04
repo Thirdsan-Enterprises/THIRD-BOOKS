@@ -108,20 +108,29 @@ class ServerSyncService {
       final svc = LocalBackupService(ls, db);
       final json = await svc.exportAsJson();
 
+      // A real backup is routinely 19-20MB. On a slow upload connection
+      // (upload speed is often far worse than download on the same line),
+      // a 60-second sendTimeout is not generous enough and aborts a
+      // perfectly healthy, still-in-progress upload — exactly what
+      // happened live: "request took longer than 0:01:00 to send data."
+      // Matches the same 4-minute ceiling used for the download side.
       final dio = Dio(BaseOptions(
         connectTimeout: const Duration(seconds: 30),
-        receiveTimeout: const Duration(seconds: 60),
-        sendTimeout:    const Duration(seconds: 60),
+        receiveTimeout: const Duration(minutes: 4),
+        sendTimeout:    const Duration(minutes: 4),
       ));
 
-      final response = await dio.post(
-        '$url/push.php',
-        data: json,
-        options: Options(headers: {
-          'X-API-Key':     apiKey,
-          'Content-Type':  'application/json',
-        }),
-      );
+      final response = await dio
+          .post(
+            '$url/push.php',
+            data: json,
+            options: Options(headers: {
+              'X-API-Key':     apiKey,
+              'Content-Type':  'application/json',
+            }),
+          )
+          .timeout(const Duration(minutes: 4), onTimeout: () => throw TimeoutException(
+              'Upload is taking too long — check your internet connection and try again.'));
 
       if (response.statusCode == 200) {
         final now = DateTime.now().toIso8601String();
@@ -135,6 +144,8 @@ class ServerSyncService {
         success: false,
         error: 'Server returned ${response.statusCode}',
       );
+    } on TimeoutException catch (e) {
+      return ServerSyncResult(success: false, error: e.message);
     } on DioException catch (e) {
       return ServerSyncResult(
         success: false,
