@@ -123,6 +123,10 @@ class LocalAttachmentsNotifier extends StateNotifier<List<LocalAttachment>> {
         'local_attachments', state, (a) => a.toJson());
   }
 
+  /// Reload from disk — used after a restore overwrites the file so the
+  /// running app reflects it immediately instead of needing a restart.
+  Future<void> reload() => _load();
+
   // Returns the directory where attachments for a given type+record are stored.
   static Future<Directory> _attachmentDir(
       String attachableType, String localRecordId) async {
