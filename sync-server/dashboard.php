@@ -141,10 +141,27 @@ $size       = $latest ? round(filesize($latest) / 1024, 1) . ' KB' : null;
 $counts     = [];
 $exportedAt = null;
 
+// Cheap textual extraction from just the file's header (version/app/
+// exported_at/counts all sit near the top, before the large 'data' block)
+// instead of json_decode()'ing the whole file — a real backup can be
+// 19MB+, and decoding it fully can exceed this host's PHP memory_limit,
+// which is exactly what started 500-ing this page.
+function dashboardQuickField($file, $key) {
+    $head = file_get_contents($file, false, null, 0, 8192);
+    if ($head === false) return null;
+    if (preg_match('/"' . preg_quote($key, '/') . '"\s*:\s*"([^"]*)"/', $head, $m)) {
+        return $m[1];
+    }
+    return null;
+}
+
 if ($latest) {
-    $raw        = json_decode(file_get_contents($latest), true);
-    $counts     = $raw['counts']      ?? [];
-    $exportedAt = $raw['exported_at'] ?? null;
+    $head = file_get_contents($latest, false, null, 0, 8192);
+    $counts = [];
+    if ($head !== false && preg_match('/"counts"\s*:\s*(\{[^}]*\})/', $head, $m)) {
+        $counts = json_decode($m[1], true) ?: [];
+    }
+    $exportedAt = dashboardQuickField($latest, 'exported_at');
 }
 
 $syncedToday    = $latest && date('Y-m-d', filemtime($latest)) === date('Y-m-d');

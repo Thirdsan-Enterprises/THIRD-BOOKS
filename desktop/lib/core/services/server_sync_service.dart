@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -107,20 +108,29 @@ class ServerSyncService {
       final svc = LocalBackupService(ls, db);
       final json = await svc.exportAsJson();
 
+      // A real backup is routinely 19-20MB. On a slow upload connection
+      // (upload speed is often far worse than download on the same line),
+      // a 60-second sendTimeout is not generous enough and aborts a
+      // perfectly healthy, still-in-progress upload — exactly what
+      // happened live: "request took longer than 0:01:00 to send data."
+      // Matches the same 4-minute ceiling used for the download side.
       final dio = Dio(BaseOptions(
         connectTimeout: const Duration(seconds: 30),
-        receiveTimeout: const Duration(seconds: 60),
-        sendTimeout:    const Duration(seconds: 60),
+        receiveTimeout: const Duration(minutes: 4),
+        sendTimeout:    const Duration(minutes: 4),
       ));
 
-      final response = await dio.post(
-        '$url/push.php',
-        data: json,
-        options: Options(headers: {
-          'X-API-Key':     apiKey,
-          'Content-Type':  'application/json',
-        }),
-      );
+      final response = await dio
+          .post(
+            '$url/push.php',
+            data: json,
+            options: Options(headers: {
+              'X-API-Key':     apiKey,
+              'Content-Type':  'application/json',
+            }),
+          )
+          .timeout(const Duration(minutes: 4), onTimeout: () => throw TimeoutException(
+              'Upload is taking too long — check your internet connection and try again.'));
 
       if (response.statusCode == 200) {
         final now = DateTime.now().toIso8601String();
@@ -134,6 +144,8 @@ class ServerSyncService {
         success: false,
         error: 'Server returned ${response.statusCode}',
       );
+    } on TimeoutException catch (e) {
+      return ServerSyncResult(success: false, error: e.message);
     } on DioException catch (e) {
       return ServerSyncResult(
         success: false,
@@ -193,13 +205,22 @@ class ServerSyncService {
         receiveTimeout: const Duration(seconds: 120),
       ));
 
-      final response = await dio.get<String>(
-        '$url/pull.php',
-        options: Options(
-          headers: {'X-API-Key': apiKey},
-          responseType: ResponseType.plain,
-        ),
-      );
+      // Dio's receiveTimeout only resets on activity — on a slow-but-not-dead
+      // connection, data can keep trickling in indefinitely without ever
+      // technically timing out, leaving the UI showing a spinner with no
+      // way to tell "still working" from "stuck". A backup is typically
+      // ~20MB; cap the whole download at a generous but bounded ceiling so
+      // this always resolves one way or the other within a few minutes.
+      final response = await dio
+          .get<String>(
+            '$url/pull.php',
+            options: Options(
+              headers: {'X-API-Key': apiKey},
+              responseType: ResponseType.plain,
+            ),
+          )
+          .timeout(const Duration(minutes: 4), onTimeout: () => throw TimeoutException(
+              'Download is taking too long — check your internet connection and try again.'));
 
       if (response.statusCode != 200 || response.data == null) {
         return ServerSyncResult(
@@ -225,6 +246,8 @@ class ServerSyncService {
         counts: result.counts.cast<String, int>(),
         syncedAt: response.headers.value('x-backup-date'),
       );
+    } on TimeoutException catch (e) {
+      return ServerSyncResult(success: false, error: e.message);
     } on DioException catch (e) {
       return ServerSyncResult(
         success: false,
