@@ -19,6 +19,7 @@ import '../../core/providers/local_bank_statements_provider.dart';
 import '../../core/providers/local_outlet_csv_uploads_provider.dart';
 import '../../core/providers/asset_drafts_provider.dart';
 import '../../core/providers/depreciation_schedules_provider.dart';
+import '../../core/migrations/data_corrections.dart';
 import '../../core/providers/local_attachments_provider.dart';
 import '../../core/services/server_sync_service.dart';
 import '../../core/database/app_database.dart';
@@ -1611,6 +1612,61 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  /// Temporary diagnostic tied to the 2026-09 depreciation correction (see
+  /// core/migrations/data_corrections.dart) — shows exactly which of the 13
+  /// known asset schedules are corrected / still wrong / in an unrecognized
+  /// state, and lists every actual posted depreciation/amortization entry so
+  /// a duplicate posting is visible directly instead of guessed at from a
+  /// report screenshot. Remove this button (and the migration it inspects)
+  /// once no longer needed.
+  Future<void> _diagnoseDepreciationCorrection() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(children: [
+          SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: 16),
+          Text('Building depreciation diagnostic report…'),
+        ]),
+      ),
+    );
+
+    final report = await buildDepreciationDiagnosticReport(ref);
+
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop(); // close loading dialog
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Depreciation Correction Diagnostic'),
+        content: SizedBox(
+          width: 640,
+          height: 480,
+          child: SingleChildScrollView(
+            child: SelectableText(report, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: report));
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Copied to clipboard')),
+                );
+              }
+            },
+            icon: const Icon(Icons.copy, size: 16),
+            label: const Text('Copy to Clipboard'),
+          ),
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSyncSettings(BuildContext context) {
     Future<void> _confirmResetLocalData() async {
       final ok = await showDialog<bool>(
@@ -1897,11 +1953,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ]),
                   const SizedBox(height: 16),
-                  OutlinedButton.icon(
-                    onPressed: _diagnoseAndRefreshLocalData,
-                    icon: const Icon(Icons.refresh, size: 18),
-                    label: const Text('Diagnose & Refresh Local Data'),
-                  ),
+                  Wrap(spacing: 12, runSpacing: 12, children: [
+                    OutlinedButton.icon(
+                      onPressed: _diagnoseAndRefreshLocalData,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Diagnose & Refresh Local Data'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _diagnoseDepreciationCorrection,
+                      icon: const Icon(Icons.fact_check_outlined, size: 18),
+                      label: const Text('Diagnose Depreciation Correction'),
+                    ),
+                  ]),
                 ],
               ),
             ),
