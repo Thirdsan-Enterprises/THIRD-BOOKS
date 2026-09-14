@@ -1632,7 +1632,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
 
-    final report = await buildDepreciationDiagnosticReport(ref);
+    final report = await buildDepreciationDiagnosticReport(ref.read);
 
     if (!mounted) return;
     Navigator.of(context, rootNavigator: true).pop(); // close loading dialog

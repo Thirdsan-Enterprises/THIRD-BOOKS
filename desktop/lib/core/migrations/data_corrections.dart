@@ -31,7 +31,7 @@ const _migrationAssetPaths = [
   'assets/migrations/depreciation_correction_2026_09.json',
 ];
 
-Future<void> runDataCorrectionMigrations(Ref ref) async {
+Future<void> runDataCorrectionMigrations(T Function<T>(ProviderListenable<T> provider) read) async {
   final storage = LocalStorageService.instance;
   await storage.initialize();
   final applied = await storage.getAppliedMigrations();
@@ -43,7 +43,7 @@ Future<void> runDataCorrectionMigrations(Ref ref) async {
       final id = payload['id'] as String;
       if (applied.contains(id)) continue;
 
-      await _applyDepreciationCorrection(ref, payload);
+      await _applyDepreciationCorrection(read, payload);
       await storage.markMigrationApplied(id);
     } catch (e) {
       // Never block app startup on this. Not marking as applied means it
@@ -53,16 +53,16 @@ Future<void> runDataCorrectionMigrations(Ref ref) async {
   }
 }
 
-Future<void> _applyDepreciationCorrection(Ref ref, Map<String, dynamic> payload) async {
-  final journalsNotifier = ref.read(journalsProvider.notifier);
-  final schedulesNotifier = ref.read(depreciationSchedulesProvider.notifier);
+Future<void> _applyDepreciationCorrection(T Function<T>(ProviderListenable<T> provider) read, Map<String, dynamic> payload) async {
+  final journalsNotifier = read(journalsProvider.notifier);
+  final schedulesNotifier = read(depreciationSchedulesProvider.notifier);
 
   await journalsNotifier.ready;
   await schedulesNotifier.ready;
 
-  final currentEntryIds = ref.read(journalsProvider).entries.map((e) => e.id).toSet();
+  final currentEntryIds = read(journalsProvider).entries.map((e) => e.id).toSet();
   final currentSchedulesById = {
-    for (final s in ref.read(depreciationSchedulesProvider)) s.id: s,
+    for (final s in read(depreciationSchedulesProvider)) s.id: s,
   };
 
   // Only remove ids that are actually still present (already removed some
@@ -118,7 +118,7 @@ Future<void> _applyDepreciationCorrection(Ref ref, Map<String, dynamic> payload)
 // can be answered directly from the app (Settings → "Diagnose Depreciation
 // Correction") instead of reverse-engineering it from report screenshots.
 // ---------------------------------------------------------------------------
-Future<String> buildDepreciationDiagnosticReport(Ref ref) async {
+Future<String> buildDepreciationDiagnosticReport(T Function<T>(ProviderListenable<T> provider) read) async {
   const assetPath = 'assets/migrations/depreciation_correction_2026_09.json';
   final buf = StringBuffer();
 
@@ -130,10 +130,10 @@ Future<String> buildDepreciationDiagnosticReport(Ref ref) async {
     return 'Could not load $assetPath: $e';
   }
 
-  final journalsNotifier = ref.read(journalsProvider.notifier);
+  final journalsNotifier = read(journalsProvider.notifier);
   await journalsNotifier.ready;
-  final allEntries = ref.read(journalsProvider).entries;
-  final schedules = ref.read(depreciationSchedulesProvider);
+  final allEntries = read(journalsProvider).entries;
+  final schedules = read(depreciationSchedulesProvider);
   final schedulesById = {for (final s in schedules) s.id: s};
 
   final storage = LocalStorageService.instance;

@@ -101,7 +101,7 @@ class SyncStatusNotifier extends StateNotifier<SyncStatusState> {
     // to evaluate against yet — this naturally re-runs on the next login,
     // once _checkNeedsInitialRestore sees the restored file has content.
     if (!state.needsInitialRestore) {
-      await runDataCorrectionMigrations(_ref);
+      await runDataCorrectionMigrations(_ref.read);
     }
 
     // Push immediately on login so a session that closes early still gets
