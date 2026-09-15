@@ -1,20 +1,22 @@
 // One-time, versioned data-correction migrations.
 //
-// Unlike the rest of the app, code in here is allowed to be tied to one
-// specific historical incident and even to specific hardcoded record ids —
-// that is the whole point. Each migration ships as a small bundled JSON
-// asset (assets/migrations/*.json) describing an exact known-bad state and
-// its correction. At startup, every value is checked against the CURRENT
-// local data before anything is touched, so a migration is a safe no-op on
-// any machine whose data doesn't match — a different install, or one
-// already corrected some other way (e.g. a manual file swap done before
-// this shipped). Applied migrations are recorded on disk so none of this
-// ever runs twice.
+// Code in here is allowed to be tied to one specific historical incident and
+// to specific hardcoded record ids — that is the whole point. Each migration
+// ships as a small bundled JSON asset (assets/migrations/*.json) describing
+// exactly what to change, is checked against the CURRENT local data before
+// anything is touched, and is recorded once applied so it never runs twice.
 //
-// Each entry below should be deleted (and its asset file removed) once
-// confirmed applied everywhere it needs to be — this is meant to be
-// temporary, same as the emergency diagnostic endpoints elsewhere in this
-// codebase (see sync-server/debug_log.php).
+// A migration that ADDS records is retired here, deliberately. The first
+// version of this file added corrected journal entries and skipped any whose
+// id was already present — but the app had already posted its own entries for
+// the same assets and months under DIFFERENT ids, so the id check passed and
+// every August entry ended up posted twice. Matching on id alone is not a
+// duplicate check; it only catches re-running the same migration.
+//
+// So migrations here only ever REMOVE records (by exact id, which is
+// idempotent — an id is either present or it is not) and SET known-correct
+// values. Anything that needs records created should go through the app's
+// normal posting path, which has a real duplicate guard.
 
 import 'dart:convert';
 
@@ -28,7 +30,7 @@ import '../services/data_service.dart' show journalsProvider;
 import '../services/local_storage_service.dart';
 
 const _migrationAssetPaths = [
-  'assets/migrations/depreciation_correction_2026_09.json',
+  'assets/migrations/depreciation_duplicate_cleanup_2026_09.json',
 ];
 
 Future<void> runDataCorrectionMigrations(T Function<T>(ProviderListenable<T> provider) read) async {
@@ -43,191 +45,160 @@ Future<void> runDataCorrectionMigrations(T Function<T>(ProviderListenable<T> pro
       final id = payload['id'] as String;
       if (applied.contains(id)) continue;
 
-      await _applyDepreciationCorrection(read, payload);
-      await storage.markMigrationApplied(id);
+      final ok = await _applyCorrection(read, payload);
+      // Only record it as done if it actually ran against real data. A
+      // machine whose ledger failed to load must get another chance on a
+      // later launch rather than having the migration quietly marked off.
+      if (ok) await storage.markMigrationApplied(id);
     } catch (e) {
-      // Never block app startup on this. Not marking as applied means it
-      // simply gets re-evaluated (and re-attempted) on the next launch.
       debugPrint('Data-correction migration $assetPath failed, will retry next launch: $e');
     }
   }
 }
 
-Future<void> _applyDepreciationCorrection(T Function<T>(ProviderListenable<T> provider) read, Map<String, dynamic> payload) async {
+Future<bool> _applyCorrection(
+    T Function<T>(ProviderListenable<T> provider) read, Map<String, dynamic> payload) async {
   final journalsNotifier = read(journalsProvider.notifier);
   final schedulesNotifier = read(depreciationSchedulesProvider.notifier);
 
   await journalsNotifier.ready;
   await schedulesNotifier.ready;
 
-  final currentEntryIds = read(journalsProvider).entries.map((e) => e.id).toSet();
-  final currentSchedulesById = {
-    for (final s in read(depreciationSchedulesProvider)) s.id: s,
-  };
+  final journalsState = read(journalsProvider);
+  // Never edit a ledger the app could not read. Acting on an empty
+  // in-memory list here would mean "none of these ids are present, nothing
+  // to remove" — and the migration would mark itself done having fixed
+  // nothing.
+  if (journalsState.loadFailed) {
+    debugPrint('Skipping correction: journals failed to load, will retry next launch');
+    return false;
+  }
 
-  // Only remove ids that are actually still present (already removed some
-  // other way is a no-op, not an error) and only add entries whose id isn't
-  // already there (so this is safe to evaluate even after a manual fix).
-  final removeIds = ((payload['removeJournalEntryIds'] as List<dynamic>?) ?? [])
-      .map((e) => e.toString())
-      .where(currentEntryIds.contains)
-      .toSet();
+  final entriesById = {for (final e in journalsState.entries) e.id: e};
 
-  final addEntries = ((payload['addJournalEntries'] as List<dynamic>?) ?? [])
-      .map((j) => JournalEntry.fromJson(j as Map<String, dynamic>))
-      .where((e) => !currentEntryIds.contains(e.id))
-      .toList();
+  // Remove only entries that are still present AND still look like what this
+  // migration was written against. If an entry's amount or date no longer
+  // matches, something else has changed it since — leave it for a person.
+  final removeIds = <String>[];
+  for (final r in (payload['removeJournalEntries'] as List<dynamic>? ?? [])) {
+    final m = r as Map<String, dynamic>;
+    final entry = entriesById[m['id'] as String];
+    if (entry == null) continue; // already gone — nothing to do
 
-  // Only correct a schedule whose current book value still exactly matches
-  // the known-bad figure this migration was written against. Matches the
-  // already-corrected figure → leave it (already fixed some other way).
-  // Matches neither → something else changed this schedule since the
-  // incident was diagnosed; never guess, leave it alone for manual review
-  // rather than silently overwriting a book value we can no longer verify.
-  const epsilon = 1.0; // UGX — comfortably tighter than any real rounding drift
-  final scheduleCorrections = <String, ({double currentValue, DateTime lastRunDate})>{};
-  for (final u in (payload['scheduleUpdates'] as List<dynamic>? ?? [])) {
-    final m = u as Map<String, dynamic>;
-    final id = m['id'] as String;
-    final schedule = currentSchedulesById[id];
-    if (schedule == null) continue; // asset no longer exists here
+    final expectedAmount = (m['expectedAmount'] as num).toDouble();
+    final actualAmount =
+        entry.lines.fold(0.0, (s, l) => s + (l.debit > 0 ? l.debit : 0.0));
+    final expectedDate = (m['expectedDate'] as String).substring(0, 10);
+    final actualDate = entry.date.toIso8601String().substring(0, 10);
 
-    final expectedBad = (m['expectedBadCurrentValue'] as num).toDouble();
-    if ((schedule.currentValue - expectedBad).abs() <= epsilon) {
-      scheduleCorrections[id] = (
-        currentValue: (m['correctedCurrentValue'] as num).toDouble(),
-        lastRunDate: DateTime.parse(m['correctedLastRunDate'] as String),
-      );
+    if ((actualAmount - expectedAmount).abs() <= 1.0 && actualDate == expectedDate) {
+      removeIds.add(entry.id);
+    } else {
+      debugPrint('Correction: leaving ${entry.id} alone — it no longer matches '
+          'what this migration expected (amount/date changed)');
     }
   }
 
-  if (removeIds.isNotEmpty) journalsNotifier.removeEntries(removeIds.toList());
-  if (addEntries.isNotEmpty) await journalsNotifier.addEntries(addEntries);
+  // Schedules are set to a known-correct value rather than adjusted, so
+  // applying this twice lands on the same place.
+  final scheduleCorrections = <String, ({double currentValue, DateTime lastRunDate})>{};
+  final schedulesById = {for (final s in read(depreciationSchedulesProvider)) s.id: s};
+  for (final u in (payload['scheduleUpdates'] as List<dynamic>? ?? [])) {
+    final m = u as Map<String, dynamic>;
+    final id = m['id'] as String;
+    if (!schedulesById.containsKey(id)) continue;
+    scheduleCorrections[id] = (
+      currentValue: (m['correctedCurrentValue'] as num).toDouble(),
+      lastRunDate: DateTime.parse(m['correctedLastRunDate'] as String),
+    );
+  }
+
+  if (removeIds.isNotEmpty) journalsNotifier.removeEntries(removeIds);
   if (scheduleCorrections.isNotEmpty) {
     await schedulesNotifier.applyCorrections(scheduleCorrections);
   }
+  debugPrint('Correction "${payload['id']}": removed ${removeIds.length} entries, '
+      'reset ${scheduleCorrections.length} schedules');
+  return true;
 }
 
 // ---------------------------------------------------------------------------
-// Read-only diagnostic — never writes anything. Traces exactly what the
-// 2026-09 depreciation correction expected to find against what a machine's
-// data ACTUALLY holds right now: which of the 13 known schedules are
-// corrected / still on the known-bad figure / diverged into a third,
-// unrecognized state, and whether any DEPR-/AMRT- journal entry exists more
-// than once for the same asset+month (duplicate posting). Exists so this
-// can be answered directly from the app (Settings → "Diagnose Depreciation
-// Correction") instead of reverse-engineering it from report screenshots.
+// Read-only diagnostic — never writes anything. Reports what is actually
+// posted per asset and month, flags any asset+month posted more than once,
+// and shows monthly totals computed the same way the Income Statement
+// computes them, so a figure on screen can be traced to real records.
 // ---------------------------------------------------------------------------
-Future<String> buildDepreciationDiagnosticReport(T Function<T>(ProviderListenable<T> provider) read) async {
-  const assetPath = 'assets/migrations/depreciation_correction_2026_09.json';
+Future<String> buildDepreciationDiagnosticReport(
+    T Function<T>(ProviderListenable<T> provider) read) async {
   final buf = StringBuffer();
-
-  Map<String, dynamic> payload;
-  try {
-    final raw = await rootBundle.loadString(assetPath);
-    payload = jsonDecode(raw) as Map<String, dynamic>;
-  } catch (e) {
-    return 'Could not load $assetPath: $e';
-  }
-
   final journalsNotifier = read(journalsProvider.notifier);
   await journalsNotifier.ready;
-  final allEntries = read(journalsProvider).entries;
+
+  final journalsState = read(journalsProvider);
+  if (journalsState.loadFailed) {
+    return 'The journals file could not be read on this machine, so there is '
+        'nothing reliable to report yet. Reopen the app — it now repairs this '
+        'automatically — and run this again.';
+  }
+
+  final allEntries = journalsState.entries;
   final schedules = read(depreciationSchedulesProvider);
-  final schedulesById = {for (final s in schedules) s.id: s};
 
   final storage = LocalStorageService.instance;
   await storage.initialize();
   final applied = await storage.getAppliedMigrations();
-  buf.writeln('Migration "${payload['id']}" applied on this machine: '
-      '${applied.contains(payload['id']) ? "YES" : "NO"}');
+  buf.writeln('Applied corrections: ${applied.isEmpty ? "(none)" : applied.join(", ")}');
+  buf.writeln('Journal entries loaded: ${allEntries.length}');
   buf.writeln();
 
-  // ── Per-asset schedule state ────────────────────────────────────────────
-  buf.writeln('SCHEDULES (13 known assets from the correction payload)');
+  buf.writeln('SCHEDULES');
   buf.writeln(''.padRight(72, '-'));
-  const epsilon = 1.0;
-  final knownReferences = <String>{
-    for (final e in (payload['addJournalEntries'] as List<dynamic>? ?? []))
-      if ((e as Map<String, dynamic>)['reference'] != null) e['reference'] as String,
-  };
-  for (final u in (payload['scheduleUpdates'] as List<dynamic>? ?? [])) {
-    final m = u as Map<String, dynamic>;
-    final id = m['id'] as String;
-    final name = m['assetName'] as String;
-    final expectedBad = (m['expectedBadCurrentValue'] as num).toDouble();
-    final corrected = (m['correctedCurrentValue'] as num).toDouble();
-    final schedule = schedulesById[id];
-
-    if (schedule == null) {
-      buf.writeln('$name: NOT FOUND on this machine');
-      continue;
-    }
-
-    final String status;
-    if ((schedule.currentValue - expectedBad).abs() <= epsilon) {
-      status = 'MATCHES KNOWN-BAD (not yet corrected)';
-    } else if ((schedule.currentValue - corrected).abs() <= epsilon) {
-      status = 'MATCHES CORRECTED';
-    } else {
-      status = 'DIVERGED — matches neither known-bad nor corrected figure';
-    }
-    buf.writeln('$name: currentValue=${schedule.currentValue.toStringAsFixed(2)} '
-        'lastRunDate=${schedule.lastRunDate?.toIso8601String().substring(0, 10)} — $status');
+  for (final s in schedules) {
+    buf.writeln('${s.assetName}: currentValue=${s.currentValue.toStringAsFixed(2)} '
+        'lastRunDate=${s.lastRunDate?.toIso8601String().substring(0, 10) ?? "never"} '
+        'due=${s.isDue}');
   }
   buf.writeln();
 
-  // ── Actual posted entries for each known reference, by month ───────────
-  buf.writeln('POSTED ENTRIES for the 13 known DEPR-/AMRT- reference codes');
+  // Every posted depreciation/amortisation entry, grouped by asset+month, so
+  // a double posting is visible as a count rather than inferred from a total.
+  buf.writeln('POSTED DEPRECIATION / AMORTISATION BY ASSET AND MONTH');
   buf.writeln(''.padRight(72, '-'));
-  final byRefMonth = <String, Map<int, List<JournalEntry>>>{};
+  final grouped = <String, List<double>>{};
   for (final e in allEntries) {
-    final refCode = e.reference;
-    if (refCode == null || !knownReferences.contains(refCode)) continue;
     if (e.status != JournalEntryStatus.posted) continue;
-    final ym = e.date.year * 100 + e.date.month;
-    (byRefMonth[refCode] ??= {}).putIfAbsent(ym, () => []).add(e);
+    final amount = e.lines
+        .where((l) => (l.accountCode == '143' || l.accountCode == '180') && l.debit > 0)
+        .fold(0.0, (s, l) => s + l.debit);
+    if (amount <= 0) continue;
+    final month = '${e.date.year}-${e.date.month.toString().padLeft(2, '0')}';
+    grouped.putIfAbsent('$month  ${e.description}', () => []).add(amount);
   }
-  if (byRefMonth.isEmpty) {
-    buf.writeln('(none found)');
-  } else {
-    for (final refCode in byRefMonth.keys.toList()..sort()) {
-      final byMonth = byRefMonth[refCode]!;
-      for (final ym in byMonth.keys.toList()..sort()) {
-        final entries = byMonth[ym]!;
-        final y = ym ~/ 100, m = ym % 100;
-        final flag = entries.length > 1 ? '  <== DUPLICATE (${entries.length} entries)' : '';
-        buf.writeln('$refCode  $y-${m.toString().padLeft(2, '0')}$flag');
-        for (final e in entries) {
-          final amt = e.lines.fold(0.0, (s, l) => s + l.debit);
-          buf.writeln('    id=${e.id}  date=${e.date.toIso8601String().substring(0, 10)}  amount=${amt.toStringAsFixed(2)}');
-        }
-      }
-    }
+  final keys = grouped.keys.toList()..sort();
+  for (final k in keys) {
+    final v = grouped[k]!;
+    final flag = v.length > 1 ? '   <== POSTED ${v.length} TIMES' : '';
+    buf.writeln('$k  ${v.map((a) => a.toStringAsFixed(2)).join(" + ")}$flag');
   }
   buf.writeln();
 
-  // ── Monthly totals for accounts 143/180 — mirrors the Income Statement's
-  // own grouping exactly (sum of debit, posted entries only, by month) so
-  // this can be compared line-for-line against what a report shows. ──────
-  buf.writeln('MONTHLY TOTALS (matches Income Statement math exactly)');
+  buf.writeln('MONTHLY TOTALS (same math as the Income Statement)');
   buf.writeln(''.padRight(72, '-'));
   for (final entry in [('143', 'Depreciation'), ('180', 'Amortization Expense')]) {
     final code = entry.$1, label = entry.$2;
-    final byMonth = <int, double>{};
+    final byMonth = <String, double>{};
     for (final e in allEntries) {
       if (e.status != JournalEntryStatus.posted) continue;
-      final ym = e.date.year * 100 + e.date.month;
-      for (final line in e.lines) {
-        if (line.accountCode == code) {
-          byMonth[ym] = (byMonth[ym] ?? 0) + line.debit - line.credit;
+      final month = '${e.date.year}-${e.date.month.toString().padLeft(2, '0')}';
+      for (final l in e.lines) {
+        if (l.accountCode == code) {
+          byMonth[month] = (byMonth[month] ?? 0) + l.debit - l.credit;
         }
       }
     }
     buf.writeln('$label (acct $code):');
-    for (final ym in byMonth.keys.toList()..sort()) {
-      final y = ym ~/ 100, m = ym % 100;
-      buf.writeln('   $y-${m.toString().padLeft(2, '0')}: ${byMonth[ym]!.toStringAsFixed(2)}');
+    for (final m in byMonth.keys.toList()..sort()) {
+      buf.writeln('   $m: ${byMonth[m]!.toStringAsFixed(2)}');
     }
   }
 

@@ -411,11 +411,28 @@ class DepreciationSchedulesNotifier
   /// "recorded, and it was exactly UGX 0" (which never happens in practice,
   /// but null is the honest way to express "no match").
   double? _periodAlreadyRecordedAmount(List<JournalEntry> allEntries,
-      String expenseAccountCode, DateTime periodStart, DateTime periodEnd) {
+      String expenseAccountCode, DateTime periodStart, DateTime periodEnd,
+      DepreciationSchedule schedule) {
+    // Match this ASSET's depreciation for the period, not every asset's.
+    // Summing the whole expense account meant one asset's "already recorded"
+    // amount was the total across all thirteen assets — and that total was
+    // then subtracted from that single asset's book value.
+    final reference = _referenceFor(schedule);
+    final assetName = schedule.assetName.toLowerCase();
+
     double? total;
     for (final e in allEntries) {
       if (e.status != JournalEntryStatus.posted) continue;
       if (e.date.isBefore(periodStart) || e.date.isAfter(periodEnd)) continue;
+
+      // This asset's own auto-posted entries carry its reference. A manual
+      // entry predating the schedule system won't, so fall back to naming
+      // the asset in the description — still specific to one asset, unlike
+      // matching the expense account alone.
+      final isThisAsset = e.reference == reference ||
+          (e.description).toLowerCase().contains(assetName);
+      if (!isThisAsset) continue;
+
       for (final line in e.lines) {
         if (line.accountCode == expenseAccountCode && line.debit > 0) {
           total = (total ?? 0) + line.debit;
@@ -424,6 +441,10 @@ class DepreciationSchedulesNotifier
     }
     return total;
   }
+
+  static String _referenceFor(DepreciationSchedule schedule) =>
+      '${_isIntangibleCategory(schedule.assetCategory) ? 'AMRT' : 'DEPR'}'
+      '-${schedule.id.substring(0, 6).toUpperCase()}';
 
   /// Posts journal entries for every overdue period on every schedule in
   /// [due], back-filling multiple missed months per asset in one run if
@@ -444,7 +465,25 @@ class DepreciationSchedulesNotifier
     // right after running depreciation as the first action after opening.
     await journalsNotifier.ready;
 
-    final allEntries = _ref.read(journalsProvider).entries;
+    final journalsState = _ref.read(journalsProvider);
+
+    // Finishing the load is not the same as the load having WORKED. If the
+    // journals file could not be read, state.entries is empty — and an empty
+    // ledger makes the duplicate-period guard below answer "nothing recorded
+    // for this month yet" for every asset, so a run posts a second copy of
+    // depreciation that is already there. That is exactly how August 2026
+    // ended up posted twice on a machine whose journals file was corrupt.
+    // Depreciation must never be posted against a ledger the app could not
+    // read: the guard is only as good as the history it can see.
+    if (journalsState.loadFailed) {
+      return const DepreciationPostResult(
+        posted: 0,
+        skipped: ['Depreciation was not run — the journal history could not be '
+            'read, so existing entries cannot be checked against.'],
+      );
+    }
+
+    final allEntries = journalsState.entries;
     // Collect every period's entry across every asset here, then save ONCE
     // at the end via addEntries() — calling addEntry() per period, per
     // asset, meant a full read-modify-write of the entire journals file on
@@ -479,7 +518,7 @@ class DepreciationSchedulesNotifier
         // currentValue by the amount that WAS already recorded — not by
         // zero — before advancing past this period.
         final alreadyRecorded =
-            _periodAlreadyRecordedAmount(allEntries, expenseCode, periodDate, periodEnd);
+            _periodAlreadyRecordedAmount(allEntries, expenseCode, periodDate, periodEnd, schedule);
         if (alreadyRecorded != null) {
           skipped.add('${schedule.assetName} — $periodLabel');
           current = current.applyDepreciation(periodEnd, alreadyRecorded);
@@ -493,7 +532,7 @@ class DepreciationSchedulesNotifier
           entryNumber: '${isIntangible ? 'AMRT' : 'DEP'}-${schedule.assetName.replaceAll(' ', '-').toUpperCase()}-$periodLabel',
           date: periodDate,
           description: '${isIntangible ? 'Amortization' : 'Depreciation'}: ${schedule.assetName} — $periodLabel',
-          reference: '${isIntangible ? 'AMRT' : 'DEPR'}-${schedule.id.substring(0, 6).toUpperCase()}',
+          reference: _referenceFor(schedule),
           status: JournalEntryStatus.posted,
           lines: [
             JournalLine(
