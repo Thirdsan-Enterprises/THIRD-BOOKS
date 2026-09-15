@@ -92,7 +92,51 @@ class ServerSyncService {
 
   // ── Heartbeat ─────────────────────────────────────────────────────────────
 
-  static Future<void> sendHeartbeat(String userName) async {
+  /// Returns true if the server wants this machine to push its current data
+  /// right away — set when an admin clicks "Request Sync Now" on the sync
+  /// dashboard. The app is a local-first desktop client with no inbound
+  /// connection, so the server can't reach out to it directly; this is how
+  /// a remote admin can still pull a machine's current state on demand
+  /// (within one heartbeat interval) instead of waiting on the person at
+  /// the keyboard to notice and click "Sync Now" themselves.
+  static Future<bool> sendHeartbeat(String userName) async {
+    try {
+      final url    = await getSyncUrl();
+      final apiKey = await getApiKey();
+      final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+      ));
+      final response = await dio.post(
+        '$url/heartbeat.php',
+        data: {'user': userName},
+        options: Options(headers: {
+          'X-API-Key':    apiKey,
+          'Content-Type': 'application/json',
+        }),
+      );
+      final data = response.data;
+      final decoded = data is String ? jsonDecode(data) : data;
+      return decoded is Map && decoded['force_push'] == true;
+    } catch (_) {
+      return false;
+    } // silent — never block the app for a heartbeat failure
+  }
+
+  // ── Error reporting ──────────────────────────────────────────────────────
+
+  /// Sends a small diagnostic report to the server so someone with server
+  /// access (but not physical/remote access to this machine) can see what's
+  /// going wrong without a screenshot or a WhatsApp message. Fire-and-forget,
+  /// same as the heartbeat above — this must never throw, block, or affect
+  /// what the caller was already doing when it hit whatever error this is
+  /// reporting.
+  static Future<void> reportError({
+    required String kind,
+    required String message,
+    String? userName,
+    Map<String, dynamic>? context,
+  }) async {
     try {
       final url    = await getSyncUrl();
       final apiKey = await getApiKey();
@@ -101,14 +145,19 @@ class ServerSyncService {
         receiveTimeout: const Duration(seconds: 10),
       ));
       await dio.post(
-        '$url/heartbeat.php',
-        data: {'user': userName},
+        '$url/report_error.php',
+        data: {
+          'kind': kind,
+          'message': message,
+          'user': userName ?? '',
+          'context': context,
+        },
         options: Options(headers: {
           'X-API-Key':    apiKey,
           'Content-Type': 'application/json',
         }),
       );
-    } catch (_) {} // silent — never block the app for a heartbeat failure
+    } catch (_) {} // never let diagnostic reporting itself become a problem
   }
 
   // ── Push backup to server ──────────────────────────────────────────────────
@@ -169,15 +218,18 @@ class ServerSyncService {
         return ServerSyncResult(success: true, syncedAt: now, counts: counts);
       }
 
-      return ServerSyncResult(
-        success: false,
-        error: 'Server returned ${response.statusCode}',
-      );
+      final err = 'Server returned ${response.statusCode}';
+      reportError(kind: 'sync_push_failed', message: err);
+      return ServerSyncResult(success: false, error: err);
     } on TimeoutException catch (e) {
+      reportError(kind: 'sync_push_failed', message: e.message ?? 'Timeout');
       return ServerSyncResult(success: false, error: e.message);
     } on DioException catch (e) {
-      return ServerSyncResult(success: false, error: _describeDioError(e));
+      final err = _describeDioError(e);
+      reportError(kind: 'sync_push_failed', message: err);
+      return ServerSyncResult(success: false, error: err);
     } catch (e) {
+      reportError(kind: 'sync_push_failed', message: e.toString());
       return ServerSyncResult(success: false, error: e.toString());
     }
   }
@@ -249,10 +301,9 @@ class ServerSyncService {
               'Download is taking too long — check your internet connection and try again.'));
 
       if (response.statusCode != 200 || response.data == null) {
-        return ServerSyncResult(
-          success: false,
-          error: 'Server returned ${response.statusCode}',
-        );
+        final err = 'Server returned ${response.statusCode}';
+        reportError(kind: 'sync_pull_failed', message: err);
+        return ServerSyncResult(success: false, error: err);
       }
 
       // Write to a temp file then restore via existing LocalBackupService
@@ -273,10 +324,14 @@ class ServerSyncService {
         syncedAt: response.headers.value('x-backup-date'),
       );
     } on TimeoutException catch (e) {
+      reportError(kind: 'sync_pull_failed', message: e.message ?? 'Timeout');
       return ServerSyncResult(success: false, error: e.message);
     } on DioException catch (e) {
-      return ServerSyncResult(success: false, error: _describeDioError(e));
+      final err = _describeDioError(e);
+      reportError(kind: 'sync_pull_failed', message: err);
+      return ServerSyncResult(success: false, error: err);
     } catch (e) {
+      reportError(kind: 'sync_pull_failed', message: e.toString());
       return ServerSyncResult(success: false, error: e.toString());
     }
   }
