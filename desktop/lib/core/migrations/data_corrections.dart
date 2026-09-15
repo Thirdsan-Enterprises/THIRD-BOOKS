@@ -31,7 +31,7 @@ const _migrationAssetPaths = [
   'assets/migrations/depreciation_correction_2026_09.json',
 ];
 
-Future<void> runDataCorrectionMigrations(Ref ref) async {
+Future<void> runDataCorrectionMigrations(T Function<T>(ProviderListenable<T> provider) read) async {
   final storage = LocalStorageService.instance;
   await storage.initialize();
   final applied = await storage.getAppliedMigrations();
@@ -43,7 +43,7 @@ Future<void> runDataCorrectionMigrations(Ref ref) async {
       final id = payload['id'] as String;
       if (applied.contains(id)) continue;
 
-      await _applyDepreciationCorrection(ref, payload);
+      await _applyDepreciationCorrection(read, payload);
       await storage.markMigrationApplied(id);
     } catch (e) {
       // Never block app startup on this. Not marking as applied means it
@@ -53,16 +53,16 @@ Future<void> runDataCorrectionMigrations(Ref ref) async {
   }
 }
 
-Future<void> _applyDepreciationCorrection(Ref ref, Map<String, dynamic> payload) async {
-  final journalsNotifier = ref.read(journalsProvider.notifier);
-  final schedulesNotifier = ref.read(depreciationSchedulesProvider.notifier);
+Future<void> _applyDepreciationCorrection(T Function<T>(ProviderListenable<T> provider) read, Map<String, dynamic> payload) async {
+  final journalsNotifier = read(journalsProvider.notifier);
+  final schedulesNotifier = read(depreciationSchedulesProvider.notifier);
 
   await journalsNotifier.ready;
   await schedulesNotifier.ready;
 
-  final currentEntryIds = ref.read(journalsProvider).entries.map((e) => e.id).toSet();
+  final currentEntryIds = read(journalsProvider).entries.map((e) => e.id).toSet();
   final currentSchedulesById = {
-    for (final s in ref.read(depreciationSchedulesProvider)) s.id: s,
+    for (final s in read(depreciationSchedulesProvider)) s.id: s,
   };
 
   // Only remove ids that are actually still present (already removed some
@@ -106,4 +106,130 @@ Future<void> _applyDepreciationCorrection(Ref ref, Map<String, dynamic> payload)
   if (scheduleCorrections.isNotEmpty) {
     await schedulesNotifier.applyCorrections(scheduleCorrections);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Read-only diagnostic — never writes anything. Traces exactly what the
+// 2026-09 depreciation correction expected to find against what a machine's
+// data ACTUALLY holds right now: which of the 13 known schedules are
+// corrected / still on the known-bad figure / diverged into a third,
+// unrecognized state, and whether any DEPR-/AMRT- journal entry exists more
+// than once for the same asset+month (duplicate posting). Exists so this
+// can be answered directly from the app (Settings → "Diagnose Depreciation
+// Correction") instead of reverse-engineering it from report screenshots.
+// ---------------------------------------------------------------------------
+Future<String> buildDepreciationDiagnosticReport(T Function<T>(ProviderListenable<T> provider) read) async {
+  const assetPath = 'assets/migrations/depreciation_correction_2026_09.json';
+  final buf = StringBuffer();
+
+  Map<String, dynamic> payload;
+  try {
+    final raw = await rootBundle.loadString(assetPath);
+    payload = jsonDecode(raw) as Map<String, dynamic>;
+  } catch (e) {
+    return 'Could not load $assetPath: $e';
+  }
+
+  final journalsNotifier = read(journalsProvider.notifier);
+  await journalsNotifier.ready;
+  final allEntries = read(journalsProvider).entries;
+  final schedules = read(depreciationSchedulesProvider);
+  final schedulesById = {for (final s in schedules) s.id: s};
+
+  final storage = LocalStorageService.instance;
+  await storage.initialize();
+  final applied = await storage.getAppliedMigrations();
+  buf.writeln('Migration "${payload['id']}" applied on this machine: '
+      '${applied.contains(payload['id']) ? "YES" : "NO"}');
+  buf.writeln();
+
+  // ── Per-asset schedule state ────────────────────────────────────────────
+  buf.writeln('SCHEDULES (13 known assets from the correction payload)');
+  buf.writeln(''.padRight(72, '-'));
+  const epsilon = 1.0;
+  final knownReferences = <String>{
+    for (final e in (payload['addJournalEntries'] as List<dynamic>? ?? []))
+      if ((e as Map<String, dynamic>)['reference'] != null) e['reference'] as String,
+  };
+  for (final u in (payload['scheduleUpdates'] as List<dynamic>? ?? [])) {
+    final m = u as Map<String, dynamic>;
+    final id = m['id'] as String;
+    final name = m['assetName'] as String;
+    final expectedBad = (m['expectedBadCurrentValue'] as num).toDouble();
+    final corrected = (m['correctedCurrentValue'] as num).toDouble();
+    final schedule = schedulesById[id];
+
+    if (schedule == null) {
+      buf.writeln('$name: NOT FOUND on this machine');
+      continue;
+    }
+
+    final String status;
+    if ((schedule.currentValue - expectedBad).abs() <= epsilon) {
+      status = 'MATCHES KNOWN-BAD (not yet corrected)';
+    } else if ((schedule.currentValue - corrected).abs() <= epsilon) {
+      status = 'MATCHES CORRECTED';
+    } else {
+      status = 'DIVERGED — matches neither known-bad nor corrected figure';
+    }
+    buf.writeln('$name: currentValue=${schedule.currentValue.toStringAsFixed(2)} '
+        'lastRunDate=${schedule.lastRunDate?.toIso8601String().substring(0, 10)} — $status');
+  }
+  buf.writeln();
+
+  // ── Actual posted entries for each known reference, by month ───────────
+  buf.writeln('POSTED ENTRIES for the 13 known DEPR-/AMRT- reference codes');
+  buf.writeln(''.padRight(72, '-'));
+  final byRefMonth = <String, Map<int, List<JournalEntry>>>{};
+  for (final e in allEntries) {
+    final refCode = e.reference;
+    if (refCode == null || !knownReferences.contains(refCode)) continue;
+    if (e.status != JournalEntryStatus.posted) continue;
+    final ym = e.date.year * 100 + e.date.month;
+    (byRefMonth[refCode] ??= {}).putIfAbsent(ym, () => []).add(e);
+  }
+  if (byRefMonth.isEmpty) {
+    buf.writeln('(none found)');
+  } else {
+    for (final refCode in byRefMonth.keys.toList()..sort()) {
+      final byMonth = byRefMonth[refCode]!;
+      for (final ym in byMonth.keys.toList()..sort()) {
+        final entries = byMonth[ym]!;
+        final y = ym ~/ 100, m = ym % 100;
+        final flag = entries.length > 1 ? '  <== DUPLICATE (${entries.length} entries)' : '';
+        buf.writeln('$refCode  $y-${m.toString().padLeft(2, '0')}$flag');
+        for (final e in entries) {
+          final amt = e.lines.fold(0.0, (s, l) => s + l.debit);
+          buf.writeln('    id=${e.id}  date=${e.date.toIso8601String().substring(0, 10)}  amount=${amt.toStringAsFixed(2)}');
+        }
+      }
+    }
+  }
+  buf.writeln();
+
+  // ── Monthly totals for accounts 143/180 — mirrors the Income Statement's
+  // own grouping exactly (sum of debit, posted entries only, by month) so
+  // this can be compared line-for-line against what a report shows. ──────
+  buf.writeln('MONTHLY TOTALS (matches Income Statement math exactly)');
+  buf.writeln(''.padRight(72, '-'));
+  for (final entry in [('143', 'Depreciation'), ('180', 'Amortization Expense')]) {
+    final code = entry.$1, label = entry.$2;
+    final byMonth = <int, double>{};
+    for (final e in allEntries) {
+      if (e.status != JournalEntryStatus.posted) continue;
+      final ym = e.date.year * 100 + e.date.month;
+      for (final line in e.lines) {
+        if (line.accountCode == code) {
+          byMonth[ym] = (byMonth[ym] ?? 0) + line.debit - line.credit;
+        }
+      }
+    }
+    buf.writeln('$label (acct $code):');
+    for (final ym in byMonth.keys.toList()..sort()) {
+      final y = ym ~/ 100, m = ym % 100;
+      buf.writeln('   $y-${m.toString().padLeft(2, '0')}: ${byMonth[ym]!.toStringAsFixed(2)}');
+    }
+  }
+
+  return buf.toString();
 }

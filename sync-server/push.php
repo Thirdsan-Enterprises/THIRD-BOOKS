@@ -145,6 +145,13 @@ if (!$flagged) {
     }
 }
 
+// A forced sync request (see request_sync.php) has been satisfied once a
+// good, non-flagged backup actually lands — never clear it on a flagged
+// push, since that push was set aside for review rather than accepted.
+if (!$flagged) {
+    @unlink(BACKUP_DIR . 'force_sync.json');
+}
+
 $__respond(200, [
     'status'    => 'ok',
     'saved_at'  => date('c'),

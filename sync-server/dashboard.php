@@ -183,6 +183,21 @@ if      ($hbAge === null)    { $onlineClass = 'offline'; $onlineLabel = 'Offline
 elseif  ($hbAge < 900)       { $onlineClass = 'online';  $onlineLabel = 'Online';  $onlineSub = htmlspecialchars($hbUser) . ' — last seen ' . $hbAt; }
 elseif  ($hbAge < 7200)      { $onlineClass = 'away';    $onlineLabel = 'Away';    $onlineSub = 'Last seen: ' . $hbAt . ' (' . round($hbAge/60) . ' min ago)'; }
 else                          { $onlineClass = 'offline'; $onlineLabel = 'Offline'; $onlineSub = 'Last seen: ' . ($hbAt ?? 'never') . ' (' . round($hbAge/3600, 1) . ' hrs ago)'; }
+
+// ── Force-sync request state ─────────────────────────────────────────────────
+$forceSyncFile    = BACKUP_DIR . 'force_sync.json';
+$forceSyncPending = file_exists($forceSyncFile) ? json_decode(file_get_contents($forceSyncFile), true) : null;
+
+// ── Recent client-reported errors (see report_error.php) ────────────────────
+$errorLogFile  = BACKUP_DIR . 'client_errors.jsonl';
+$recentErrors  = [];
+if (file_exists($errorLogFile)) {
+    $lines = file($errorLogFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    foreach (array_reverse(array_slice($lines, -20)) as $line) {
+        $e = json_decode($line, true);
+        if ($e) $recentErrors[] = $e;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -369,12 +384,26 @@ else                          { $onlineClass = 'offline'; $onlineLabel = 'Offlin
 <div class="page">
 
   <!-- Online / heartbeat indicator -->
-  <div class="online-bar <?= $onlineClass ?>">
-    <div class="pulse-dot"></div>
-    <div>
-      <div class="label"><?= $onlineLabel ?> — Desktop App</div>
-      <div class="sub"><?= $onlineSub ?></div>
+  <div class="online-bar <?= $onlineClass ?>" style="justify-content:space-between;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div class="pulse-dot"></div>
+      <div>
+        <div class="label"><?= $onlineLabel ?> — Desktop App</div>
+        <div class="sub"><?= $onlineSub ?></div>
+      </div>
     </div>
+    <?php if ($isAdmin): ?>
+      <?php if ($forceSyncPending): ?>
+        <span style="font-size:12px;color:#854d0e;background:#fef9c3;border:1px solid #fde68a;padding:6px 12px;border-radius:8px;">
+          ⏳ Sync requested <?= htmlspecialchars(date('H:i', strtotime($forceSyncPending['requested_at']))) ?> — waiting for the app's next check-in
+        </span>
+      <?php else: ?>
+        <button id="btnRequestSync" class="btn-download" style="border:none;cursor:pointer;"
+                onclick="requestSyncNow(this)">
+          Request Sync Now
+        </button>
+      <?php endif; ?>
+    <?php endif; ?>
   </div>
 
   <!-- Backup status -->
@@ -499,6 +528,41 @@ else                          { $onlineClass = 'offline'; $onlineLabel = 'Offlin
 
   <?php endif; // end $latest ?>
 
+  <!-- Recent client-reported errors -->
+  <?php if ($isAdmin): ?>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Recent App Errors</div>
+      <span style="font-size:12px;color:#94a3b8;">most recent <?= count($recentErrors) ?> of last 300</span>
+    </div>
+    <?php if (!$recentErrors): ?>
+      <div class="none">No errors reported by the app.</div>
+    <?php else: ?>
+    <table>
+      <tr><th>When</th><th>Kind</th><th>Message</th></tr>
+      <?php foreach ($recentErrors as $e): ?>
+      <tr>
+        <td style="white-space:nowrap;"><?= htmlspecialchars(date('d M, H:i', strtotime($e['at'] ?? 'now'))) ?></td>
+        <td><?= htmlspecialchars($e['kind'] ?? '') ?></td>
+        <td style="font-size:12px;color:#64748b;"><?= htmlspecialchars($e['message'] ?? '') ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </table>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
+
 </div><!-- /page -->
+
+<script>
+function requestSyncNow(btn) {
+  btn.disabled = true;
+  btn.textContent = 'Requesting…';
+  fetch('request_sync.php', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => location.reload())
+    .catch(() => { btn.disabled = false; btn.textContent = 'Request Sync Now'; alert('Could not request sync — try again.'); });
+}
+</script>
 </body>
 </html>

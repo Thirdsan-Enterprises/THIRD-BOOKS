@@ -101,7 +101,7 @@ class SyncStatusNotifier extends StateNotifier<SyncStatusState> {
     // to evaluate against yet — this naturally re-runs on the next login,
     // once _checkNeedsInitialRestore sees the restored file has content.
     if (!state.needsInitialRestore) {
-      await runDataCorrectionMigrations(_ref);
+      await runDataCorrectionMigrations(_ref.read);
     }
 
     // Push immediately on login so a session that closes early still gets
@@ -165,9 +165,16 @@ class SyncStatusNotifier extends StateNotifier<SyncStatusState> {
     } catch (_) {}
   }
 
-  void _sendHeartbeat() {
+  Future<void> _sendHeartbeat() async {
     final userName = _ref.read(authStateProvider).user?.name ?? 'unknown';
-    ServerSyncService.sendHeartbeat(userName);
+    final forcePush = await ServerSyncService.sendHeartbeat(userName);
+    // An admin clicked "Request Sync Now" on the server dashboard since this
+    // machine last pushed — push right away instead of waiting for the next
+    // 20-minute tick, so a remote person can pull current data on demand
+    // without needing the person at the keyboard to click anything.
+    if (forcePush && mounted) {
+      _autoPush();
+    }
   }
 
   /// Background push triggered by the periodic timer.

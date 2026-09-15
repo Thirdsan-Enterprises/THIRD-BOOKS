@@ -14,6 +14,7 @@ import 'package:drift/drift.dart' hide Column;
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'local_storage_service.dart';
+import 'server_sync_service.dart';
 import 'sync_service.dart';
 import 'theme_service.dart';
 import '../models/models.dart';
@@ -1594,6 +1595,18 @@ class JournalsNotifier extends StateNotifier<JournalsState> {
         loadFailed: failedToLoadRealFile,
       );
       debugPrint('Loaded ${localEntries.length} journal entries from local storage');
+
+      if (failedToLoadRealFile) {
+        // Let whoever has server access see this happened without waiting
+        // for a screenshot — this is exactly the kind of event that's easy
+        // to miss otherwise since the app itself already handles it safely
+        // (the corrupted file is preserved, not lost) and just shows a
+        // one-time dialog the user might not think to report right away.
+        ServerSyncService.reportError(
+          kind: 'journals_load_failed',
+          message: 'journals.json exists with real content but failed to parse.',
+        );
+      }
     } catch (e) {
       debugPrint('Error loading journals from local storage: $e');
       state = state.copyWith(isLoading: false);
