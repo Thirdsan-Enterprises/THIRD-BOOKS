@@ -211,9 +211,30 @@ class ServerSyncService {
               'Upload is taking too long — check your internet connection and try again.'));
 
       if (response.statusCode == 200) {
+        final body = response.data;
+        final decoded = body is String ? jsonDecode(body) : body;
+
+        // The server accepts the upload but QUARANTINES it if it looks like
+        // catastrophic data loss (e.g. a backup with almost no journal
+        // entries landing on top of one with 13,000). That is a refusal, not
+        // a success — but the client used to see HTTP 200, record a
+        // last-synced timestamp and tell the user it had synced, while the
+        // server's actual backup stayed weeks old. That is exactly the
+        // "app says Online and synced, dashboard says last sync 07 Jul"
+        // contradiction. Report it as the failure it is, and don't stamp a
+        // last-synced time for a backup the server set aside.
+        if (decoded is Map && decoded['flagged'] == true) {
+          final reason = decoded['flag_reason']?.toString() ??
+              'the server judged this upload unsafe';
+          final err = 'Server did not accept this backup: $reason. '
+              'Nothing was overwritten — the previous backup is still intact.';
+          reportError(kind: 'sync_push_flagged', message: err);
+          return ServerSyncResult(success: false, error: err);
+        }
+
         final now = DateTime.now().toIso8601String();
         await _storage.write(key: _lastSyncKey, value: now);
-        final counts = (response.data['records'] as Map?)
+        final counts = (decoded is Map ? decoded['records'] as Map? : null)
             ?.cast<String, int>() ?? {};
         return ServerSyncResult(success: true, syncedAt: now, counts: counts);
       }
