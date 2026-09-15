@@ -106,7 +106,41 @@ class LocalStorageService {
   // Generic Save/Load Methods
   // ============================================================================
 
-  Future<void> saveData<T>(String key, List<T> items, Map<String, dynamic> Function(T) toJson) async {
+  /// One in-flight write per file key, chained so two saves of the same file
+  /// can never overlap.
+  ///
+  /// Nearly every caller starts a save without awaiting it
+  /// (`_localStorage.saveJournalEntries(updated);` — dozens of such sites),
+  /// and some paths deliberately trigger a second save immediately: adding a
+  /// salary journal entry auto-generates the employer NSSF entry, a payment
+  /// auto-generates the withholding-tax entry. That second addEntry() starts
+  /// its own save while the first is still writing.
+  ///
+  /// Both writes then used the SAME temp path (below), so their bytes
+  /// interleaved and the rename published a half-written mix as the real
+  /// file — which is exactly what "a journals file exists with real data in
+  /// it, but it could not be loaded" is. The temp-file-then-rename pattern
+  /// makes a SINGLE write atomic against interruption; it does nothing about
+  /// two writers racing each other. This does, for every entity at once,
+  /// without having to await thirty-odd call sites individually.
+  final Map<String, Future<void>> _writeChains = {};
+
+  Future<void> _serializedWrite(String key, Future<void> Function() write) {
+    final previous = _writeChains[key] ?? Future<void>.value();
+    // Chain onto the previous write regardless of whether it succeeded — a
+    // failed save must never wedge every later save of that file.
+    final next = previous
+        .then((_) => write())
+        .catchError((Object e) => debugPrint('Error saving $key: $e'));
+    _writeChains[key] = next;
+    return next;
+  }
+
+  Future<void> saveData<T>(String key, List<T> items, Map<String, dynamic> Function(T) toJson) {
+    return _serializedWrite(key, () => _writeData(key, items, toJson));
+  }
+
+  Future<void> _writeData<T>(String key, List<T> items, Map<String, dynamic> Function(T) toJson) async {
     await initialize();
     final file = _getFile(key);
 
@@ -151,9 +185,97 @@ class LocalStorageService {
     // unreadable. A rename onto an existing path is a single filesystem
     // operation: either the old file is still there, or the new one
     // fully is — never a half-written mix of both.
-    final tmpFile = File('${file.path}.tmp');
-    await tmpFile.writeAsString(jsonEncode(jsonList));
-    await tmpFile.rename(file.path);
+    // The temp path is unique per write, not a fixed '<file>.tmp'. Writes of
+    // the same file are already serialized above, so this is belt-and-braces
+    // — but a shared temp path is what turned two concurrent writers into a
+    // corrupted file before, and nothing about that should be possible again
+    // even if some future path finds a way around the queue.
+    final tmpFile = File('${file.path}.${DateTime.now().microsecondsSinceEpoch}.tmp');
+    try {
+      await tmpFile.writeAsString(jsonEncode(jsonList));
+      await tmpFile.rename(file.path);
+    } catch (e) {
+      // A rename that never happened leaves the real file untouched (good),
+      // but would strand the temp file next to it — clean it up so these
+      // can't pile up in the data folder over time.
+      try {
+        if (await tmpFile.exists()) await tmpFile.delete();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  /// Pulls every complete top-level record out of a data file whose JSON as a
+  /// whole no longer parses.
+  ///
+  /// These files are a flat array of objects, so damage from a torn or
+  /// interleaved write is confined to wherever the writing stopped: records
+  /// before it are intact, the one being written is truncated, and anything
+  /// after it is a fragment of the other writer's output. Walking the text
+  /// and taking only the objects that close cleanly recovers the first group
+  /// and discards the rest. A record that survives the walk but still fails
+  /// to decode is skipped rather than abandoning the whole salvage.
+  List<dynamic> _salvageRecords(String content) {
+    final recovered = <dynamic>[];
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+    int? objectStart;
+
+    for (var i = 0; i < content.length; i++) {
+      final ch = content[i];
+
+      // Braces and quotes inside a string value are text, not structure.
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch == '\\') {
+          escaped = true;
+        } else if (ch == '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch == '"') {
+        inString = true;
+      } else if (ch == '{') {
+        if (depth == 0) objectStart = i;
+        depth++;
+      } else if (ch == '}') {
+        depth--;
+        if (depth == 0 && objectStart != null) {
+          try {
+            recovered.add(jsonDecode(content.substring(objectStart, i + 1)));
+          } catch (_) {
+            // One unreadable record must not cost us the other 22,000.
+          }
+          objectStart = null;
+        } else if (depth < 0) {
+          // A stray closing brace — the start of the other writer's output.
+          // Resync rather than letting the depth counter go negative.
+          depth = 0;
+          objectStart = null;
+        }
+      }
+    }
+    return recovered;
+  }
+
+  /// Writes an already-decoded JSON list straight back out, for salvage —
+  /// the records are raw maps at that point, with no model type to go
+  /// through. Same atomic temp-file-then-rename as every other write.
+  Future<void> _writeRaw(String key, List<dynamic> jsonList) async {
+    final file = _getFile(key);
+    final tmpFile = File('${file.path}.${DateTime.now().microsecondsSinceEpoch}.tmp');
+    try {
+      await tmpFile.writeAsString(jsonEncode(jsonList));
+      await tmpFile.rename(file.path);
+    } catch (e) {
+      try {
+        if (await tmpFile.exists()) await tmpFile.delete();
+      } catch (_) {}
+      rethrow;
+    }
   }
 
   Future<List<T>> loadData<T>(String key, T Function(Map<String, dynamic>) fromJson) async {
@@ -164,19 +286,23 @@ class LocalStorageService {
       return [];
     }
 
+    String content;
+    try {
+      content = await file.readAsString();
+    } catch (e) {
+      debugPrint('Error reading $key: $e');
+      return [];
+    }
+
     List<dynamic> jsonList;
     try {
-      final content = await file.readAsString();
       jsonList = jsonDecode(content) as List<dynamic>;
     } catch (e) {
-      // The top-level JSON itself is invalid — most likely a write that
-      // was interrupted partway (before saveData() above made writes
-      // atomic) rather than genuinely empty data. Never just drop the
-      // file and move on: preserve the raw bytes next to it so whatever
-      // is recoverable in them isn't lost to the next normal save
-      // overwriting this path, and log loudly enough that "the file on
-      // disk has real content but the app returned nothing" is
-      // diagnosable instead of looking identical to actual data loss.
+      // The top-level JSON itself is invalid — a write that was interrupted
+      // partway, or (before writes were serialized) two writes that
+      // interleaved. Never just drop the file and move on: preserve the raw
+      // bytes next to it so whatever is recoverable in them isn't lost to
+      // the next normal save overwriting this path.
       debugPrint('Error loading $key: $e');
       try {
         final preserved = File(
@@ -187,7 +313,25 @@ class LocalStorageService {
         // Preservation is best-effort — never let it block the app from
         // continuing to start up.
       }
-      return [];
+
+      // Then actually try to get the data back, instead of handing the app
+      // an empty list and leaving a person staring at empty reports until
+      // someone ships the file off for manual recovery. A torn write damages
+      // the END of the file (and, when two writes interleaved, leaves a
+      // fragment after it) — every complete record before that point is
+      // still perfectly readable. Recovering them here is the same
+      // truncation-point salvage that hand-recovered 22,614 of 22,615 real
+      // entries from this exact failure once before; there is no reason for
+      // it to need a human.
+      final salvaged = _salvageRecords(content);
+      if (salvaged.isEmpty) return [];
+
+      debugPrint('$key: salvaged ${salvaged.length} records from the unreadable file');
+      // Republish the file as valid JSON so the app is healthy from here on
+      // — the original bytes are already preserved above, so this can only
+      // improve the situation, never destroy evidence.
+      await _serializedWrite(key, () => _writeRaw(key, salvaged));
+      jsonList = salvaged;
     }
 
     // Parse each record independently so one malformed record can't wipe
@@ -315,11 +459,18 @@ class LocalStorageService {
   // Sync Queue Management
   // ============================================================================
 
-  Future<void> addToSyncQueue(SyncQueueItem item) async {
-    await initialize();
-    final queue = await loadSyncQueue();
-    queue.add(item);
-    await _saveSyncQueue(queue);
+  /// The whole read-modify-write runs inside the queue's own write chain.
+  /// queueChange() fires on every journal entry (and in a loop for batches),
+  /// so two of these could previously interleave: both read the same queue,
+  /// both wrote, and one silently dropped the other's item — on top of the
+  /// same torn-write risk the entity files had.
+  Future<void> addToSyncQueue(SyncQueueItem item) {
+    return _serializedWrite('sync_queue', () async {
+      await initialize();
+      final queue = await loadSyncQueue();
+      queue.add(item);
+      await _saveSyncQueue(queue);
+    });
   }
 
   Future<List<SyncQueueItem>> loadSyncQueue() async {
@@ -340,23 +491,39 @@ class LocalStorageService {
     }
   }
 
+  /// Writes via temp-file-then-rename like every other data file, so an
+  /// interrupted write can't leave this one unparseable either. Callers are
+  /// responsible for running this inside the 'sync_queue' write chain.
   Future<void> _saveSyncQueue(List<SyncQueueItem> queue) async {
     final file = _getFile('sync_queue');
     final jsonList = queue.map((item) => item.toJson()).toList();
-    await file.writeAsString(jsonEncode(jsonList));
-  }
-
-  Future<void> removeFromSyncQueue(String itemId) async {
-    final queue = await loadSyncQueue();
-    queue.removeWhere((item) => item.id == itemId);
-    await _saveSyncQueue(queue);
-  }
-
-  Future<void> clearSyncQueue() async {
-    final file = _getFile('sync_queue');
-    if (await file.exists()) {
-      await file.delete();
+    final tmpFile = File('${file.path}.${DateTime.now().microsecondsSinceEpoch}.tmp');
+    try {
+      await tmpFile.writeAsString(jsonEncode(jsonList));
+      await tmpFile.rename(file.path);
+    } catch (e) {
+      try {
+        if (await tmpFile.exists()) await tmpFile.delete();
+      } catch (_) {}
+      rethrow;
     }
+  }
+
+  Future<void> removeFromSyncQueue(String itemId) {
+    return _serializedWrite('sync_queue', () async {
+      final queue = await loadSyncQueue();
+      queue.removeWhere((item) => item.id == itemId);
+      await _saveSyncQueue(queue);
+    });
+  }
+
+  Future<void> clearSyncQueue() {
+    return _serializedWrite('sync_queue', () async {
+      final file = _getFile('sync_queue');
+      if (await file.exists()) {
+        await file.delete();
+      }
+    });
   }
 
   // ============================================================================
