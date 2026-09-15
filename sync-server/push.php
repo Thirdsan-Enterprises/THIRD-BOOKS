@@ -82,14 +82,35 @@ if (($_SERVER['HTTP_CONTENT_ENCODING'] ?? '') === 'gzip') {
     $body = $decoded;
 }
 
-$data = json_decode($body, true);
-if (!$data || ($data['app'] ?? '') !== APP_TAG) {
-    $__debugLog('json_decode failed or wrong app tag', [
-        'json_last_error' => json_last_error_msg(),
-        'body_head'       => substr($body, 0, 300),
-    ]);
+// ── Read the few fields we need WITHOUT decoding the whole payload ───────
+//
+// This is what broke sync. json_decode() on a full backup body expands a
+// ~34MB JSON string into several hundred MB of PHP arrays, which exceeds
+// this host's memory_limit. A memory exhaustion is a FATAL, not a catchable
+// \Throwable — so the exception handler above never ran, the output buffer
+// was discarded, and the app received a bare 500 with an empty body. That
+// is exactly what it had been getting since 7 July 2026, which is simply
+// when the backup first grew past the limit. Nothing "suddenly broke"; the
+// data crossed a line and every push after it died in the same place.
+//
+// The decoded array was only ever used for two things: checking the app tag
+// and reading 'counts'. Both sit in the first few hundred bytes, ahead of
+// the large 'data' block, so they can be read straight off the head. The
+// body itself is stored raw further down and never needed decoding at all.
+// dashboard.php and pull.php already read their fields this way, for this
+// same reason — push.php was the one place still decoding everything.
+$head = substr($body, 0, 65536);
+
+if (!preg_match('/"app"\s*:\s*"([^"]*)"/', $head, $m) || $m[1] !== APP_TAG) {
+    $__debugLog('app tag missing or wrong', ['head' => substr($head, 0, 300)]);
     $__respond(422, ['error' => 'Invalid ThirdBooks backup format']);
 }
+
+$counts = [];
+if (preg_match('/"counts"\s*:\s*(\{[^}]*\})/', $head, $m)) {
+    $counts = json_decode($m[1], true) ?: [];
+}
+$__debugLog('validated without full decode', ['counts' => $counts]);
 
 if (!is_dir(BACKUP_DIR)) mkdir(BACKUP_DIR, 0755, true);
 
@@ -102,7 +123,7 @@ if (!is_dir(BACKUP_DIR)) mkdir(BACKUP_DIR, 0755, true);
 // error anywhere. A push that looks like this is saved for forensics but
 // kept OUT of the active/"latest" set, so the real backup history can
 // never be corrupted by it again, regardless of what the client sends.
-$incomingJournals = $data['counts']['journals'] ?? null;
+$incomingJournals = $counts['journals'] ?? null;
 $flagged = false;
 $flagReason = null;
 
@@ -111,9 +132,9 @@ if ($incomingJournals !== null) {
     rsort($activeFiles);
     $currentLatest = $activeFiles[0] ?? null;
     if ($currentLatest !== null) {
-        $head = file_get_contents($currentLatest, false, null, 0, 8192);
+        $latestHead = file_get_contents($currentLatest, false, null, 0, 8192);
         $currentJournals = null;
-        if ($head !== false && preg_match('/"journals"\s*:\s*(\d+)/', $head, $m)) {
+        if ($latestHead !== false && preg_match('/"journals"\s*:\s*(\d+)/', $latestHead, $m)) {
             $currentJournals = (int) $m[1];
         }
         if ($currentJournals !== null && $currentJournals >= 100 &&
@@ -155,7 +176,7 @@ if (!$flagged) {
 $__respond(200, [
     'status'    => 'ok',
     'saved_at'  => date('c'),
-    'records'   => $data['counts'] ?? [],
+    'records'   => $counts,
     'flagged'   => $flagged,
     'flag_reason' => $flagReason,
 ]);
