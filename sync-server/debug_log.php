@@ -1,9 +1,12 @@
 <?php
-// ── debug_log.php — TEMPORARY, read-only viewer for push.php's diagnostic
-// log while tracking down a 500 error. Not protected by the real API key
-// (deliberately, so no production secret needs to be shared to use it) —
-// gated by a one-off token instead, and only exposes request metadata/error
-// text, never backup contents. Delete this file once the issue is found.
+// ── debug_log.php — one-shot cleanup for the temporary push.php diagnostic.
+//
+// This file used to serve debug_log.txt while the sync 500 was being traced.
+// That investigation is finished (cause: json_decode() on the full backup
+// exhausting memory_limit — see push.php), and the logging has been removed,
+// but debug_log.txt is already sitting in the web root on the live host and
+// nothing else can reach in to remove it. Hitting this once deletes the log
+// and then this file itself, leaving no diagnostic residue on the server.
 header('Content-Type: text/plain');
 
 if (($_GET['token'] ?? '') !== 'tmp-debug-2026-09-09') {
@@ -11,9 +14,9 @@ if (($_GET['token'] ?? '') !== 'tmp-debug-2026-09-09') {
     die('forbidden');
 }
 
-$path = __DIR__ . '/debug_log.txt';
-if (!file_exists($path)) {
-    die('No debug_log.txt yet — trigger a sync from the app first.');
-}
+$log = __DIR__ . '/debug_log.txt';
+echo file_exists($log)
+    ? (@unlink($log) ? "debug_log.txt deleted\n" : "FAILED to delete debug_log.txt\n")
+    : "debug_log.txt already gone\n";
 
-echo file_get_contents($path);
+echo @unlink(__FILE__) ? "debug_log.php deleted\n" : "FAILED to delete debug_log.php\n";

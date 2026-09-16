@@ -6,36 +6,17 @@ require 'config.php';
 
 header('Content-Type: application/json');
 
-// TEMPORARY diagnostic — a client is hitting a 500 whose actual error text
-// never reaches the app in readable form, which the raw client-side
-// exception shape suggests is a *second* failure: something (most likely a
-// stray PHP notice/warning printed before our JSON, since display_errors
-// can do that even inside a script that otherwise runs fine) is corrupting
-// the response body enough that the client can't even parse out the error
-// message we send. Buffering ALL output and logging anything unexpected
-// lets us see the real cause without needing production credentials
-// shared over chat. Remove this block (and debug_log.txt) once diagnosed —
-// same one-off pattern as the emergency status.php endpoint used earlier.
+// Buffer ALL output so that a stray PHP notice/warning printed before our
+// JSON can never corrupt the response body. This host has display_errors on
+// and no direct log access, so without this a single notice turns a working
+// response into something the app cannot parse — which is exactly how an
+// earlier failure here reached the client as an unreadable error.
 ob_start();
-$__debugLog = function ($label, $data = null) {
-    $entry = '[' . date('c') . "] $label";
-    if ($data !== null) $entry .= ': ' . (is_string($data) ? $data : json_encode($data));
-    file_put_contents(__DIR__ . '/debug_log.txt', $entry . "\n", FILE_APPEND);
-};
-$__debugLog('--- push.php request ---');
-$__debugLog('headers', [
-    'content-encoding' => $_SERVER['HTTP_CONTENT_ENCODING'] ?? null,
-    'content-length'   => $_SERVER['CONTENT_LENGTH'] ?? null,
-    'content-type'     => $_SERVER['CONTENT_TYPE'] ?? null,
-]);
 
 // Every exit point goes through this instead of a bare die(json_encode(...))
-// so stray buffered output (a PHP notice/warning printed before our JSON)
-// gets caught and logged instead of silently corrupting the response body.
-$__respond = function (int $code, array $payload) use ($__debugLog) {
-    $stray = ob_get_clean();
-    if ($stray !== '') $__debugLog('STRAY OUTPUT before response', substr($stray, 0, 2000));
-    $__debugLog('RESPONSE ' . $code, $payload);
+// so anything already buffered is discarded rather than prepended to our JSON.
+$__respond = function (int $code, array $payload) {
+    ob_get_clean();
     http_response_code($code);
     echo json_encode($payload);
     exit;
@@ -70,7 +51,6 @@ if (!$body) {
 // auto-decompress a gzipped request body the way it can auto-compress
 // responses, so this has to be done explicitly.
 if (($_SERVER['HTTP_CONTENT_ENCODING'] ?? '') === 'gzip') {
-    $__debugLog('gzip body received', ['bytes' => strlen($body)]);
     if (!function_exists('gzdecode')) {
         $__respond(500, ['error' => 'Server PHP build is missing the zlib extension (gzdecode unavailable) — cannot decompress gzip uploads']);
     }
@@ -78,7 +58,6 @@ if (($_SERVER['HTTP_CONTENT_ENCODING'] ?? '') === 'gzip') {
     if ($decoded === false) {
         $__respond(400, ['error' => 'Could not decompress gzip body']);
     }
-    $__debugLog('gzip decoded ok', ['bytes' => strlen($decoded)]);
     $body = $decoded;
 }
 
@@ -102,7 +81,6 @@ if (($_SERVER['HTTP_CONTENT_ENCODING'] ?? '') === 'gzip') {
 $head = substr($body, 0, 65536);
 
 if (!preg_match('/"app"\s*:\s*"([^"]*)"/', $head, $m) || $m[1] !== APP_TAG) {
-    $__debugLog('app tag missing or wrong', ['head' => substr($head, 0, 300)]);
     $__respond(422, ['error' => 'Invalid ThirdBooks backup format']);
 }
 
@@ -110,7 +88,6 @@ $counts = [];
 if (preg_match('/"counts"\s*:\s*(\{[^}]*\})/', $head, $m)) {
     $counts = json_decode($m[1], true) ?: [];
 }
-$__debugLog('validated without full decode', ['counts' => $counts]);
 
 if (!is_dir(BACKUP_DIR)) mkdir(BACKUP_DIR, 0755, true);
 
