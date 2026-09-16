@@ -31,6 +31,7 @@ import '../services/local_storage_service.dart';
 
 const _migrationAssetPaths = [
   'assets/migrations/depreciation_duplicate_cleanup_2026_09.json',
+  'assets/migrations/depreciation_rate_restatement_2026_09.json',
 ];
 
 Future<void> runDataCorrectionMigrations(T Function<T>(ProviderListenable<T> provider) read) async {
@@ -101,15 +102,17 @@ Future<bool> _applyCorrection(
 
   // Schedules are set to a known-correct value rather than adjusted, so
   // applying this twice lands on the same place.
-  final scheduleCorrections = <String, ({double currentValue, DateTime lastRunDate})>{};
+  final scheduleCorrections = <String, DepreciationCorrection>{};
   final schedulesById = {for (final s in read(depreciationSchedulesProvider)) s.id: s};
   for (final u in (payload['scheduleUpdates'] as List<dynamic>? ?? [])) {
     final m = u as Map<String, dynamic>;
     final id = m['id'] as String;
     if (!schedulesById.containsKey(id)) continue;
-    scheduleCorrections[id] = (
+    scheduleCorrections[id] = DepreciationCorrection(
       currentValue: (m['correctedCurrentValue'] as num).toDouble(),
       lastRunDate: DateTime.parse(m['correctedLastRunDate'] as String),
+      method: m['correctedMethod'] as String?,
+      rate: (m['correctedRate'] as num?)?.toDouble(),
     );
   }
 
