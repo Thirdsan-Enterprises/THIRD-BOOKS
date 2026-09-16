@@ -8,7 +8,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../services/local_storage_service.dart';
-import '../services/data_service.dart' show billsProvider;
+import '../services/data_service.dart' show billsProvider, journalsProvider;
+import '../models/journal_entry.dart';
 import '../models/bill.dart';
 import 'depreciation_schedules_provider.dart';
 
@@ -173,27 +174,101 @@ class AssetDraftsNotifier extends StateNotifier<List<AssetDraft>> {
     }
   }
 
-  /// Creates a depreciation schedule for [asset] using category defaults,
-  /// unless one already exists for it. Shared by confirmAsset() and the
-  /// startup backfill so both paths always agree.
+  /// Creates a depreciation schedule for [asset], unless one already exists.
+  /// Shared by confirmAsset() and the startup backfill so both paths agree.
+  ///
+  /// A category default is only ever used for an asset with NO depreciation
+  /// history. If the ledger already shows this asset being depreciated, that
+  /// history is the entity's chosen basis and the default must not override
+  /// it — recreating a lost schedule from defaults meant the asset carried on
+  /// at a rate nobody had chosen, and the next month-end posted on it. Real
+  /// case: schedules lost to a corrupt file were rebuilt at 20%/40% reducing
+  /// balance over nine months already charged at 10%/20% straight line, and
+  /// two further months posted at roughly double the correct charge before
+  /// anyone noticed, because nothing compared the new rate against the
+  /// history sitting right next to it.
+  ///
+  /// So: derive the basis from what has actually been posted, and if it
+  /// cannot be derived to the cent, create the schedule INACTIVE rather than
+  /// guess. An inactive schedule is visible and one click from correct; a
+  /// wrong rate is invisible and silently restates the accounts.
   Future<void> _ensureScheduleFor(AssetDraft asset) async {
     final schedules = _ref.read(depreciationSchedulesProvider);
     if (schedules.any((s) => s.assetDraftId == asset.id)) return;
 
     final d = defaultDepreciationFor(asset.category);
+    final history = await _postedDepreciationHistoryFor(asset);
+
+    var method = d.method;
+    var rate = d.rate;
+    var isActive = true;
+    var currentValue = asset.amount;
+    DateTime? lastRunDate;
+
+    if (history.isNotEmpty) {
+      final derived = deriveBasisFromHistory(
+          assetValue: asset.amount, history: history);
+      final charged = history.fold<double>(0, (t, h) => t + h.amount);
+      currentValue = (asset.amount - charged).clamp(0.0, asset.amount);
+      lastRunDate = history.last.periodEnd;
+      if (derived != null) {
+        method = derived.method;
+        rate = derived.rate;
+      } else {
+        isActive = false;
+      }
+    }
+
     await _ref.read(depreciationSchedulesProvider.notifier).add(DepreciationSchedule(
           id: const Uuid().v4(),
           assetDraftId: asset.id,
           assetName: asset.assetName,
           assetCategory: asset.category,
           assetValue: asset.amount,
-          currentValue: asset.amount,
-          method: d.method,
-          rate: d.rate,
+          currentValue: currentValue,
+          method: method,
+          rate: rate,
           period: 'monthly',
           startDate: asset.date,
+          lastRunDate: lastRunDate,
+          isActive: isActive,
           createdAt: DateTime.now(),
         ));
+  }
+
+  /// Every depreciation/amortisation charge already posted for [asset], oldest
+  /// first, as whole calendar periods. Returns empty when the ledger could not
+  /// be read — never a partial view, since a partial view is what makes a
+  /// derived rate wrong.
+  Future<List<PostedCharge>> _postedDepreciationHistoryFor(AssetDraft asset) async {
+    try {
+      final journalsNotifier = _ref.read(journalsProvider.notifier);
+      await journalsNotifier.ready;
+      final journalsState = _ref.read(journalsProvider);
+      if (journalsState.loadFailed) return <PostedCharge>[];
+
+      final expenseCode = expenseAccountCodeFor(asset.category);
+      final name = asset.assetName.toLowerCase();
+      final charges = <PostedCharge>[];
+      for (final e in journalsState.entries) {
+        if (e.status != JournalEntryStatus.posted) continue;
+        if (!(e.description).toLowerCase().contains(name)) continue;
+        var amount = 0.0;
+        for (final l in e.lines) {
+          if (l.accountCode == expenseCode && l.debit > 0) amount += l.debit;
+        }
+        if (amount <= 0) continue;
+        charges.add(PostedCharge(
+          periodStart: e.date,
+          periodEnd: DateTime(e.date.year, e.date.month + 1, 0),
+          amount: amount,
+        ));
+      }
+      charges.sort((a, b) => a.periodStart.compareTo(b.periodStart));
+      return charges;
+    } catch (_) {
+      return <PostedCharge>[];
+    }
   }
 
   Future<void> _save() async {

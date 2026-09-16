@@ -95,3 +95,4 @@ flutter:
     - assets/images/
     - assets/outlet_data.json
     - assets/migrations/depreciation_duplicate_cleanup_2026_09.json
+    - assets/migrations/depreciation_rate_restatement_2026_09.json

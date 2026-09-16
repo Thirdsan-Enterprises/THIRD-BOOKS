@@ -186,6 +186,8 @@ class DepreciationSchedule {
     double? currentValue,
     DateTime? lastRunDate,
     bool? isActive,
+    String? method,
+    double? rate,
   }) =>
       DepreciationSchedule(
         id: id,
@@ -194,8 +196,8 @@ class DepreciationSchedule {
         assetCategory: assetCategory,
         assetValue: assetValue,
         currentValue: currentValue ?? this.currentValue,
-        method: method,
-        rate: rate,
+        method: method ?? this.method,
+        rate: rate ?? this.rate,
         period: period,
         startDate: startDate,
         lastRunDate: lastRunDate ?? this.lastRunDate,
@@ -312,6 +314,110 @@ String _accumDeprecAccountName(String category) {
   return 'Less Accum. Depreciation — Office Equipment';
 }
 
+/// The known-correct state a one-time correction migration restores a
+/// schedule to. [method] and [rate] are optional: a correction that only
+/// needs to fix a book value leaves them null and the schedule keeps its own.
+class DepreciationCorrection {
+  final double currentValue;
+  final DateTime lastRunDate;
+  final String? method;
+  final double? rate;
+  const DepreciationCorrection({
+    required this.currentValue,
+    required this.lastRunDate,
+    this.method,
+    this.rate,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Deriving an asset's depreciation basis from what has already been posted.
+//
+// Needed because a schedule can be lost (a corrupt data file, a restore) while
+// the ledger keeps every charge ever made against the asset. Those charges are
+// the entity's chosen basis; recreating the schedule from a category default
+// throws that away silently and restates the accounts from the next month-end
+// on. Reading the basis back out of the ledger keeps the asset on the rate it
+// has always been on, without anyone having to remember what it was.
+// ---------------------------------------------------------------------------
+
+/// One depreciation/amortisation charge already posted against an asset.
+class PostedCharge {
+  final DateTime periodStart;
+  final DateTime periodEnd;
+  final double amount;
+  const PostedCharge({
+    required this.periodStart,
+    required this.periodEnd,
+    required this.amount,
+  });
+
+  /// Only whole calendar months are usable for deriving a rate — a part-month
+  /// (the first period, from the purchase date) has a day count that depends
+  /// on the purchase date, so it fits any rate you like.
+  bool get isFullMonth => periodStart.day == 1;
+  int get days => periodEnd.difference(periodStart).inDays + 1;
+}
+
+/// The (method, rate) that reproduces [history], or null if none does.
+///
+/// Deliberately strict. It fits a candidate rate to the most recent full
+/// month, then requires that rate to reproduce EVERY full month in the
+/// history to within a cent, and refuses to answer at all from fewer than two
+/// full months — one month fits both methods equally well, so "it matched"
+/// would mean nothing. Callers treat null as "ask a human", never as
+/// "fall back to a default".
+({String method, double rate})? deriveBasisFromHistory({
+  required double assetValue,
+  required List<PostedCharge> history,
+}) {
+  if (assetValue <= 0 || history.isEmpty) return null;
+
+  final ordered = [...history]
+    ..sort((a, b) => a.periodStart.compareTo(b.periodStart));
+
+  // Book value going INTO each charge, needed for the declining-balance fit.
+  final opening = <PostedCharge, double>{};
+  var book = assetValue;
+  for (final c in ordered) {
+    opening[c] = book;
+    book -= c.amount;
+  }
+
+  final full = ordered.where((c) => c.isFullMonth).toList();
+  if (full.length < 2) return null;
+
+  const daysInYear = 365.0;
+  final last = full.last;
+
+  // Straight line first: a declining-balance history has a falling charge, so
+  // it can never satisfy the straight-line check across several months, and a
+  // straight-line history is never mistaken for declining balance either.
+  for (final method in const ['straight_line', 'declining_balance']) {
+    double baseFor(PostedCharge c) =>
+        method == 'declining_balance' ? opening[c]! : assetValue;
+
+    final fitBase = baseFor(last);
+    if (fitBase <= 0) continue;
+    final rate = last.amount / last.days * daysInYear / fitBase * 100;
+    if (rate <= 0 || rate > 100) continue;
+
+    final reproducesEveryMonth = full.every((c) {
+      final expected = baseFor(c) * rate / 100 / daysInYear * c.days;
+      return (expected - c.amount).abs() <= 0.01;
+    });
+    if (reproducesEveryMonth) {
+      return (method: method, rate: double.parse(rate.toStringAsFixed(4)));
+    }
+  }
+  return null;
+}
+
+/// The expense account a charge for [category] is posted to — 143 for
+/// tangibles, 180 for intangibles. Public so the asset backfill can find an
+/// asset's existing charges using the same mapping that posts them.
+String expenseAccountCodeFor(String category) => _expenseAccountCode(category);
+
 /// Result of a posting run — the manual UI turns this into a snackbar; the
 /// automatic on-login check just uses `posted` to decide whether anything
 /// changed worth telling the app shell about.
@@ -389,7 +495,7 @@ class DepreciationSchedulesNotifier
   /// effect of a specific, already-diagnosed bug from schedules it
   /// silently corrupted, once the correct book values are known.
   Future<void> applyCorrections(
-      Map<String, ({double currentValue, DateTime lastRunDate})> corrections) async {
+      Map<String, DepreciationCorrection> corrections) async {
     if (corrections.isEmpty) return;
     await ready;
     var changed = false;
@@ -397,7 +503,17 @@ class DepreciationSchedulesNotifier
       final c = corrections[s.id];
       if (c == null) return s;
       changed = true;
-      return s.copyWith(currentValue: c.currentValue, lastRunDate: c.lastRunDate);
+      return s.copyWith(
+        currentValue: c.currentValue,
+        lastRunDate: c.lastRunDate,
+        // A schedule recreated from category defaults can carry a rate and
+        // method that contradict the basis its own asset has been charged on
+        // for months. Correcting the book value alone would leave the wrong
+        // basis in place to be reapplied at the next month-end, so a
+        // correction has to be able to restore these too.
+        method: c.method,
+        rate: c.rate,
+      );
     }).toList();
     if (changed) await _save();
   }
