@@ -210,6 +210,98 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     return entries.where((e) => !e.date.isAfter(end)).toList();
   }
 
+  /// Start of the financial year (1 July – 30 June) containing [d].
+  DateTime _fiscalYearStartFor(DateTime d) =>
+      d.month >= 7 ? DateTime(d.year, 7, 1) : DateTime(d.year - 1, 7, 1);
+
+  /// Raw balances for the Trial Balance and Balance Sheet, with the financial
+  /// year closed off.
+  ///
+  /// Income and expense accounts are nominal: they measure performance over
+  /// ONE financial year and must open each new year at zero. Asset, liability
+  /// and equity accounts are real — they carry forward indefinitely. Both
+  /// reports previously used a single cumulative figure for everything, so
+  /// from 1 July the new year opened with the whole of last year's income and
+  /// expenses still sitting in it — which is what "it is accumulating from
+  /// last financial year" describes — and the Balance Sheet's "Current Year
+  /// Earnings" line in fact held every year's earnings at once, with Retained
+  /// Earnings stuck near zero.
+  ///
+  /// Rather than requiring someone to post closing journals every 30 June,
+  /// the close is applied here when the report is built: income and expense
+  /// accounts are measured only from the start of the financial year that
+  /// contains the period end, and everything earned or spent before that is
+  /// folded into Retained Earnings — which is precisely what a closing entry
+  /// does. Nothing is discarded, only moved to where it belongs, so the
+  /// Trial Balance still balances to the cent.
+  Map<String, double> _fiscalYearClosedRaw(List<JournalEntry> entries) {
+    final accounts = ref.read(accountsProvider).accounts;
+
+    // Without somewhere to close the prior years into, applying the close
+    // would leave the Trial Balance out of balance by exactly those retained
+    // profits. An unbalanced trial balance is worse than an accumulating one,
+    // so fall back to the plain cumulative view instead.
+    // Code 175 is this client's retained earnings account; the name match is
+    // the fallback so a renamed or re-coded chart still closes correctly.
+    Account? retained;
+    for (final a in accounts) {
+      if (a.code == '175') {
+        retained = a;
+        break;
+      }
+    }
+    retained ??= () {
+      for (final a in accounts) {
+        if (a.type == AccountType.equity &&
+            a.name.toLowerCase().contains('retained')) {
+          return a;
+        }
+      }
+      return null;
+    }();
+    if (retained == null) {
+      return _computeLedgerBalances(_cumulativeEntries(entries));
+    }
+
+    final (_, end) = _getPeriodDates();
+    final fyStart = _fiscalYearStartFor(end);
+    final typeByKey = {
+      for (final a in accounts) 'acct-${a.code}': a.type,
+    };
+
+    final raw = <String, double>{};
+    // Prior years' income and expense, in raw debit-minus-credit terms. A
+    // profitable year nets negative here (revenue is credit-normal), which
+    // is the correct direction to increase a credit-normal equity account.
+    double priorYears = 0;
+
+    for (final entry in entries) {
+      if (entry.status != JournalEntryStatus.posted) continue;
+      if (entry.date.isAfter(end)) continue;
+      final isPriorYear = entry.date.isBefore(fyStart);
+
+      for (final line in entry.lines) {
+        final key = line.accountCode != null
+            ? 'acct-${line.accountCode}'
+            : line.accountId;
+        final amount = line.debit - line.credit;
+        final type = typeByKey[key];
+        final isProfitAndLoss =
+            type == AccountType.revenue || type == AccountType.expense;
+
+        if (isProfitAndLoss && isPriorYear) {
+          priorYears += amount;
+        } else {
+          raw[key] = (raw[key] ?? 0) + amount;
+        }
+      }
+    }
+
+    final retainedKey = 'acct-${retained.code}';
+    raw[retainedKey] = (raw[retainedKey] ?? 0) + priorYears;
+    return raw;
+  }
+
   // ---------------------------------------------------------------------------
   // Cash Flow computation (indirect method — matches client's Excel sample)
   // ---------------------------------------------------------------------------
@@ -940,7 +1032,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     } else if (reportName == 'Balance Sheet') {
       final bsAccounts = ref.read(accountsProvider).accounts;
       final bsEntries = ref.read(journalsProvider).entries;
-      final bsRaw = _computeLedgerBalances(_cumulativeEntries(bsEntries));
+      final bsRaw = _fiscalYearClosedRaw(bsEntries);
 
       final bsAssets = bsAccounts.where((a) => a.type == AccountType.asset).toList()
         ..sort((a, b) => a.code.compareTo(b.code));
@@ -996,7 +1088,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     } else if (reportName == 'Trial Balance') {
       final tbAccounts = ref.read(accountsProvider).accounts;
       final tbEntries = ref.read(journalsProvider).entries;
-      final tbRaw = _computeLedgerBalances(_cumulativeEntries(tbEntries));
+      final tbRaw = _fiscalYearClosedRaw(tbEntries);
 
       final tbRows = <List<String>>[];
       double tbTotalDr = 0;
@@ -1389,7 +1481,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       {
         final bsAccounts2 = ref.read(accountsProvider).accounts;
         final bsEntries2 = ref.read(journalsProvider).entries;
-        final bsRaw2 = _computeLedgerBalances(_cumulativeEntries(bsEntries2));
+        final bsRaw2 = _fiscalYearClosedRaw(bsEntries2);
 
         final bsAssets2 = bsAccounts2.where((a) => a.type == AccountType.asset).toList()
           ..sort((a, b) => a.code.compareTo(b.code));
@@ -2129,7 +2221,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
     final entries = journalsState.entries;
     final accounts = accountsState.accounts;
-    final raw = _computeLedgerBalances(_cumulativeEntries(entries));
+    final raw = _fiscalYearClosedRaw(entries);
 
     final allAssetAccts = accounts.where((a) => a.type == AccountType.asset).toList()
       ..sort((a, b) => a.code.compareTo(b.code));
@@ -2530,7 +2622,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
     final entries = journalsState.entries;
     final accounts = accountsState.accounts;
-    final raw = _computeLedgerBalances(_cumulativeEntries(entries));
+    final raw = _fiscalYearClosedRaw(entries);
 
     final sortedAccounts = List<Account>.from(accounts)
       ..sort((a, b) => a.code.compareTo(b.code));
@@ -2986,7 +3078,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       if (reportName == 'Trial Balance') {
         final tbAccounts2 = ref.read(accountsProvider).accounts;
         final tbEntries2 = ref.read(journalsProvider).entries;
-        final tbRaw2 = _computeLedgerBalances(_cumulativeEntries(tbEntries2));
+        final tbRaw2 = _fiscalYearClosedRaw(tbEntries2);
         final tbSorted2 = List<Account>.from(tbAccounts2)..sort((a, b) => a.code.compareTo(b.code));
         double tbDr2 = 0;
         double tbCr2 = 0;
@@ -3151,7 +3243,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       } else if (reportName == 'Balance Sheet') {
         final bsAccts2   = ref.read(accountsProvider).accounts;
         final bsEntries2 = ref.read(journalsProvider).entries;
-        final bsRaw2     = _computeLedgerBalances(_cumulativeEntries(bsEntries2));
+        final bsRaw2     = _fiscalYearClosedRaw(bsEntries2);
 
         double bsBal2(Account a) {
           final b = bsRaw2['acct-${a.code}'] ?? bsRaw2[a.id] ?? 0.0;
@@ -3290,7 +3382,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       if (reportName == 'Trial Balance') {
         final tbAcc3 = ref.read(accountsProvider).accounts;
         final tbEnt3 = ref.read(journalsProvider).entries;
-        final tbRaw3 = _computeLedgerBalances(_cumulativeEntries(tbEnt3));
+        final tbRaw3 = _fiscalYearClosedRaw(tbEnt3);
         final tbSorted3 = List<Account>.from(tbAcc3)..sort((a, b) => a.code.compareTo(b.code));
         double tbDr3 = 0;
         double tbCr3 = 0;
@@ -3493,7 +3585,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       } else if (reportName == 'Balance Sheet') {
         final bsAccts3   = ref.read(accountsProvider).accounts;
         final bsEntries3 = ref.read(journalsProvider).entries;
-        final bsRaw3     = _computeLedgerBalances(_cumulativeEntries(bsEntries3));
+        final bsRaw3     = _fiscalYearClosedRaw(bsEntries3);
 
         double bsBal3(Account a) {
           final b = bsRaw3['acct-${a.code}'] ?? bsRaw3[a.id] ?? 0.0;
