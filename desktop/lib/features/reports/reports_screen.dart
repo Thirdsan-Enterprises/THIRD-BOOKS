@@ -241,14 +241,24 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     // would leave the Trial Balance out of balance by exactly those retained
     // profits. An unbalanced trial balance is worse than an accumulating one,
     // so fall back to the plain cumulative view instead.
+    // Code 175 is this client's retained earnings account; the name match is
+    // the fallback so a renamed or re-coded chart still closes correctly.
     Account? retained;
     for (final a in accounts) {
-      if (a.type == AccountType.equity &&
-          a.name.toLowerCase().contains('retained')) {
+      if (a.code == '175') {
         retained = a;
         break;
       }
     }
+    retained ??= () {
+      for (final a in accounts) {
+        if (a.type == AccountType.equity &&
+            a.name.toLowerCase().contains('retained')) {
+          return a;
+        }
+      }
+      return null;
+    }();
     if (retained == null) {
       return _computeLedgerBalances(_cumulativeEntries(entries));
     }
