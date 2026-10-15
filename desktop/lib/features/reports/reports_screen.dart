@@ -94,11 +94,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   /// Keys are normalised to 'acct-{code}' when accountCode is stored on the
   /// journal line; otherwise the raw accountId is used as the key.
   Map<String, double> _computeLedgerBalances(List<JournalEntry> entries) {
+    final codeById = accountCodeById(ref.read(accountsProvider).accounts);
     final raw = <String, double>{};
     for (final entry in entries) {
       if (entry.status != JournalEntryStatus.posted) continue;
       for (final line in entry.lines) {
-        final key = line.accountCode != null ? 'acct-${line.accountCode}' : line.accountId;
+        final key = ledgerKeyFor(line, codeById);
         raw[key] = (raw[key] ?? 0) + line.debit - line.credit;
       }
     }
@@ -268,6 +269,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final typeByKey = {
       for (final a in accounts) 'acct-${a.code}': a.type,
     };
+    final codeById = accountCodeById(accounts);
 
     final raw = <String, double>{};
     // Prior years' income and expense, in raw debit-minus-credit terms. A
@@ -281,9 +283,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       final isPriorYear = entry.date.isBefore(fyStart);
 
       for (final line in entry.lines) {
-        final key = line.accountCode != null
-            ? 'acct-${line.accountCode}'
-            : line.accountId;
+        final key = ledgerKeyFor(line, codeById);
         final amount = line.debit - line.credit;
         final type = typeByKey[key];
         final isProfitAndLoss =
@@ -1754,13 +1754,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   /// Keys normalised to 'acct-{code}' when accountCode is present on the line.
   Map<String, Map<int, double>> _computeMonthlyLedger(
       List<JournalEntry> entries, int year) {
+    final codeById = accountCodeById(ref.read(accountsProvider).accounts);
     final result = <String, Map<int, double>>{};
     for (final entry in entries) {
       if (entry.status != JournalEntryStatus.posted) continue;
       if (entry.date.year != year) continue;
       final m = entry.date.month;
       for (final line in entry.lines) {
-        final key = line.accountCode != null ? 'acct-${line.accountCode}' : line.accountId;
+        final key = ledgerKeyFor(line, codeById);
         (result[key] ??= {})[m] = (result[key]![m] ?? 0) + line.debit - line.credit;
       }
     }
@@ -1776,12 +1777,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   /// Returns { accountKey → { yyyyMM → balance } } for posted JEs — no year filter.
   /// Use for cross-year custom periods.
   Map<String, Map<int, double>> _computeMonthlyLedgerFull(List<JournalEntry> entries) {
+    final codeById = accountCodeById(ref.read(accountsProvider).accounts);
     final result = <String, Map<int, double>>{};
     for (final entry in entries) {
       if (entry.status != JournalEntryStatus.posted) continue;
       final ym = entry.date.year * 100 + entry.date.month;
       for (final line in entry.lines) {
-        final key = line.accountCode != null ? 'acct-${line.accountCode}' : line.accountId;
+        final key = ledgerKeyFor(line, codeById);
         (result[key] ??= {})[ym] = (result[key]![ym] ?? 0) + line.debit - line.credit;
       }
     }

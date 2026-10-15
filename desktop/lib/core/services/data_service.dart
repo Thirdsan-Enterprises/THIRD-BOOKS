@@ -1903,25 +1903,47 @@ Future<void> reloadAllCoreProviders(
 // ---------------------------------------------------------------------------
 // Ledger Balances — derived from posted journal entries
 // ---------------------------------------------------------------------------
+// One ledger key per account, however a journal line happens to refer to it.
+//
+// Lines reach the ledger with their account recorded two ways: some carry the
+// account's code (bank reconciliation, bills, auto-posting), others carry only
+// its id (manual journal entries store accountCode as null). Keying by code
+// when present and by raw id otherwise filed the SAME account under two keys,
+// and every reader then took whichever key it looked up first and ignored the
+// other. Seeded accounts hid this, because their ids are literally
+// 'acct-<code>' and both forms collapse to one key. A user-created account has
+// a timestamp id, so its two halves stayed apart. Real case: a Staff Salary
+// Advance account debited 20,000,000 through a bank reconciliation (code set)
+// and credited 4,013,750 through the payroll journal (code null) — the ledger
+// held 15,986,250, but every report showed 20,000,000, as if the recovery had
+// never been posted.
+//
+// Resolving a code-less line's code from its account id puts every line for
+// an account under the one 'acct-<code>' key, whichever form it arrived in.
+// ---------------------------------------------------------------------------
+Map<String, String> accountCodeById(List<Account> accounts) =>
+    {for (final a in accounts) a.id: a.code};
+
+String ledgerKeyFor(JournalLine line, Map<String, String> codeById) {
+  final code = line.accountCode ?? codeById[line.accountId];
+  return code != null ? 'acct-$code' : line.accountId;
+}
+
+// ---------------------------------------------------------------------------
 // Returns { accountId → (∑ debits − ∑ credits) } for every posted JE.
 // Debit-normal accounts (Asset, Expense) → positive value means Dr balance.
 // Credit-normal accounts (Liability, Equity, Revenue) → negative value means
 // Cr balance (i.e. the presentational balance = −raw value).
 final ledgerBalancesProvider = Provider<Map<String, double>>((ref) {
   final entries = ref.watch(journalsProvider).entries;
+  final codeById = accountCodeById(ref.watch(accountsProvider).accounts);
   final raw = <String, double>{};
   for (final entry in entries) {
     if (entry.status != JournalEntryStatus.posted) continue;
     for (final line in entry.lines) {
-      // Normalize to 'acct-{code}' when a code is present, same as the
-      // Cash Flow report's ledger computation — different screens have
-      // historically stored either the account's real ID or the
-      // 'acct-{code}' convenience string in accountId, so keying only by
-      // the raw accountId (as this used to) silently dropped balance
-      // contributions from whichever convention wasn't used for a given
-      // line, e.g. bank account balances showing 0 despite real posted
-      // transactions.
-      final key = line.accountCode != null ? 'acct-${line.accountCode}' : line.accountId;
+      // See ledgerKeyFor() — one key per account regardless of whether the
+      // line recorded its code, its real id, or the 'acct-{code}' string.
+      final key = ledgerKeyFor(line, codeById);
       raw[key] = (raw[key] ?? 0) + line.debit - line.credit;
     }
   }
